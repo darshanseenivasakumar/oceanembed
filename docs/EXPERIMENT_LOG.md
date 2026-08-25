@@ -39,3 +39,10 @@ metrics[climatology]: RMSE=1.7617 MAE=1.3791 R2=0.9281 skill_vs_clim=+0.0000
 metrics[lightgbm]: RMSE=0.6561 MAE=0.4135 R2=0.9900 skill_vs_clim=+0.6275
 metrics[mlp]: RMSE=0.6563 MAE=0.4275 R2=0.9900 skill_vs_clim=+0.6275
 VERDICT: lightgbm (not conclusive) -- TIE: MLP 0.6563 vs LightGBM 0.6561 degC differ by 0.0%, under the 2% noise margin. Ship the simpler model.
+
+## model-comparison 2026-08-25 18:07
+models: climatology, lightgbm, mlp | dataset: real GLORYS artifacts (provenance.json, built 2026-08-25T17:56:42) | split: train[2019,2020,2021] test[2022] (by TIME) | seed: 42 | n_test: 107676
+metrics[climatology]: RMSE=1.6921 MAE=1.3248 R2=0.9503 skill_vs_clim=+0.0000
+metrics[lightgbm]: RMSE=0.6329 MAE=0.3947 R2=0.9930 skill_vs_clim=+0.6260
+metrics[mlp]: RMSE=0.6323 MAE=0.4059 R2=0.9931 skill_vs_clim=+0.6263
+VERDICT: lightgbm (not conclusive) -- TIE: MLP 0.6323 vs LightGBM 0.6329 degC differ by 0.1%, under the 2% noise margin. Ship the simpler model.

@@ -177,6 +177,19 @@ def reconstruct(lat: float, lon: float, date) -> dict:
     """
     from oceanembed.inference.uncertainty import mc_dropout_predict
 
+    # MC-dropout is stochastic, so pressing Reconstruct twice on the SAME point returned
+    # different temperatures (measured drift ~0.07 degC). In a demo that reads as an unstable
+    # model. Seeding makes a given (point, date, source) reproducible without changing Unit A's
+    # uncertainty contract -- the spread is still the mean/std over n stochastic passes.
+    #
+    # ORDER MATTERS: force the model to load BEFORE seeding. MLPProfile() randomly initialises
+    # its weights on construction (they are then overwritten by load_state_dict), which consumes
+    # RNG. Seeding first meant the very first call ran its dropout passes from a different RNG
+    # state than every later call, so call #1 disagreed with call #2 by ~0.03 degC.
+    model = _model()
+    import torch as _t
+    _t.manual_seed(config.SEED)
+
     i, j = grids.nearest_lat_index(lat), grids.nearest_lon_index(lon)
     t = _nearest_time_index(date)
     g = _grids()
@@ -190,7 +203,7 @@ def reconstruct(lat: float, lon: float, date) -> dict:
 
     # RAW features straight through: the model normalizes internally (D-009).
     Xraw = _features_at(i, j, t)[None, :]
-    mean, std = mc_dropout_predict(_model(), Xraw)
+    mean, std = mc_dropout_predict(model, Xraw)
     mean, std = mean[0], std[0]
 
     # Blank out depths below the sea floor rather than printing an invented temperature.
@@ -242,6 +255,10 @@ def reconstruct_grid(date, with_uncertainty: bool = True) -> dict:
     from oceanembed.models.mlp_profile import predict_mlp
     from oceanembed.inference.uncertainty import mc_dropout_predict
 
+    model = _model()                     # load BEFORE seeding (see reconstruct() for why)
+    import torch as _t
+    _t.manual_seed(config.SEED)
+
     t = _nearest_time_index(date)
     g = _grids()
     ocean = ~g["land_mask"] & ~np.isnan(g["sst"][t])
@@ -254,11 +271,11 @@ def reconstruct_grid(date, with_uncertainty: bool = True) -> dict:
     unc = np.full(shape, np.nan, dtype="float32") if with_uncertainty else None
 
     if with_uncertainty:
-        mean, std = mc_dropout_predict(_model(), X)
+        mean, std = mc_dropout_predict(model, X)
         temp[ii, jj] = mean
         unc[ii, jj] = std
     else:
-        temp[ii, jj] = predict_mlp(_model(), X)
+        temp[ii, jj] = predict_mlp(model, X)
 
     vm = _valid_mask()
     if vm is not None:

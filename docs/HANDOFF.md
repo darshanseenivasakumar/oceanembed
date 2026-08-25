@@ -113,6 +113,95 @@ which is the point. Once it lands and DEPTHS is settled: retrain both -> `compar
 first REAL verdict -> `validate_argo` opens its own gate automatically when provenance reads `real`.
 About 30 minutes.
 
+## 2026-08-25 — 🛰️ THE PS DELIVERABLE IS DONE: satellite-driven reconstruction, Argo-validated
+
+`scripts/eval_satellite_vs_argo.py` — 879 independent Argo profiles (a DIFFERENT INSTRUMENT, never
+seen in training), test year only:
+
+```
+  source                         RMSE   skill vs climatology
+  climatology (baseline)       1.5725         --
+  model on GLORYS fields       0.9603      +0.389
+  model on SATELLITE fields    0.9539      +0.393   <- SIH26066's actual ask
+  DOMAIN-SHIFT COST: -0.0063 degC (-0.7% vs the GLORYS ceiling)
+```
+
+**The satellite path costs essentially nothing** — marginally BETTER than the reanalysis the model
+was trained on. Plausible reason, stated as a hypothesis not a claim: OSTIA SST is an observational
+product and Argo is observational, so observation-to-observation may be slightly favoured over
+reanalysis-to-observation. Either way the honest headline is that the domain shift is negligible
+AFTER bias correction.
+
+**Why the bias correction was legitimate:** offset fitted on TRAIN-period dates only (+0.4186 m),
+and it matched the independently-measured test-period offset (+0.4169 m) to 0.002 m. A stable
+systematic offset, not year-specific noise, so it cannot be overfit. u/v were deliberately NOT
+corrected (corr 0.70 — geostrophic-only is a different physical quantity, and shifting its mean
+would hide the mismatch rather than fix it).
+
+### ⚠️ TWO NUMBERS, DO NOT CONFLATE THEM
+  +0.626  skill vs climatology on the GLORYS 2022 holdout   (same source as training — easier)
+  +0.393  skill vs climatology against independent Argo     (different instrument — the REAL number)
+Quote **+0.393** to judges. The gap is not a failure; it is the honest cost of being scored by an
+instrument that has its own sampling, timing and representativeness. A team quoting only the
+same-source number is flattering itself.
+
+### Caveats to state, unprompted
+- 0 m has only 12 Argo obs -> its +0.266 is not meaningful. Use 5 m (n=800, skill +0.507).
+- 1000 m: skill +0.233 on n=547, and climatology RMSE there is only 0.284 degC — little variance to
+  explain, so a modest skill is expected, not a weakness.
+- Argo matched within +/-5 days of a gridded date; both sources use the IDENTICAL profile set.
+
+## 2026-08-25 — 🎯 FIRST VALID 15-DEPTH RESULTS (held-out 2022, n=107,676)
+
+```
+  model              RMSE      MAE   skill_vs_clim
+  climatology      1.6921   1.3248        --
+  lightgbm         0.6329   0.3947      +0.626
+  mlp              0.6323   0.4059      +0.626      <- TIE (0.1%), D-015 fires, ship the simpler
+```
+
+### ⚠ I WAS WRONG about deep skill — and the truth is a better story
+I told the team to "expect deep skill to be poor" (citing TS-Cast stopping at 700 dbar). **The data
+says otherwise.** Per-depth skill vs climatology:
+
+```
+  depth   clim_RMSE   lgbm_RMSE    SKILL
+      0       1.512       0.070    +0.954
+      5       1.488       0.121    +0.918
+     10       1.490       0.161    +0.892
+     20       1.510       0.294    +0.806
+     30       1.575       0.441    +0.720
+     50       1.791       0.696    +0.612
+     75       2.080       0.957    +0.540
+    100       2.166       1.068    +0.507   <-- WORST
+    125       2.159       1.039    +0.519
+    150       2.132       0.937    +0.561
+    200       1.897       0.708    +0.627
+    300       1.552       0.493    +0.682
+    500       1.199       0.380    +0.683
+    700       1.222       0.360    +0.705
+   1000       1.048       0.406    +0.612
+```
+
+**Skill is worst at the THERMOCLINE (+0.507 at 100 m), not at the deepest level (+0.612 at 1000 m).**
+It is positive at EVERY depth. Physically this makes sense: the surface layer is near-directly
+observed (SST), the thermocline is where variability peaks and the surface signature is most
+ambiguous, and below it water masses are more stable while SSH integrates the whole column.
+
+**Do not quote raw deep RMSE as if it were skill.** 1000 m RMSE is 0.406 degC, which *looks* better
+than the thermocline's 1.068 — but climatology is also easier there (1.048 vs 2.166). Skill is the
+honest comparison, and it is why Unit C's insistence on `r2_by_depth`/`skill_vs_clim` over pooled
+metrics matters.
+
+**Pitch line:** "positive skill at all 15 PS depths to 1000 m; hardest at the thermocline, which is
+exactly where the physics says surface data is least informative." That is defensible AND it names
+our own weak point first.
+
+### MLP vs LightGBM: TIE again (0.1%)
+Second dataset, same verdict. With 11 tabular per-column features there is no spatial structure for
+a network to exploit. This is now *evidence*, not a hunch, and it is the argument for the Phase-2
+CNN — not an argument against the project.
+
 ## 2026-08-25 — Unit B — REBUILD DONE at PS depths + domain shift MEASURED
 
 ### ✅ Real 15-depth build

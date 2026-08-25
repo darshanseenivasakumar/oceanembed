@@ -8,6 +8,24 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+## 2026-08-25 — Unit B — Day 4: reconstruct() seam + Streamlit demo (CLICKABLE)
+- WHAT WORKS [VERIFIED by execution]:
+  - `inference/predict.py`: `reconstruct(lat,lon,date)` → profile_mean/std, reliability, climatology, anomaly,
+    surface vars, land handling. `reconstruct_grid(date)` → temp/uncertainty/anomaly/priority (100,240,11) in ~3.6 s.
+  - `app/streamlit_app.py`: launches headless, serves **HTTP 200**, clean log. streamlit 1.62.0 installed.
+  - Land/no-data points correctly rejected; ocean profile 25.5 °C → 8.65 °C @500 m (physically sensible).
+- ⚠️ STILL SYNTHETIC DATA — the app shows a loud SYNTHETIC banner until real GLORYS is downloaded. Do not demo as real.
+- **NO-COLLISION DESIGN (important for A & C):**
+  - The shell auto-detects `app/panels/<x>_panel.py::render()`. Until Unit C writes them it draws minimal fallbacks.
+    **Unit C's panels slot in with zero edits to `streamlit_app.py`.** [VERIFIED: detection returns fallback today.]
+  - `reconstruct_grid` returns `priority=None` until **Unit A** implements `observation_priority()`; the UI then
+    shows the panel automatically. [VERIFIED: currently None, no crash.]
+  - `anomaly` uses Unit C's `products/anomaly.py` when implemented, else the plain definition.
+  - I did NOT touch `app/panels/*`, `products/anomaly.py`, or `products/observation_priority.py` — still A's and C's.
+- ALSO FIXED: `utils.io.save_table` now deletes the other-format twin so a stale .csv can never shadow a fresh
+  .parquet (pyarrow got installed, so tables are parquet now).
+- NEXT (B): real CMEMS download → `prepare_dataset.py --real` → rerun slice + app for REAL numbers; DEMO_SPEC scenes.
+
 ## 2026-08-25 — Day 3 vertical slice COMPLETE (climatology + MLP + metrics + uncertainty)
 - CURRENT PHASE: Day 3 — end-to-end slice runs. BRANCH: main.
 - WHAT WORKS [VERIFIED by execution] — `python scripts/run_slice.py`:

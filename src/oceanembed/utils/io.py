@@ -19,14 +19,19 @@ def _has_pyarrow() -> bool:
 
 
 def save_table(df: pd.DataFrame, path_noext: str) -> str:
-    """Save a DataFrame as parquet (preferred) or csv. Pass a path WITHOUT extension."""
+    """Save a DataFrame as parquet (preferred) or csv. Pass a path WITHOUT extension.
+
+    Removes the other format so a stale twin can never shadow the fresh file (load_table prefers parquet).
+    """
     os.makedirs(os.path.dirname(os.path.abspath(path_noext)), exist_ok=True)
     if _has_pyarrow():
-        p = path_noext + ".parquet"
+        p, stale = path_noext + ".parquet", path_noext + ".csv"
         df.to_parquet(p, index=False)
     else:
-        p = path_noext + ".csv"
+        p, stale = path_noext + ".csv", path_noext + ".parquet"
         df.to_csv(p, index=False)
+    if os.path.exists(stale):
+        os.remove(stale)
     return p
 
 

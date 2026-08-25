@@ -28,3 +28,131 @@ overrides the generic "Darshan=UI" split; Niru is red-teamer within Unit C.
 ## D-006 — Tables use parquet (pyarrow) with CSV fallback
 DATE 2026-08-25. REASON: pyarrow not yet installed; scaffold must run today. CONSEQUENCES: `utils.io` auto-detects;
 fixtures ship as CSV until `pip install -r requirements.txt`.
+
+## D-012 — LightGBM baseline: one booster per depth, quantiles in a separate artifact
+DATE 2026-08-25. OWNER Unit A. REASON: LightGBM is single-output and the depths have genuinely different error
+scales (surface ~2 degC spread vs ~0.3 degC at 500 m), so per-depth boosters let each fit its own scale.
+Trees are scale-invariant, so they train on X as supplied (z-scored or raw) and predict REAL degC directly — no
+normalization round-trip and no dependency on norm_stats.json. ALTERNATIVE: one multi-output model — REJECTED,
+LightGBM does not support it natively. ARTIFACTS: `lgbm_model.pkl` stays exactly what DATA_CONTRACT says, a list
+of 11 boosters. The q10/q90 quantile boosters go in a SEPARATE `lgbm_quantiles.pkl` (`{"q10":[...11],
+"q90":[...11]}`) rather than changing the shape of the contracted file. **Unit B: please add
+`lgbm_quantiles.pkl` to DATA_CONTRACT.md — it is a new artifact and that file is yours.**
+Quantile spread is converted to a sigma-equivalent by dividing by 2.5631 (= 2 x 1.2816, the Gaussian q90-q10
+width) so it is directly comparable with the MC-dropout std from `inference/uncertainty.py`. Independently-fitted
+quantiles can cross; that warns and clamps to zero spread rather than producing a negative standard deviation.
+Hyperparameters are deliberately NOT tuned — tuning against synthetic data optimizes for the wrong target.
+
+## D-013 — FINDING: on the current fixtures, MLP vs LightGBM is an UNINFORMATIVE comparison
+DATE 2026-08-25. RAISED BY Unit A. MEASURED on a 100-row held-out slice of the fixtures:
+climatology RMSE 1.466 | LightGBM 0.222 (skill +0.849) | MLP 0.221 (skill +0.849). The MLP "wins" by 0.2%,
+which is noise. REASON — and this is the point: `make_fixtures.py` adds `N(0, 0.2)` to the target, so the
+irreducible noise floor is 0.20 degC. Both models score ~0.22, i.e. **both have saturated the noise floor**, and
+the comparison cannot discriminate between them BY CONSTRUCTION. CONSEQUENCE: do NOT conclude "the MLP has no
+advantage over trees" or "ship either one" from this run. The model-selection decision (TEAM_PLAN Unit A Day 3:
+"if MLP can't beat LightGBM, say so and we ship LightGBM") can only be made on REAL GLORYS data, where the signal
+is not a 1-D exponential decay and there is genuine structure for a nonlinear model to exploit. Re-run the
+comparison after `prepare_dataset.py --real` and record the result here.
+
+## D-014 - Training and evaluation MUST share one data loader (`oceanembed.train._data`)
+DATE 2026-08-25. OWNER Unit A. CAUSE: `train_lgbm` and `compare_models` each had their own fixture loader.
+One z-scored X, the other did not. Nothing errored - the models just silently saw different scales:
+- Round 1: MLP evaluated at **RMSE 36.20 degC** (trained z-scored, evaluated raw). Looked like a broken model.
+- Round 2: LightGBM at **RMSE 2.51 degC, WORSE than climatology** (trained raw, evaluated z-scored).
+Neither model was broken. The CALLER was, both times, in opposite directions.
+LESSON: "trees are scale-invariant" means trees do not NEED scaling - NOT that you may change the scale between
+fit and predict. A booster's split thresholds are learned in the units it was trained on.
+DECISION: `oceanembed/train/_data.py` is the single source of truth. `load_real()` and `load_fixtures()` both
+return the SAME convention as Unit B's `build_samples`: **X always z-scored, y always real degC.** Fixtures are
+z-scored with TRAIN-SPLIT stats only. `train_lgbm` and `compare_models` both delegate to it, and
+`tests/test_compare_models.py` asserts train and test share one scale.
+CONSEQUENCES: a preparation bug is now identical everywhere, i.e. visible, instead of a silent 20x error in one
+path. **This is a live instance of the D-009 ambiguity Darshan raised** - with the stats living outside the model,
+"who normalizes?" is answered separately by every caller, and the failure is silent every time.
+
+## D-015 - Verdict rule: a sub-2% RMSE gap is a TIE, and ties ship the simpler model
+DATE 2026-08-25. OWNER Unit A. REASON: TEAM_PLAN Day 3 says to pick MLP or LightGBM on the evidence, but a raw
+`argmin(rmse)` reads run-to-run noise as a win. `compare_models._verdict` declares a TIE when the relative RMSE
+gap is under `TIE_MARGIN = 2%`, marks the result NOT conclusive, and defaults to LightGBM as the simpler, faster,
+more inspectable model. CONSEQUENCE (measured on fixtures): MLP 0.2223 vs LightGBM 0.2225 - a 0.1% gap - is
+correctly reported as a tie rather than an MLP win. Fixture runs are additionally never written to
+EXPERIMENT_LOG.md, so a synthetic number cannot later be mistaken for a result.
+
+## D-016 - FINDING: MC-dropout is OVERCONFIDENT at depth. Do not ship a reliability claim on it yet
+DATE 2026-08-25. RAISED BY Unit A. TEAM_PLAN Day 4 says "uncertainty should generally increase with depth. If it
+doesn't, investigate - don't fake it." It does not increase. Investigated; the cause is mechanical, not physical.
+
+MC-dropout perturbs a SHARED trunk (11 -> 128 -> 128) feeding all 11 depth outputs, so the raw spread is nearly
+constant across depths in NORMALIZED space [VERIFIED: std/targ_std = 0.127 -> 0.162, spread 0.043]. Converting to
+real degC multiplies by targ_std, which shrinks with depth - so real-units sigma shrinks purely as an artefact of
+un-normalization. Darshan's Day-3 note that "deep water is naturally less variable" is correct, but it is the
+CONSEQUENCE, not an independent confirmation: sigma_real = sigma_normalized x targ_std, and sigma_normalized is flat.
+
+MEASURED CALIBRATION on fixtures (sigma / actual RMSE per depth; 1.0 == well calibrated, <1.0 == OVERCONFIDENT):
+
+    depth      MC-dropout      quantile (LightGBM)
+      0 m         1.25              0.70
+    500 m         0.31              0.92
+    drift         4.0x              1.8x
+
+**MC-dropout UNDER-STATES the real error at 500 m by 3.2x** - it reports the most confidence exactly where the
+model is least trustworthy. That is the worst possible failure mode for a tool pitched to INCOIS: a judge asking
+"how confident are you at 500 m?" would get a confidently wrong answer.
+
+LightGBM quantile uncertainty is better calibrated here (ratio 0.70 -> 0.92) because each depth has its OWN
+booster and can express its own spread, rather than inheriting one shared trunk's noise.
+
+EXPECT THIS TO GET WORSE ON REAL GLORYS, NOT BETTER: there, deep prediction is genuinely harder, so actual error
+will GROW with depth while MC-dropout sigma keeps SHRINKING.
+
+ACTIONS TAKEN: `calibration_ratio()` added as the honest per-depth diagnostic (use it instead of eyeballing
+whether sigma rises with depth - a rising sigma can still be badly calibrated). `relative_uncertainty()` added so
+the UI can show sigma as a fraction of each depth's natural variability, which IS comparable across depths.
+DECISION REQUIRED: re-measure on real data; if the drift persists, either ship quantile uncertainty instead, or
+state the limitation explicitly on the reliability panel. Do NOT quote MC-dropout confidence at depth until then.
+
+## D-017 - BUG FIXED: mc_dropout_predict leaked train() mode to the caller
+DATE 2026-08-25. OWNER Unit A. `mc_dropout_predict` called `model.train()` to enable dropout and never restored
+the previous mode, so every later plain forward pass on that model object was silently stochastic. `predict_mlp`
+happened to mask it by calling `.eval()` itself, so nothing failed visibly - the kind of bug that surfaces as
+irreproducible numbers days later. Now saved and restored in a `finally` block, with two tests
+(`test_restores_eval_mode`, `test_restores_train_mode_if_that_was_the_caller_state`).
+
+## D-018 - RED-TEAM CRITICAL: the SYNTHETIC banner can silently switch itself off
+DATE 2026-08-25. RAISED BY Unit A (Day-5 red team). `app/streamlit_app.py` decides whether to show the
+"SYNTHETIC DATA MODE" warning with:
+
+    synthetic = os.path.exists(os.path.join(config.DATA_RAW, "synthetic_glorys.nc"))
+
+Provenance is INFERRED from a sibling file rather than recorded in the artifacts themselves, and that sibling
+file is gitignored (`.gitignore:2:data/`). [VERIFIED: `git check-ignore` confirms; `build_samples.py` writes no
+provenance flag of any kind.]
+
+REACHABLE FAILURE, and it is the likely demo-day path: `artifacts/` is small and portable, `data/raw/` is large
+and gitignored. Copy the artifacts to a demo laptop without `data/raw/`, and the warning SILENTLY DISAPPEARS
+while the numbers stay synthetic. The app then presents simulated data as real ocean performance to judges.
+This is precisely the fabrication failure the real-data-only rule exists to prevent, arriving through a side door.
+
+FIX (Unit B owns both files): have `build_samples` write the provenance INTO the artifacts - e.g.
+`{"source": "synthetic"|"real-glorys", "built": "<iso date>"}` in `norm_stats.json` or a `provenance.json` - and
+have the app read THAT. Provenance must travel with the data, not be guessed from what happens to be on disk.
+Same principle as D-010, where Unit A stamped `trained_on_fixtures` into the checkpoint itself: the artifact
+carries its own truth, so it cannot be laundered by moving files around.
+UNTIL FIXED: never demo from a machine that does not also have `data/raw/`.
+
+## D-019 - RED-TEAM: fresh-clone verification must be part of Definition of Done
+DATE 2026-08-25. RAISED BY Unit A. A genuine `git clone` of `main` was run and stepped through as a teammate
+would [VERIFIED]:
+  1. `import oceanembed` -> OK
+  2. `python scripts/prepare_dataset.py` -> **ModuleNotFoundError: No module named 'oceanembed.data'**
+  3. `python scripts/run_slice.py` -> "Run prepare_dataset.py first to build artifacts."
+  4. `reconstruct()` -> FileNotFoundError
+  5. `streamlit run app/streamlit_app.py` -> serves HTTP 200 and shows a clean `st.error` (no stack trace)
+So the entire pipeline is dead for everyone except Darshan, whose untracked local copy of `src/oceanembed/data/`
+makes it work only on his machine. This is a whole-team blocker that has been open for a day of a five-day sprint
+and CANNOT be seen from the machine that created it.
+DECISION: "works on my machine" is not DONE. Before declaring a pipeline stage complete, clone to a scratch
+directory and run it there. It takes two minutes and is the only way to catch this class of bug.
+CLEAN RESULTS from the same sweep, worth recording: no hardcoded or fabricated metrics anywhere in code or docs
+[VERIFIED by grep across *.py and *.md]; the app degrades gracefully on missing artifacts (`st.error` + `st.stop`,
+never a traceback); land / no-data points are rejected with a clear message.

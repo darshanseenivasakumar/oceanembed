@@ -11,6 +11,52 @@
 
 
 
+
+## 2026-08-25 - Unit A (Arjhun) - BUG (from app screenshots): temperature painted at depths that DO NOT EXIST in shallow seas
+
+Reviewed the running app's anomaly maps across all 15 depths. Most of it checks out - extent/
+orientation correct, the colour-scale-vs-depth curve peaks at 100 m exactly where your measured
+climatology sigma peaks, surface features plausible for December. But one real problem:
+
+**At 1000 m the map still shows data in the Persian Gulf (~90 m deep), Malacca Strait, and every
+shallow shelf. That water does not exist.** [VERIFIED in code, mechanism below]
+
+```
+preprocess.py:104   land_mask = surface-NaN only            -> ONE 2-D mask for all 15 depths
+build_samples:60    rows with NaN at ANY depth dropped      -> every shelf cell EXCLUDED from training
+reconstruct_grid    predicts all 15 depths at every         -> shelf cells painted at 1000 m anyway,
+                    surface-ocean pixel, no per-depth mask     by a model that never saw one in training
+grep depth_mask/bathym across src/ app/                     -> nothing exists
+```
+
+Three knock-on effects:
+1. Shelf cells at depth are pure out-of-distribution extrapolation, displayed as data.
+2. Their ANOMALY is garbage squared: build_climatology fills never-trained cells with the
+   monthly-GLOBAL mean, so shelf anomaly = (extrapolated prediction) - (global fill). Those are
+   almost certainly the saturated dark-red/blue blobs in the screenshots (Gulf of Aden tongue,
+   SE corner near Malacca).
+3. Those blobs inflate the 98th-percentile colour scale for the WHOLE map - +-2.00 degC at 1000 m
+   is ~10x real open-ocean variability there - washing out genuine signal.
+
+Argo validation cannot catch it: floats live in deep water, so the shelves are never checked.
+This is instance #5 of the week's pattern: correct arrays, plausible values, wrong data.
+
+**Fix is display-side, cheap, NO retrain.** preprocess.py already knows the answer - GLORYS is NaN
+below the seafloor. Save a `depth_valid_mask (100,240,15)` from that NaN pattern next to land_mask;
+reconstruct_grid / map_panel grey out invalid (cell, depth) pairs; anomaly + colour scale then
+compute over real water only. preprocess.py is yours; once the mask exists I'll consume it in the
+panels (Unit C side) same-day.
+
+Count the damage first (one line, your machine):
+```python
+import numpy as np; g = np.load("data/processed/grids.npz")
+shelf = np.isnan(g["temp"][0,:,:,-1]) & ~g["land_mask"]
+print(int(shelf.sum()), "surface-ocean cells have NO 1000 m water but are painted anyway")
+```
+
+Worth fixing before the demo - a judge dragging the depth slider to 1000 m over the Persian Gulf
+finds it in five seconds. Everything else in the screenshots I'd happily demo.
+
 ## 2026-08-25 - Unit A (Arjhun) - REQUEST: verify the prototype from a FRESH CLONE before Aug 30
 
 Everything is green on your machine and mine reports 142 passed - but the last time we assumed that

@@ -105,14 +105,25 @@ with st.sidebar:
     show_map = st.checkbox("Compute full-grid maps (slower)", value=False)
     run = st.button("Reconstruct", type="primary")
 
-if not run:
+# Streamlit re-runs this whole script on EVERY widget interaction. Without persisting the button
+# press, moving a control inside the results (the depth slider in the map panel) sent `run` back to
+# False and the page reset to this splash screen -- which looked like a crash mid-demo.
+if run:
+    st.session_state["ran"] = True
+if not st.session_state.get("ran"):
     st.info("Pick a location and date, then press **Reconstruct**. "
             "Every number shown is produced by the trained model — nothing is hardcoded.")
     st.stop()
 
 # ---- point reconstruction ----------------------------------------------------
+@st.cache_data(show_spinner=False, max_entries=64)
+def _point_cached(_lat, _lon, _date, _source):
+    """Cached per (lat, lon, date, source) so widget re-runs do not re-run 30 MC-dropout passes."""
+    return P.reconstruct(_lat, _lon, _date)
+
+
 with st.spinner("Running model…"):
-    out = P.reconstruct(lat, lon, date)
+    out = _point_cached(lat, lon, date, _choice)
 
 if out["is_land"]:
     st.error(f"({out['lat']:.2f}°N, {out['lon']:.2f}°E) is land / no data. Pick an ocean point.")
@@ -169,8 +180,14 @@ with right:
 # ---- optional grid maps ------------------------------------------------------
 if show_map:
     st.divider()
+    @st.cache_data(show_spinner=False, max_entries=8)
+    def _grid_cached(_date, _source):
+        """Cached per (date, source). The depth slider re-runs the script, and recomputing all
+        24k cells on every slider nudge made the map feel broken."""
+        return P.reconstruct_grid(_date)
+
     with st.spinner("Reconstructing the full grid…"):
-        gout = P.reconstruct_grid(date)
+        gout = _grid_cached(date, _choice)
 
     surf = gout["temp"][:, :, 0]
     st.subheader(f"Surface-level reconstruction — {gout['date']}")

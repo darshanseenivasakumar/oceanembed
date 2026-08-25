@@ -22,7 +22,7 @@ from oceanembed.models.mlp_profile import MLPProfile
 
 @pytest.fixture
 def stats(tmp_path, monkeypatch):
-    """Provide norm_stats.json without touching Unit B's artifact."""
+    """Target stats used by the model fixture (and legacy norm_stats.json path)."""
     tm = np.linspace(28.0, 9.0, config.N_DEPTHS).astype("float32")
     ts = np.linspace(2.0, 0.35, config.N_DEPTHS).astype("float32")  # shrinks with depth, like real
     path = tmp_path / "norm_stats.json"
@@ -37,9 +37,20 @@ def stats(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def model():
+def model(stats):
+    """A model whose OWN buffers carry the norm stats.
+
+    mc_dropout_predict now denormalizes via the model's registered buffers rather than reading
+    artifacts/norm_stats.json (D-009: raw in, real out, checkpoint self-describing). A model with
+    identity buffers would return normalized values, so the fixture must set them -- previously
+    this test passed only because the function read stats off disk, i.e. from global state.
+    """
     torch.manual_seed(config.SEED)
-    return MLPProfile()
+    m = MLPProfile()
+    tm, ts = stats
+    m.set_norm_stats(np.zeros(config.N_FEAT, dtype="float32"),
+                     np.ones(config.N_FEAT, dtype="float32"), tm, ts)
+    return m
 
 
 def _X(n=32):

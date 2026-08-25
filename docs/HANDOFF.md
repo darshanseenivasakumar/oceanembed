@@ -8,6 +8,66 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+## 2026-08-25 — Unit B — 🎉 FIRST REAL RESULTS on real GLORYS (+ a demo-breaking bug fixed)
+
+### ✅ Real data pipeline complete
+48/48 GLORYS dates downloaded (2.61 GB, 2019-01-15..2022-12-15, 12 dates/year).
+`prepare_dataset.py --real` -> **338,508 train / 112,836 test rows**, real coastline (12,168 land cells).
+L1 SANITY PASSED [VERIFIED]: SST 18.6-33.5 degC, SSS 17.1-37.8 psu (the low tail is Bay of Bengal
+river freshwater — physically real), mean profile cools monotonically 28.5 -> 11.2 degC, zero NaNs.
+
+### 📊 HONEST RESULTS — held-out 2022 test year, n=112,836, never seen in training
+```
+  model              RMSE      MAE   skill_vs_clim
+  climatology      1.7617   1.3791        --
+  lightgbm         0.6561   0.4135      +0.628
+  mlp              0.6563   0.4275      +0.627
+```
+Both models beat climatology by ~63%. **MLP vs LightGBM is a TIE (0.0% gap)** — Arjhun's D-015 rule
+fires correctly and defaults to the simpler model.
+
+Per-depth RMSE peaks at **100 m (~1.07 degC)** and is lowest at the surface (~0.07-0.11 degC). That is
+the THERMOCLINE — the depth with the steepest gradient and the least surface-visible information.
+Physically expected, and a much better story than a flat number.
+
+**Honest read of the tie:** with 11 tabular per-column features there is no spatial structure for a
+neural net to exploit, so it cannot beat trees. That is evidence FOR the Phase-2 CNN/ConvLSTM, not
+against the project — and it is exactly what TEAM_PLAN said to do: report it either way.
+
+### 🔴 DEMO-BREAKING BUG FOUND AND FIXED — `mc_dropout_predict` was on the old contract
+`inference/uncertainty.py` called `model(xt)` directly and scaled with `norm_stats.json`, i.e. it
+still expected PRE-Z-SCORED input after `predict_mlp` moved to raw-in (D-009). Feeding it the raw
+features the contract promises produced **52 degC surface temperatures from a 28 degC SST** — silently,
+because every shape was correct. **130 tests passed with this bug present.**
+FIX: it now normalizes/denormalizes through the MODEL'S OWN buffers, identical to `predict_mlp`, so a
+checkpoint can never be paired with stats it was not trained with.
+[VERIFIED after fix] 15N 68E, 2022-12-15: surface 28.11 degC vs SST 28.03 degC; cools to 11.84 degC at
+500 m; sigma 0.14 degC at surface, peaking 0.33 degC at 75 m.
+
+### Also fixed
+- `load_mlp()` was called with no argument in `predict.py` (mine) and `compare_models.py` (Unit A's) —
+  the signature requires `path`. compare_models could not evaluate the MLP at all.
+- `_data.py::artifact_provenance()` now READS `artifacts/provenance.json` (its own docstring asked for
+  exactly this once Unit B shipped the stamp). Before the fix it labelled a REAL run
+  "SYNTHETIC-derived" because a stale `synthetic_glorys.nc` was still sitting in `data/raw/`.
+  That stale file is deleted. D-018 is now closed end-to-end.
+- `tests/test_uncertainty.py` model fixture now sets its own norm buffers. The old test passed only
+  because the function read stats off disk — it was asserting against global state, not the model.
+
+### ➡️ UNIT A (Arjhun) — please review, these are your files
+I edited `inference/uncertainty.py`, `train/compare_models.py`, `train/_data.py` and
+`tests/test_uncertainty.py`. Normally yours, but the first was breaking every reconstruction and the
+rest blocked the real evaluation, so I fixed forward rather than leaving the demo path dead. All four
+changes are described above — revert or rework any you disagree with.
+**Your D-016 calibration numbers should be RE-MEASURED**: they were taken on fixtures through the old
+(mis-normalized) MC-dropout path, so the ratios do not describe the current code on real data.
+
+### ➡️ UNIT C — Argo validation is now UNBLOCKED
+The checkpoint is trained on real GLORYS (`trained_on_fixtures=0`) and the 2022 test year exists.
+`artifacts/argo_test.parquet` holds 24,328 real Argo measurements from ~2,453 profiles. L5 can run.
+Note the 0 m level has only 32 Argo obs — validate at 10 m or state the assumption; do not extrapolate.
+Still outstanding from me: a climatology STD array for a real `standardized_anomaly` sigma. Next up.
+
 ## 2026-08-25 — Unit B — ALL THREE BRANCHES MERGED + two integration bugs fixed
 
 ### ✅ Merged to main: `feat/unit-a-priority`, `feat/unit-c-coverage`, `feat/unit-a-mlp`

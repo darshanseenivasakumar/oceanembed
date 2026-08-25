@@ -31,7 +31,7 @@ def _grids():
 @functools.lru_cache(maxsize=1)
 def _model():
     from oceanembed.models.mlp_profile import load_mlp
-    return load_mlp()
+    return load_mlp(config.art("mlp_model.pt"))
 
 
 @functools.lru_cache(maxsize=1)

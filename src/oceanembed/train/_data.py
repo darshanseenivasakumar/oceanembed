@@ -18,6 +18,7 @@ CONVENTION (matches Unit B's build_samples): X is ALWAYS z-scored, y is ALWAYS r
 """
 from __future__ import annotations
 
+import json
 import os
 
 import numpy as np
@@ -40,22 +41,34 @@ def artifact_provenance() -> tuple[str, str]:
 
     status is one of "synthetic" | "real" | "unverified".
 
-    The artifacts carry NO provenance flag today (docs/DECISIONS.md D-018), so this infers it
-    from `data/raw/`. That is a weak signal by design-of-necessity, not by choice: copy
-    `artifacts/` to another machine without `data/raw/` and the evidence vanishes. So the
-    fallback is **"unverified", never "real"** -- we do not upgrade an absence of evidence into
-    a claim. The real fix is Unit B writing {"source": ...} into the artifacts.
+    D-018 RESOLVED: `build_samples` now stamps `artifacts/provenance.json`, so provenance is READ
+    FROM THE ARTIFACTS rather than inferred from `data/raw/` (which is gitignored and vanishes when
+    artifacts are copied to another machine). The old inference is kept only as a fallback for
+    artifacts built before the stamp existed, and it still never upgrades absence of evidence
+    into a claim of "real".
     """
+    stamp = config.art("provenance.json")
+    if os.path.exists(stamp):
+        try:
+            with open(stamp, "r", encoding="utf-8") as fh:
+                p = json.load(fh)
+            src = p.get("source")
+            built = p.get("built", "?")
+            if src == "real-glorys":
+                return "real", f"real GLORYS artifacts (provenance.json, built {built})"
+            if src == "synthetic":
+                return "synthetic", f"SYNTHETIC artifacts (provenance.json, built {built})"
+        except Exception:
+            pass
+
+    # Fallback: pre-stamp artifacts.
     raw = config.DATA_RAW
     if os.path.exists(os.path.join(raw, "synthetic_glorys.nc")):
         return "synthetic", "SYNTHETIC-derived artifacts (data/raw/synthetic_glorys.nc present)"
 
-    if os.path.isdir(raw) and any(f.endswith(".nc") for f in os.listdir(raw)):
-        return "real", "real GLORYS artifacts (real .nc in data/raw/)"
-
     return "unverified", (
-        "artifacts with UNVERIFIED provenance -- data/raw/ is absent, and build_samples writes "
-        "no provenance flag (D-018). Could be synthetic. Do not report as real."
+        "artifacts with UNVERIFIED provenance -- no artifacts/provenance.json. "
+        "Rebuild with scripts/prepare_dataset.py. Could be synthetic. Do not report as real."
     )
 
 

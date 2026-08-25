@@ -25,3 +25,17 @@ metrics[climatology]: RMSE=0.9806 MAE=0.7538 R2=0.9690 skill_vs_clim=+0.0000
 metrics[lightgbm]: RMSE=0.1547 MAE=0.1146 R2=0.9992 skill_vs_clim=+0.8423
 metrics[mlp]: RMSE=0.1569 MAE=0.1190 R2=0.9992 skill_vs_clim=+0.8400
 VERDICT: lightgbm (not conclusive) -- TIE: MLP 0.1569 vs LightGBM 0.1547 degC differ by 1.4%, under the 2% noise margin. Ship the simpler model.
+
+## model-comparison 2026-08-25 16:16  [SYNTHETIC DATA -- NOT A RESULT]
+> WARNING: provenance is 'synthetic'. SYNTHETIC-derived artifacts (data/raw/synthetic_glorys.nc present) These numbers describe the PIPELINE, not real ocean performance. Do not quote them.
+models: climatology, lightgbm | dataset: SYNTHETIC-derived artifacts (data/raw/synthetic_glorys.nc present) | split: train[2019,2020,2021] test[2022] (by TIME) | seed: 42 | n_test: 112836
+metrics[climatology]: RMSE=1.7617 MAE=1.3791 R2=0.9281 skill_vs_clim=+0.0000
+metrics[lightgbm]: RMSE=0.6561 MAE=0.4135 R2=0.9900 skill_vs_clim=+0.6275
+VERDICT: lightgbm (not conclusive) -- only one model available -- train both for a real comparison
+
+## model-comparison 2026-08-25 16:17
+models: climatology, lightgbm, mlp | dataset: real GLORYS artifacts (provenance.json, built 2026-08-25T16:04:47) | split: train[2019,2020,2021] test[2022] (by TIME) | seed: 42 | n_test: 112836
+metrics[climatology]: RMSE=1.7617 MAE=1.3791 R2=0.9281 skill_vs_clim=+0.0000
+metrics[lightgbm]: RMSE=0.6561 MAE=0.4135 R2=0.9900 skill_vs_clim=+0.6275
+metrics[mlp]: RMSE=0.6563 MAE=0.4275 R2=0.9900 skill_vs_clim=+0.6275
+VERDICT: lightgbm (not conclusive) -- TIE: MLP 0.6563 vs LightGBM 0.6561 degC differ by 0.0%, under the 2% noise margin. Ship the simpler model.

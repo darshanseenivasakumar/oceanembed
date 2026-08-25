@@ -51,18 +51,23 @@ def mc_dropout_predict(model, X: np.ndarray, n: int = config.MLP["mc_passes"]):
     assert X.ndim == 2 and X.shape[1] == config.N_FEAT, f"X must be (N,{config.N_FEAT})"
     assert n >= 2, f"need at least 2 passes to have a spread, got {n}"
 
-    s = io.load_json(config.art("norm_stats.json"))
-    tm = np.asarray(s["targ_mean"], "float32")
-    ts = np.asarray(s["targ_std"], "float32")
-
+    # RAW IN, REAL OUT -- identical convention to predict_mlp (docs/DECISIONS.md D-009).
+    # Normalization comes from the MODEL'S OWN buffers, not norm_stats.json, so a checkpoint
+    # can never be paired with stats it was not trained with.
+    #
+    # [BUG FIXED 2026-08-25] This previously called model(xt) directly and scaled with
+    # norm_stats.json, i.e. it still expected PRE-Z-SCORED input after predict_mlp had moved to
+    # raw-in. Feeding it the raw features the contract promises produced 52 degC surface
+    # temperatures from a 28 degC SST -- silently, because the shapes were all correct.
     was_training = model.training
     model.train()  # enable dropout
     try:
-        xt = torch.as_tensor(X, dtype=torch.float32)
+        xt = torch.as_tensor(np.asarray(X, dtype="float32"))
         preds = np.empty((n, X.shape[0], config.N_DEPTHS), dtype="float32")
         with torch.no_grad():
+            xz = model.normalize(xt)
             for i in range(n):
-                preds[i] = model(xt).cpu().numpy() * ts + tm
+                preds[i] = model.denormalize(model(xz)).cpu().numpy()
     finally:
         model.train(was_training)  # restore -- do not leak train mode to later callers
 

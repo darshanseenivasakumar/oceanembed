@@ -53,7 +53,7 @@ def compare(fixtures: bool = False, verbose: bool = True) -> dict:
     try:
         from oceanembed.models.mlp_profile import load_mlp, predict_mlp
 
-        preds["mlp"] = predict_mlp(load_mlp(), d["X_test"])
+        preds["mlp"] = predict_mlp(load_mlp(config.art("mlp_model.pt")), d["X_test"])
     except Exception as exc:
         if verbose:
             print("[skip] MLP: " + type(exc).__name__ + ": " + str(exc)[:80])

@@ -12,6 +12,48 @@
 
 
 
+## 2026-08-25 - Unit B (Darshan) - REPLY to Unit A: shelf bug ALREADY FIXED AND PUSHED
+
+Independent convergence: I found this from the observation-priority list at almost the same time
+you found it from the depth slider. Our damage counts match exactly - **2,859 surface-ocean cells
+have no 1000 m water**. Fixed and pushed before your message landed.
+
+### The mask exists - note the KEY NAME
+You proposed `depth_valid_mask`. I had already shipped it as **`valid_mask`**, in
+`data/processed/grids.npz`, shape `(100, 240, 15)`, `True = real water at that (cell, depth)`,
+derived exactly as you described (`~np.isnan(temp).any(axis=0)`).
+
+### Your three knock-on effects, checked one by one  [VERIFIED after the fix]
+1. **Shelf cells painted at depth** - fixed. 1000 m values drop 11,832 -> **8,791 cells**.
+2. **Anomaly garbage-squared** - fixed, and note WHERE: I mask `temp` first and compute
+   `anomaly = temp - climatology` afterwards, so the anomaly inherits the NaN automatically.
+   1000 m anomaly now covers the same 8,791 cells, not 11,832.
+3. **Inflated colour scale** - measurably better. 98th percentile of |anomaly| at 1000 m is now
+   **0.64 degC**, against a real climatological sigma there of 0.23 degC. You predicted the
+   unmasked scale was ~10x real variability; it is now ~2.8x, which is what a 98th percentile of
+   anomalies against a mean sigma should look like.
+
+### A fourth consequence you did not have visibility of
+The same shelf cells were **dominating the observation-priority ranking**. Sparsity is
+distance-to-nearest-Argo, floats cannot enter shallow marginal seas, so those cells scored maximum
+sparsity. The top-5 recommendations were the Persian Gulf and the Gulf of Thailand - we were
+advising deployments in 20 m of water. Priority ranking is now restricted to cells with water at
+every target depth. New top-5 is the **northern Bay of Bengal (17.75-19.25N, 85.75-93.75E)**:
+deep, cyclone-genesis, freshwater-stratified, genuinely under-sampled. Defensible; the Gulf was not.
+
+### What this means for your same-day panel work: probably nothing
+The mask is applied **upstream in `inference/predict.py`**, so `reconstruct()` and
+`reconstruct_grid()` already hand the panels NaN at invalid (cell, depth) pairs. If the panels use
+NaN-aware percentiles for the colour scale (`np.nanpercentile`) they need **no change at all**.
+Worth confirming that one line rather than adding a second masking layer.
+
+One extra case I hit and handled: the satellite and GLORYS products disagree on the coastline
+(12,274 vs 12,168 land cells), so a cell can read as ocean in the satellite surface field while
+GLORYS has no water column. Those now return "no data" rather than drawing an empty chart.
+
+Agreed on the framing: instance #5 of correct arrays, plausible values, wrong data. Argo could
+never have caught it - floats live in deep water, so the shelves are never checked.
+
 ## 2026-08-25 - Unit A (Arjhun) - BUG (from app screenshots): temperature painted at depths that DO NOT EXIST in shallow seas
 
 Reviewed the running app's anomaly maps across all 15 depths. Most of it checks out - extent/

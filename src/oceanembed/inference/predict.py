@@ -16,13 +16,46 @@ from oceanembed import config
 from oceanembed.utils import io, grids
 
 
+# ----------------------------------------------------------------------------- surface source
+# The model is TRAINED on GLORYS surface fields. It can be RUN on either those or on real satellite
+# L4 fields (SIH26066 asks for "surface satellite observations"). Switching source changes only
+# where the 11 input features come from -- the model, climatology and products are unchanged.
+_SOURCES = {
+    "glorys": "grids.npz",              # GLORYS surface fields (same source as training)
+    "satellite": "satellite_grids.npz",  # real OSTIA / DUACS / Multiobs L4  <- domain shift
+}
+_source = "glorys"
+
+
+def set_source(source: str) -> str:
+    """Switch the surface-field source. Returns the active source."""
+    global _source
+    if source not in _SOURCES:
+        raise ValueError(f"source must be one of {sorted(_SOURCES)}, got {source!r}")
+    if source != _source:
+        _source = source
+        _grids.cache_clear()          # the grids differ; stale cache would silently mix sources
+    return _source
+
+
+def current_source() -> str:
+    return _source
+
+
+def source_available(source: str) -> bool:
+    return os.path.exists(os.path.join(config.DATA_PROCESSED, _SOURCES[source]))
+
+
 # ----------------------------------------------------------------------------- cached loaders
 @functools.lru_cache(maxsize=1)
 def _grids():
-    """Processed surface/subsurface grids (from preprocess.run())."""
-    p = os.path.join(config.DATA_PROCESSED, "grids.npz")
+    """Surface (and, for GLORYS, subsurface) grids for the ACTIVE source."""
+    p = os.path.join(config.DATA_PROCESSED, _SOURCES[_source])
     if not os.path.exists(p):
-        raise FileNotFoundError(f"{p} missing — run `python scripts/prepare_dataset.py` first.")
+        hint = ("run `python scripts/prepare_dataset.py`" if _source == "glorys"
+                else "run `python -m oceanembed.data.download_satellite` then "
+                     "`python -m oceanembed.data.preprocess_satellite`")
+        raise FileNotFoundError(f"{p} missing — {hint} first.")
     g = dict(np.load(p, allow_pickle=False))
     g["times"] = g["times"].astype("datetime64[D]")
     return g
@@ -43,7 +76,9 @@ def provenance() -> dict:
     """
     p = config.art("provenance.json")
     if os.path.exists(p):
-        return io.load_json(p)
+        d = dict(io.load_json(p))
+        d["inference_source"] = _source          # what the CURRENT run is reading surface fields from
+        return d
     return {"source": "unknown", "built": None,
             "note": "artifacts/provenance.json missing -- rebuild with scripts/prepare_dataset.py"}
 

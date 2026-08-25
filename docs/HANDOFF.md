@@ -8,6 +8,36 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+## 2026-08-25 — Unit A (Arjhun) — MLP implemented, trains on fixtures
+- CURRENT PHASE: Day 1 (MODEL_SPEC + MLPProfile on fixtures) — DONE.
+- BRANCH: feat/unit-a-mlp
+- WHAT WORKS [VERIFIED by execution]:
+  - `pytest tests/test_model.py -v` -> **11 passed** (shapes, checkpoint round-trip, dropout on/off,
+    zero-std clamp, raw-units warning, fixture-contract guard).
+  - `python -m oceanembed.train.train_mlp --fixtures` -> val loss 0.896 -> 0.064 (z-scored MSE), 0.8 s CPU.
+  - Reload via `load_mlp` -> `predict_mlp` -> (500,11) float32, 8.42-30.82 degC.
+  - ANTI-COLLAPSE CHECK: model RMSE 0.214 degC vs predict-the-mean 1.503 degC (+85.8% skill); per-depth
+    spread tracks truth; profile cools monotonically 27.45 -> 8.91 degC. Not collapsed.
+  - These are SYNTHETIC FIXTURES — plumbing evidence only, NOT a result.
+- WHAT IS BROKEN: nothing known in Unit A code.
+- LAST CHANGE: implemented MLPProfile/load_mlp/predict_mlp, train_mlp.py, tests; filled MODEL_SPEC.md.
+- FILES MODIFIED: `src/oceanembed/models/mlp_profile.py`, `src/oceanembed/train/train_mlp.py`,
+  `tests/test_model.py`, `docs/MODEL_SPEC.md`, `docs/DECISIONS.md` (D-007, D-008), `docs/HANDOFF.md`.
+- TESTS RUN: `pytest tests/test_model.py -v` — 11 passed (output pasted above).
+- KNOWN ISSUES / DECISIONS:
+  - **D-007**: norm stats now live as buffers INSIDE `mlp_model.pt`, so no companion file is needed.
+    `train_mlp` auto-prefers `artifacts/norm_stats.json` the moment B ships it. No signature change for B/C.
+  - **CONTRACT MISMATCH [UNKNOWN] — needs Darshan**: MODEL_SPEC says X is z-scored, but `sample_X.npy` is RAW
+    (verified range -1.000..36.994) and `norm_stats.json` is absent. Will real `X_train.npy` ship z-scored, or
+    raw + norm_stats.json? `predict_mlp` raises a RuntimeWarning on raw-looking input meanwhile.
+  - **D-008 — needs a team decision**: `config.DEPTHS` = 11 levels to 500 m, but SIH26066 names 15 to 1000 m
+    (missing 5/125/700/1000). This sets my output width; changing later = retrain. Cheap to fix now.
+  - `docs/EXPERIMENT_LOG.md` deliberately NOT touched — it is Unit C's file and is for REAL runs from Day 3.
+    Fixture numbers there would read as results.
+- NEXT TASK (A): Day 2 — `models/lgbm_baseline.py` + `train/train_lgbm.py` (11 boosters, quantile option),
+  finish early stopping/seed hygiene. NOTE: `lightgbm` not yet installed locally.
+- BLOCKERS: none for Day 2. Day 3 needs B's real `X_train/y_train/X_test/y_test.npy` + `norm_stats.json`.
+
 ## 2026-08-25 — Unit B (Darshan) — scaffold seeded
 - CURRENT PHASE: Day 1 (scaffold + contracts + fixtures) — DONE for the core.
 - BRANCH: main

@@ -52,3 +52,13 @@ SEED     = 42
 
 **Table format note:** parquet when `pyarrow` is installed, else CSV — use `utils.io.save_table/load_table` (auto-detect).
 Fixtures currently ship as **CSV** because pyarrow isn't installed yet; `pip install -r requirements.txt` switches to parquet.
+
+## Pipeline notes [VERIFIED on synthetic data 2026-08-25]
+- `scripts/prepare_dataset.py` runs synthetic-GLORYS → `preprocess.run()` → `build_samples.run()` and writes the full
+  artifact set. Real data drops in with no code change (same shapes). Synthetic path exists so A/C aren't blocked on CMEMS.
+- **Depth-0 handling:** GLORYS' shallowest level (~0.49 m) is *below* our `DEPTHS[0]=0 m`, so `preprocess` extrapolates the
+  depth axis (0 m ≈ surface). Confirmed necessary — without it every row is NaN-dropped.
+- X is stored **z-scored** (train-only stats); y is stored in **real °C**; `norm_stats.json` carries feat+targ mean/std so
+  the model normalizes/denormalizes and inference can normalize raw inputs.
+- **TODO [real data]:** GLORYS `dataset_id` is [INFERRED] — confirm with `copernicusmarine describe`; then inspect one
+  real file and record here (with [VERIFIED]) the latitude order, longitude convention (0–360 vs −180–180), depth sign, and units.

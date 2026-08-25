@@ -22,6 +22,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 warnings.filterwarnings("ignore")
+# MC-dropout is stochastic by design, so quoted numbers drifted ~0.001 skill between runs.
+# Seeding here (not in Unit A's mc_dropout_predict) makes every reported figure exactly
+# reproducible without changing the uncertainty contract.
+import torch as _torch; _torch.manual_seed(0); np_seed = 0
 from oceanembed import config                       # noqa: E402
 from oceanembed.utils import io                     # noqa: E402
 from oceanembed.inference import predict as P       # noqa: E402

@@ -15,9 +15,9 @@ checkpoint, provenance and timestamp that produced them. If the UI serves one it
 | number | meaning |
 |---|---|
 | **+0.626** | skill vs climatology on the GLORYS 2022 holdout — *same source as training, easier* |
-| **+0.393** | skill vs climatology vs **independent Argo** — *different instrument, the real number* |
+| **+0.395** | skill vs climatology vs **independent Argo** — *different instrument, the real number* |
 
-**Quote +0.393.** Satellite-driven RMSE **0.954 °C** vs climatology **1.573 °C**, on 879 Argo
+**Quote +0.395.** Satellite-driven RMSE **0.951 °C** vs climatology **1.573 °C**, on 879 Argo
 profiles. Domain-shift cost vs reanalysis inputs: **−0.7 %** (satellite is marginally better).
 
 ## Scenes (regenerate: `python scripts/make_demo_scenes.py`)
@@ -57,6 +57,19 @@ where per-depth skill is worst (+0.507 at 100 m) and where interannual variabili
 (σ 1.167 °C at 100 m). Three independent measurements agreeing on where the problem is — that is a
 diagnosis, not an excuse. What we must NOT do is quote the MC-dropout band as a confidence interval
 until Unit A re-calibrates it.
+
+## WHAT TO COPY TO THE DEMO LAPTOP  [VERIFIED by fresh-clone test]
+The app reads `data/processed/`, **not** `data/raw/`. Copying the raw NetCDF is 2.9 GB of waste.
+
+| copy | size | why |
+|---|---|---|
+| `artifacts/` | 125 MB | model, climatology, Argo, provenance |
+| `data/processed/` | **35 MB** | `grids.npz` + `satellite_grids.npz` — what `reconstruct()` actually opens |
+| `data/raw/` | 2.9 GB | **NOT needed** — only for rebuilding from scratch |
+
+Total ~160 MB. [VERIFIED] With `artifacts/` but no `data/`, provenance still reads `real-glorys`
+and the app serves cleanly with a clear error — it fails safe, but it cannot reconstruct. Add the
+35 MB and both sources work.
 
 ## Rehearsal checklist
 - [ ] `provenance.json` reads `source=real-glorys`, `n_depths=15`

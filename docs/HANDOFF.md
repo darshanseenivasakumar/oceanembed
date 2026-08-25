@@ -80,6 +80,51 @@ which is the point. Once it lands and DEPTHS is settled: retrain both -> `compar
 first REAL verdict -> `validate_argo` opens its own gate automatically when provenance reads `real`.
 About 30 minutes.
 
+## 2026-08-26 — FRESH-CLONE VERIFICATION (Arjhun's request) — ALL FOUR PASS
+
+Cloned from GitHub into a clean directory, installed into an **isolated venv** so pip re-resolved
+every dependency from scratch rather than reusing what was already on the machine.
+
+### 1. Clean environment install — PASS, and it does pick different versions
+pip's clean resolve chose **numpy 2.5.2** (mine 2.3.5), **torch 2.13.0+cpu** (mine 2.9.1+cpu) and
+**scipy 1.18.1** (mine 1.17.1). Notably torch 2.13.0 is exactly Arjhun's version.
+`pytest` on that combination: **142 passed, 1 skipped**. Three independent version sets
+(mine, Arjhun's, a clean resolve) now give the same result.
+
+### 2. Demo-day path — D-018 CONFIRMED, and a correction to the run instructions
+With `artifacts/` copied and **no `data/` at all**: provenance still reads
+`source=real-glorys, n_depths=15, stale=None`. It **fails safe** — `reconstruct()` raises a clean
+FileNotFoundError, the app serves HTTP 200 with zero tracebacks, and nothing unlabelled reaches the
+screen.
+**CORRECTION:** the app never reads `data/raw/`. It reads `data/processed/`.
+```
+  artifacts/        125 MB   needed
+  data/processed/    35 MB   NEEDED  <- grids.npz + satellite_grids.npz
+  data/raw/         2.9 GB   NOT needed (rebuild only)
+```
+The demo bundle is **~160 MB, not 3 GB**. With the 35 MB added, both sources work:
+GLORYS 28.94 -> 6.90 degC, satellite 29.00 -> 6.83 degC.
+
+### 3. App and toggle on a fresh clone — PASS
+Both sources offered; all four Unit C panels expose a callable `render()`; HTTP 200; no tracebacks.
+
+### 4. Demo scenes and guards — PASS
+All four scenes reproduce. Both guards fire **and exit code 1** (a script chain halts):
+provenance `synthetic` -> refuses; provenance `real-glorys` with 11 depths -> detected **stale**, refuses.
+
+### Skip-count discrepancy — RESOLVED, nothing wrong
+`test_compare_models.py:114` skips deliberately when real artifacts exist. So 142+1skip (artifacts
+present) and 143 passed (pure clone) are both correct, by design.
+
+### 🔴 BUG FOUND AND FIXED: quoted numbers were not reproducible
+MC-dropout is stochastic and was **unseeded**, so the headline drifted between runs
+(+0.393 / +0.394 / +0.395) and demo scene values moved ~0.06 degC. Harmless for cached scenes,
+but anyone regenerating mid-demo would get different numbers from the ones in our slides.
+FIX: seed in `make_demo_scenes.py` and `eval_satellite_vs_argo.py` (my files) rather than changing
+Unit A's `mc_dropout_predict` contract. [VERIFIED] two consecutive runs now identical: RMSE 0.9510,
+skill **+0.395**.
+**The number to quote is now +0.395**, and docs are updated. It is reproducible, not approximate.
+
 ## 2026-08-25 — 🛰️ THE PS DELIVERABLE IS DONE: satellite-driven reconstruction, Argo-validated
 
 `scripts/eval_satellite_vs_argo.py` — 879 independent Argo profiles (a DIFFERENT INSTRUMENT, never
@@ -89,7 +134,7 @@ seen in training), test year only:
   source                         RMSE   skill vs climatology
   climatology (baseline)       1.5725         --
   model on GLORYS fields       0.9603      +0.389
-  model on SATELLITE fields    0.9539      +0.393   <- SIH26066's actual ask
+  model on SATELLITE fields    0.9510      +0.395   <- SIH26066's actual ask
   DOMAIN-SHIFT COST: -0.0063 degC (-0.7% vs the GLORYS ceiling)
 ```
 
@@ -107,8 +152,8 @@ would hide the mismatch rather than fix it).
 
 ### ⚠️ TWO NUMBERS, DO NOT CONFLATE THEM
   +0.626  skill vs climatology on the GLORYS 2022 holdout   (same source as training — easier)
-  +0.393  skill vs climatology against independent Argo     (different instrument — the REAL number)
-Quote **+0.393** to judges. The gap is not a failure; it is the honest cost of being scored by an
+  +0.395  skill vs climatology against independent Argo     (different instrument — the REAL number)
+Quote **+0.395** to judges. The gap is not a failure; it is the honest cost of being scored by an
 instrument that has its own sampling, timing and representativeness. A team quoting only the
 same-source number is flattering itself.
 

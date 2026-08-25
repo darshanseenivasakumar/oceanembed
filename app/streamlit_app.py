@@ -129,7 +129,7 @@ with right:
     })
     if out["anomaly"] is not None:
         tbl["anomaly (°C)"] = np.round(out["anomaly"], 3)
-    st.dataframe(tbl, hide_index=True, use_container_width=True)
+    st.dataframe(tbl, hide_index=True, width='stretch')
     st.caption("Reliability is derived from the MC-dropout spread — not an invented confidence number.")
 
 # ---- optional grid maps ------------------------------------------------------
@@ -145,13 +145,18 @@ if show_map:
         fn(gout)
     else:
         st.image(_to_image(surf), caption="Reconstructed 0 m temperature (fallback view)",
-                 use_container_width=True)
+                 width='stretch')
 
     if gout["priority"] is not None:
         st.subheader("Observation priority")
         fn = _panel("priority")
-        fn(gout) if fn else st.image(_to_image(gout["priority"]), use_container_width=True)
+        fn(gout) if fn else st.image(_to_image(gout["priority"]), width='stretch')
         st.caption("Regions where **additional in-situ observations may provide high scientific value** "
                    "(anomaly × uncertainty × observation sparsity). Not a deployment directive.")
     else:
-        st.info("Observation-priority map appears once Unit A implements `observation_priority()`.")
+        st.info("Observation-priority map appears once `observation_priority()` has all three inputs.")
+
+    fn = _panel("validation")
+    if fn:
+        st.subheader("Validation")
+        fn(gout)

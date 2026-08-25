@@ -24,7 +24,10 @@ from oceanembed import config
 
 DATASET_ID = "cmems_mod_glo_phy_my_0.083deg_P1D-m"
 VARIABLES = ["thetao", "so", "zos", "uo", "vo"]
-MIN_DEPTH, MAX_DEPTH = 0.0, 520.0   # covers DEPTHS (max 500 m) with margin
+# Must BRACKET the deepest target level. GLORYS levels are discrete (..., 453.9, 541.1, 643.6,
+# 763.3, 902.3, 1062.4, ...), so a cap of 520 m actually stopped the data at 453.9 m and every
+# 500 m value was EXTRAPOLATED. 1100 m pulls in the 1062.4 m level so 1000 m is interpolated.
+MIN_DEPTH, MAX_DEPTH = 0.0, 1100.0
 
 
 def _fix_ssl() -> None:

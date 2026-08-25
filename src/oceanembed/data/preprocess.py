@@ -45,8 +45,21 @@ def _process_one(path: str):
             surf[name] = ds[var].isel({depthn: 0}).transpose(timen, latn, lonn).values.astype("float32")
         surf["ssh"] = ds["zos"].transpose(timen, latn, lonn).values.astype("float32")
 
-        # DEPTHS[0]=0 m sits ABOVE GLORYS' shallowest level (0.494 m) -> must extrapolate or every
-        # row becomes NaN. [VERIFIED necessary on both synthetic and real data.]
+        # Depth handling, asymmetric ON PURPOSE:
+        #  * SHALLOW end: DEPTHS[0]=0 m sits just above GLORYS' shallowest level (0.494 m), a ~0.5 m
+        #    gap inside a well-mixed layer -> extrapolating is safe and necessary (without it every
+        #    row is NaN-dropped).
+        #  * DEEP end: extrapolating past the deepest level INVENTS data. [VERIFIED 2026-08-25] a
+        #    520 m download cap actually returned data to 453.9 m, so every 500 m value was
+        #    extrapolated 46 m beyond the data and reported as a result. Now we FAIL LOUDLY.
+        d_max = float(ds[depthn].max())
+        too_deep = [d for d in config.DEPTHS if d > d_max]
+        if too_deep:
+            raise ValueError(
+                f"{os.path.basename(path)} only reaches {d_max:.1f} m, but config.DEPTHS asks for "
+                f"{too_deep}. Extrapolating past the data would fabricate values. Re-download with a "
+                f"deeper MAX_DEPTH in data/download_glorys.py (must BRACKET the deepest target level)."
+            )
         temp = ds["thetao"].interp({depthn: config.DEPTHS}, method="linear",
                                    kwargs={"fill_value": "extrapolate"})
         temp = temp.transpose(timen, latn, lonn, depthn).values.astype("float32")

@@ -7,7 +7,7 @@ Frozen shapes, filenames, units, and conventions. **Nothing in code may infer th
 ```python
 LAT      = arange(5.0, 30.0, 0.25)   # 100 values, float32
 LON      = arange(45.0, 105.0, 0.25) # 240 values, float32
-DEPTHS   = [0,10,20,30,50,75,100,150,200,300,500]   # meters, positive-down, 11 levels
+DEPTHS   = [0,10,20,30,50,75,100,125,150,200,300,400,500,700,1000]  # meters, positive-down, 15 levels (D-008)
 FEATURES = [sst, sss, ssh, u, v, sin_lat, cos_lat, sin_lon, cos_lon, sin_doy, cos_doy]  # 11, THIS order
 SPLIT    = train {2019,2020,2021} | test {2022}   # by TIME, never random
 SEED     = 42
@@ -47,7 +47,7 @@ SEED     = 42
 | `land_mask.npy` | B | bool `(100,240)` True=land |
 | `argo_test.{parquet\|csv}` | B | `[lat,lon,date,depth_idx(0..10),temp]` |
 | `mlp_model.pt` | A | state_dict for MLPProfile |
-| `lgbm_model.pkl` | A | list of 11 boosters |
+| `lgbm_model.pkl` | A | list of 15 boosters (one per depth) |
 | `climatology.npy` | C | `(12,100,240,11)` = [month,lat,lon,depth] |
 | `provenance.json` | B | `{source: "synthetic"\|"real-glorys", built, x_units, n_train, n_test}` (D-018) |
 | `lgbm_quantiles.pkl` | A | `{"q10":[...11], "q90":[...11]}` boosters (D-012) |
@@ -119,3 +119,27 @@ artifacts**. `preprocess` determines it from which files it actually read. The S
 and any log MUST read this file — never infer provenance from `data/raw/`, which is gitignored
 and absent on a demo laptop. If the file is missing, the app shows a hard **UNKNOWN PROVENANCE**
 error rather than silently implying the data is real.
+
+
+## D-008 RULING: DEPTHS = 15 levels to 1000 m  [2026-08-25]
+`[0,10,20,30,50,75,100,125,150,200,300,400,500,700,1000]`. Fine spacing where the profile actually
+varies (surface layer + thermocline), coarse below 500 m where it is smooth.
+
+**Why now:** it is the Problem-Statement requirement, and every array width across all three units
+is derived from it — the cost only grows. It also fixed a live bug (below).
+
+### 🔴 The 500 m results before this ruling were EXTRAPOLATED, not measured
+The GLORYS download capped `maximum_depth=520`, but GLORYS levels are discrete — the nearest below
+is **453.94 m** — so the download actually stopped there and `preprocess` extrapolated 46 m past the
+data to produce every "500 m" value. Shapes were all correct, so nothing complained.
+**Any 500 m number reported before 2026-08-25 16:00 is void**, including the 0.4765/0.4718 °C in the
+first `compare_models` run.
+
+**Two fixes:** `MAX_DEPTH = 1100.0` so the 1062.4 m GLORYS level BRACKETS our 1000 m target
+(interpolation, never extrapolation); and `preprocess` now **raises** if any requested depth exceeds
+the file's deepest level, instead of silently extrapolating. Extrapolating at the *shallow* end
+(0 m vs GLORYS' 0.494 m) is still allowed and documented — a ~0.5 m gap inside a well-mixed layer.
+
+**Expect deep skill to be poor.** TS-Cast stops at 700 dbar and states that satellite inputs bound
+deep skill. Report per-depth skill and say plainly where it dies rather than hiding it behind a
+pooled RMSE.

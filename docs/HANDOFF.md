@@ -9,6 +9,31 @@
 > ```
 
 
+
+## 2026-08-25 — Unit A (Arjhun) — LightGBM baseline DONE
+
+- BRANCH: `feat/unit-a-priority` (continues from observation_priority).
+- WHAT WORKS [VERIFIED by execution]:
+  - `python -m oceanembed.train.train_lgbm --fixtures` -> 11 boosters in 6.6 s, saves
+    `artifacts/lgbm_model.pkl` + `lgbm_quantiles.pkl`. Val RMSE 0.216 degC, skill vs climatology +0.839.
+  - `pytest tests/test_lgbm_baseline.py -q` -> **10 passed** (booster count, shapes, real-degC output,
+    save/load round-trip, beats-climatology, quantile non-negativity, quantile-crossing warning).
+  - `train()` mirrors `train_mlp.train()` so `run_slice.py` can call either interchangeably.
+- **D-013 — READ THIS BEFORE COMPARING MODELS.** Head-to-head on a 100-row held-out fixture slice:
+  climatology 1.466 | LightGBM 0.222 (+0.849) | MLP 0.221 (+0.849). The MLP "wins" by 0.2% = noise.
+  `make_fixtures.py` adds N(0, 0.2), so the noise floor is 0.20 degC and **both models have saturated it**.
+  The comparison is uninformative BY CONSTRUCTION. Do not conclude "MLP has no advantage" from it —
+  the model-selection call can only be made on real GLORYS.
+- NEW ARTIFACT (**Unit B: please add to DATA_CONTRACT.md, that file is yours**):
+  `lgbm_quantiles.pkl` = `{"q10": [...11 boosters], "q90": [...11]}`. `lgbm_model.pkl` is unchanged and
+  still exactly the contracted list of 11 boosters. Quantile spread -> sigma-equivalent via /2.5631.
+- FILES MODIFIED: `src/oceanembed/models/lgbm_baseline.py`, `src/oceanembed/train/train_lgbm.py`,
+  `tests/test_lgbm_baseline.py` (new), `docs/DECISIONS.md` (D-012, D-013), `docs/HANDOFF.md`.
+- STILL BLOCKED ON B: the `.gitignore` bug (`data/` swallows `src/oceanembed/data/`) means I cannot run
+  `prepare_dataset.py`, so nothing here has touched real data. Everything above is fixtures.
+- NEXT (A): once the .gitignore fix lands -> `train_lgbm` on real data, re-run the MLP-vs-LightGBM
+  comparison for a REAL verdict, then rebase the useful parts of `feat/unit-a-mlp`.
+
 ## 2026-08-25 — Unit A (Arjhun) — observation_priority() implemented + BLOCKING repo bug
 
 ### ⚠ BLOCKER FOR EVERYONE — `src/oceanembed/data/` is not in the repo (Unit B to fix)

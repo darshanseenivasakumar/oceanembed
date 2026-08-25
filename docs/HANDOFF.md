@@ -8,6 +8,28 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+## 2026-08-25 — Day 3 vertical slice COMPLETE (climatology + MLP + metrics + uncertainty)
+- CURRENT PHASE: Day 3 — end-to-end slice runs. BRANCH: main.
+- WHAT WORKS [VERIFIED by execution] — `python scripts/run_slice.py`:
+  climatology baseline → MLP training (early stop) → honest 2022-test evaluation → per-depth skill →
+  MC-dropout uncertainty → auto-append to docs/EXPERIMENT_LOG.md.
+- IMPLEMENTED: `validation/metrics.py` (compute_metrics), `climatology.py` (build/predict),
+  `models/mlp_profile.py` (torch MLP 11→128→128→11, dropout 0.2), `train/train_mlp.py` (seeded, early stop),
+  `inference/uncertainty.py` (MC-dropout, 30 passes). torch 2.9.1+cpu and sklearn confirmed installed.
+- ⚠️ NUMBERS ARE ON **SYNTHETIC** DATA — ILLUSTRATIVE ONLY, NOT REAL PERFORMANCE. The synthetic field is a smooth
+  function of lat+season, so it is trivially learnable (R²≈0.999). **Never quote these to judges.** Real GLORYS
+  numbers will be much less flattering — that is expected and fine.
+- SCIENTIFICALLY ENCOURAGING [VERIFIED]: per-depth skill vs climatology DECREASES with depth
+  (+0.812 @0 m → +0.145 @500 m), the physically expected pattern (surface data constrains deep temperature less).
+- FINDING (uncertainty): absolute MC-dropout std SHRINKS with depth (0.214→0.029 °C). This is NOT necessarily a bug —
+  deep water is naturally less variable (natural std 1.341→0.236 °C). The slice therefore reports the
+  **std/natural-variability ratio** (~0.15, near-constant here) and per-depth skill as the honest diagnostics.
+  RE-CHECK on real data before making any uncertainty claim.
+- NEXT (A/Arjhun): LightGBM baseline + quantile uncertainty; tune MLP on REAL data; observation_priority().
+- NEXT (C/Mitun+Niru): anomaly.py, validate_argo.py, UI panels; fill LITERATURE_MATRIX from the PDFs.
+- NEXT (B/Darshan): real CMEMS download → `prepare_dataset.py --real` → rerun slice for REAL metrics; then
+  predict.py seam + Streamlit wiring.
+
 ## 2026-08-25 — Unit B (Darshan) — Day 2 data pipeline (synthetic-verified)
 - CURRENT PHASE: Day 2 (data pipeline) — logic DONE & VERIFIED on synthetic data; real CMEMS download pending creds.
 - BRANCH: main

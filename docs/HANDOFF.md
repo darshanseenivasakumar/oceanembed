@@ -13,6 +13,51 @@
 
 
 
+
+## 2026-08-25 - Unit A (Arjhun) - Day 5: RED TEAM (integration support is blocked)
+
+- BRANCH: `feat/unit-a-priority`. **`pytest tests/ -q` -> 63 passed.**
+- Day 5 is "help wire `predict.py`; freeze final weights; generate cached demo tensors; be available for red-team
+  fixes." `predict.py` is Unit B's file, and freezing weights / caching demo tensors both need REAL data, which
+  still does not exist. So I did the red-team half properly.
+
+### Fresh-clone audit [VERIFIED by actually cloning main to a scratch dir]
+  1. `import oceanembed`                     -> OK
+  2. `python scripts/prepare_dataset.py`     -> **ModuleNotFoundError: No module named 'oceanembed.data'**
+  3. `python scripts/run_slice.py`           -> "Run prepare_dataset.py first"
+  4. `reconstruct(15.0, 88.0, '2022-06-15')` -> FileNotFoundError
+  5. `streamlit run app/streamlit_app.py`    -> HTTP 200, clean `st.error`, no traceback
+**The pipeline is dead for everyone but Darshan.** His untracked local `src/oceanembed/data/` makes it work on
+his machine only - which is exactly why he cannot see it. Open for a full day of a five-day sprint (D-019).
+
+### ⚠ D-018 - CRITICAL: the SYNTHETIC banner can silently switch itself off
+`app/streamlit_app.py`:
+    synthetic = os.path.exists(os.path.join(config.DATA_RAW, "synthetic_glorys.nc"))
+The warning depends on a **gitignored** file existing on disk, and the artifacts carry NO provenance flag
+[VERIFIED: `git check-ignore` confirms `data/` is ignored; `build_samples.py` writes no such flag].
+**Demo-day failure path:** `artifacts/` is small and portable, `data/raw/` is large and gitignored. Copy the
+artifacts to a demo laptop without `data/raw/` and the SYNTHETIC warning silently vanishes while the numbers stay
+simulated - presenting synthetic data to judges as real ocean performance.
+FIX (Unit B owns both files): write provenance INTO the artifacts (`{"source": "synthetic"|"real-glorys"}` in
+`norm_stats.json` or a `provenance.json`) and have the app read that. Same principle as D-010, where the
+checkpoint carries its own `trained_on_fixtures` stamp. **Until fixed: never demo from a machine without
+`data/raw/`.**
+
+### Clean results - worth recording, not just the problems
+- **No hardcoded or fabricated metrics anywhere** in code or docs [VERIFIED by grep across *.py and *.md].
+  The real-data-only rule is holding.
+- App degrades gracefully on missing artifacts: `st.error` + `st.stop()`, never a traceback.
+- Land / no-data points rejected with a clear message.
+- Darshan's no-collision seam design works exactly as advertised: `observation_priority()` dropped in with zero
+  edits to `predict.py` or `streamlit_app.py`.
+
+- FILES MODIFIED: `docs/DECISIONS.md` (D-018, D-019), `docs/HANDOFF.md`. No code changes - every remaining Day-5
+  task needs either Unit B's files or real data.
+- OPEN FOR B, in priority order: **`.gitignore` blocker** (D-019, blocks everyone) | **D-018** synthetic-banner
+  provenance (fabrication risk on demo day) | **D-016** MC-dropout overconfident at depth - decide whether the
+  demo ships MC-dropout or quantile uncertainty | **D-008** depths 11@500m vs the statement's 15@1000m |
+  **D-009** raw-in vs z-scored-in | add `lgbm_quantiles.pkl` to DATA_CONTRACT.md.
+
 ## 2026-08-25 - Unit A (Arjhun) - Day 4 COMPLETE (uncertainty investigated + bug fixed)
 
 - BRANCH: `feat/unit-a-priority`. **`pytest tests/ -q` -> 63 passed.**

@@ -117,3 +117,42 @@ the previous mode, so every later plain forward pass on that model object was si
 happened to mask it by calling `.eval()` itself, so nothing failed visibly - the kind of bug that surfaces as
 irreproducible numbers days later. Now saved and restored in a `finally` block, with two tests
 (`test_restores_eval_mode`, `test_restores_train_mode_if_that_was_the_caller_state`).
+
+## D-018 - RED-TEAM CRITICAL: the SYNTHETIC banner can silently switch itself off
+DATE 2026-08-25. RAISED BY Unit A (Day-5 red team). `app/streamlit_app.py` decides whether to show the
+"SYNTHETIC DATA MODE" warning with:
+
+    synthetic = os.path.exists(os.path.join(config.DATA_RAW, "synthetic_glorys.nc"))
+
+Provenance is INFERRED from a sibling file rather than recorded in the artifacts themselves, and that sibling
+file is gitignored (`.gitignore:2:data/`). [VERIFIED: `git check-ignore` confirms; `build_samples.py` writes no
+provenance flag of any kind.]
+
+REACHABLE FAILURE, and it is the likely demo-day path: `artifacts/` is small and portable, `data/raw/` is large
+and gitignored. Copy the artifacts to a demo laptop without `data/raw/`, and the warning SILENTLY DISAPPEARS
+while the numbers stay synthetic. The app then presents simulated data as real ocean performance to judges.
+This is precisely the fabrication failure the real-data-only rule exists to prevent, arriving through a side door.
+
+FIX (Unit B owns both files): have `build_samples` write the provenance INTO the artifacts - e.g.
+`{"source": "synthetic"|"real-glorys", "built": "<iso date>"}` in `norm_stats.json` or a `provenance.json` - and
+have the app read THAT. Provenance must travel with the data, not be guessed from what happens to be on disk.
+Same principle as D-010, where Unit A stamped `trained_on_fixtures` into the checkpoint itself: the artifact
+carries its own truth, so it cannot be laundered by moving files around.
+UNTIL FIXED: never demo from a machine that does not also have `data/raw/`.
+
+## D-019 - RED-TEAM: fresh-clone verification must be part of Definition of Done
+DATE 2026-08-25. RAISED BY Unit A. A genuine `git clone` of `main` was run and stepped through as a teammate
+would [VERIFIED]:
+  1. `import oceanembed` -> OK
+  2. `python scripts/prepare_dataset.py` -> **ModuleNotFoundError: No module named 'oceanembed.data'**
+  3. `python scripts/run_slice.py` -> "Run prepare_dataset.py first to build artifacts."
+  4. `reconstruct()` -> FileNotFoundError
+  5. `streamlit run app/streamlit_app.py` -> serves HTTP 200 and shows a clean `st.error` (no stack trace)
+So the entire pipeline is dead for everyone except Darshan, whose untracked local copy of `src/oceanembed/data/`
+makes it work only on his machine. This is a whole-team blocker that has been open for a day of a five-day sprint
+and CANNOT be seen from the machine that created it.
+DECISION: "works on my machine" is not DONE. Before declaring a pipeline stage complete, clone to a scratch
+directory and run it there. It takes two minutes and is the only way to catch this class of bug.
+CLEAN RESULTS from the same sweep, worth recording: no hardcoded or fabricated metrics anywhere in code or docs
+[VERIFIED by grep across *.py and *.md]; the app degrades gracefully on missing artifacts (`st.error` + `st.stop`,
+never a traceback); land / no-data points are rejected with a clear message.

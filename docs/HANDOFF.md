@@ -8,6 +8,78 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+
+## 2026-08-25 - Unit A+C (Arjhun) - spec-compliance guards; ONE depth fix needed before you retrain
+
+Branch **`feat/spec-compliance`**, off current `main`, 0 conflicts.
+**`pytest tests/ -q` -> 141 passed, 1 skipped, 1 xfailed** [VERIFIED].
+
+### ⚠ DO THIS WHEN THE DOWNLOAD LANDS, BEFORE RETRAINING: swap 400 -> 5
+You ruled "15 levels to 1000 m" and executed 15 levels - but not the problem statement's 15.
+
+```
+PS   [0, 5,10,20,30,50,75,100,125,150,200,300,    500,700,1000]
+main [0,   10,20,30,50,75,100,125,150,200,300,400,500,700,1000]
+     missing from ours: [5]      extra in ours: [400]
+```
+
+Right count, wrong set. This is the single cheapest thing a judge can check - two lists side by
+side, five seconds, no code read.
+
+**The fix needs NO re-download.** Your `MAX_DEPTH = 1100` means the GLORYS file already holds every
+level down to 1062 m, so which depths we interpolate ONTO only affects `preprocess` ->
+`build_samples` -> retrain. Do it before the retrain or that training run is wasted.
+
+If 400 m was deliberate - and scientifically it IS more useful than 5 m, which sits ~4.5 m from
+GLORYS' shallowest level at 0.494 m - then keep it as a **16th** level and record the reason in
+`DECISIONS.md`. Nothing stops us being a superset of the PS. What must not happen is a silent
+substitution that a judge finds first.
+
+`config.py` is your file, so this is flagged, not edited.
+
+### New guard 1: `tests/test_spec_compliance.py`
+Asserts the frozen constants against SIH26066 - region, 0.25 deg, 100x240 grid, the depth list, the
+five surface variables, temporal split. 12 tests, 11 pass.
+
+The depth mismatch is recorded as **`xfail(strict=True)`**, not a hard failure, so the suite stays
+green during the sprint. **Verified the strictness works rather than assuming it:** temporarily
+setting `DEPTHS` to the PS list turns it into `XPASS(strict)` and FAILS. So the moment you fix it,
+the marker must be deleted - the exemption cannot outlive the bug, whether or not anyone remembers.
+
+### New guard 2: `VALIDATION_PROTOCOL.md` L1 is now a real section
+Your extrapolation catch leads it, with the mechanism written out: `maximum_depth=520` -> data
+actually stopping at 453.94 m -> preprocess extending **46 m past the end of the data** to
+manufacture every "500 m" value, with correct shapes so nothing complained anywhere.
+
+**My two cells from that run are recorded as VOID and discarded**: 0.4765 degC (LightGBM) and
+0.4718 degC (MLP) at 500 m. They were labelled synthetic plumbing numbers, so nothing downstream
+inherited them.
+
+The accepted exception is documented too - 0 m against GLORYS' 0.494 m is a ~0.5 m gap inside a
+well-mixed layer, categorically different from inventing 46 m of thermocline.
+
+The generalisation is the part worth keeping: **a shape check is not a validity check.** Ask of
+every array, *"could this have been produced without real data behind it?"* That question catches
+your extrapolation bug, the synthetic-banner gap, and the provenance gap - all three were
+correctly-shaped, plausible-looking, and wrong.
+
+### Your extrapolation catch was better than the novelty catch
+Finding it required investigating a decision rather than executing it. Correct shapes are exactly
+why nothing caught it - no test, no assert, no reviewer. That is the hardest class of bug there is.
+
+### Standing, unchanged
+- **D-016**: MC-dropout overconfident at depth (sigma/RMSE 1.25 at 0 m -> 0.31 at 500 m, understates
+  real error 3.2x). Expect it to get WORSE at 700/1000 m, not better. Decide whether the demo ships
+  MC-dropout or LightGBM quantiles (0.70 -> 0.92, far better calibrated).
+- Agreed on deep skill: report per-depth plainly, do not hide it behind a pooled RMSE. TS-Cast stops
+  at 700 dbar and states the same bound.
+
+### Ready on my side
+Not retraining until the data lands, as you said - and `preprocess` will refuse the old data anyway,
+which is the point. Once it lands and DEPTHS is settled: retrain both -> `compare_models` gives the
+first REAL verdict -> `validate_argo` opens its own gate automatically when provenance reads `real`.
+About 30 minutes.
+
 ## 2026-08-25 — Unit B — D-011 CLOSED (fixtures now exercise the multi-feature problem)
 
 Arjhun's last open item against Unit B. His measurement: `make_fixtures` built the target as a pure

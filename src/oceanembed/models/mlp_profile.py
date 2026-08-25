@@ -9,6 +9,8 @@ buffers are plain tensors. See docs/DECISIONS.md.
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -53,6 +55,11 @@ class MLPProfile(nn.Module):
         self.register_buffer("targ_mean", torch.zeros(self.n_depth))
         self.register_buffer("targ_std", torch.ones(self.n_depth))
 
+        # Provenance: 1.0 => trained on synthetic fixtures, MUST NOT reach the demo.
+        # A float buffer (not a bool attr) so it survives the checkpoint round-trip
+        # under torch.load(weights_only=True). See docs/DECISIONS.md D-010.
+        self.register_buffer("trained_on_fixtures", torch.zeros(1))
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """(N, n_feat) z-scored -> (N, n_depth) z-scored."""
         return self.net(x)
@@ -69,50 +76,70 @@ class MLPProfile(nn.Module):
         self.targ_mean.copy_(_t(targ_mean, self.n_depth))
         self.targ_std.copy_(torch.clamp(_t(targ_std, self.n_depth), min=1e-6))
 
+    def normalize(self, x_raw: torch.Tensor) -> torch.Tensor:
+        """raw features -> z-scored, using the stats baked into this checkpoint."""
+        return (x_raw - self.feat_mean) / self.feat_std
+
     def denormalize(self, y_z: torch.Tensor) -> torch.Tensor:
         """z-scored target -> real units (degC)."""
         return y_z * self.targ_std + self.targ_mean
+
+    @property
+    def is_fixture_model(self) -> bool:
+        return bool(self.trained_on_fixtures.item() >= 0.5)
 
 
 def load_mlp(path: str) -> MLPProfile:
     """Load artifacts/mlp_model.pt into a fresh MLPProfile.
 
     weights_only=True is the PyTorch >=2.6 default and is safe here because the checkpoint
-    contains only tensors (weights + the four normalization buffers).
+    contains only tensors (weights + normalization + provenance buffers).
     """
     state = torch.load(path, map_location="cpu", weights_only=True)
     model = MLPProfile()
     model.load_state_dict(state)
     model.eval()
+
+    if model.is_fixture_model:
+        warnings.warn(
+            f"{path} was trained on SYNTHETIC FIXTURES: its normalization stats and weights encode "
+            "fixture statistics, not the ocean. It must be retrained once real GLORYS data lands "
+            "and must never back the demo. See docs/DECISIONS.md D-010.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return model
 
 
 def predict_mlp(model: MLPProfile, X: np.ndarray) -> np.ndarray:
-    """X:(N,11) z-scored -> (N,11) temperature in REAL units (degC).
+    """X:(N,11) in RAW units -> (N,11) temperature in REAL units (degC).
 
-    Per docs/MODEL_SPEC.md the CALLER supplies z-scored X (using norm_stats.json).
-    We warn loudly if X looks like raw units, because that failure is silent otherwise.
+    RAW IN, REAL OUT. The model carries its own normalization stats, so it z-scores the
+    input itself. Callers (inference/predict.py, the panels) pass raw features straight
+    through and cannot double-normalize or skip normalization. See docs/DECISIONS.md D-009.
     """
     X = np.asarray(X, dtype="float32")
     assert X.ndim == 2 and X.shape[1] == config.N_FEAT, (
         f"X must be (N,{config.N_FEAT}), got {X.shape}"
     )
 
-    # Cheap guard: z-scored data sits near mean 0 / std 1. Raw SST (~28) blows past this.
-    if np.abs(X.mean()) > 3.0 or X.std() > 5.0:
-        import warnings
-
-        warnings.warn(
-            f"predict_mlp received X with mean={X.mean():.2f} std={X.std():.2f} -- that looks "
-            "like RAW units, but the contract expects z-scored input. Predictions will be wrong.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
+    # Guard the one way this can still go wrong: a caller who pre-z-scored. If the model
+    # expects meaningfully non-zero feature means but X arrives centred on 0 with unit
+    # spread, it was almost certainly normalized already -> we would double-normalize.
+    if float(model.feat_mean.abs().max()) > 1.0:
+        if abs(float(X.mean())) < 0.5 and 0.3 < float(X.std()) < 3.0:
+            warnings.warn(
+                f"predict_mlp got X with mean={X.mean():.2f} std={X.std():.2f}, which looks "
+                "ALREADY z-scored. This function expects RAW units and normalizes internally; "
+                "passing normalized input double-normalizes and yields wrong temperatures.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     was_training = model.training
     model.eval()
     with torch.no_grad():
-        y = model.denormalize(model(torch.from_numpy(X)))
+        y = model.denormalize(model(model.normalize(torch.from_numpy(X))))
     if was_training:
         model.train()
 

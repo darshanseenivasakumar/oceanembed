@@ -3,7 +3,7 @@
 Status: **Day 1 complete for the MLP.** Signatures below are FROZEN — B and C code against them.
 
 ## Tensor contract — Aug 30 MVP (per-column MLP, tabular)
-- Input `X`: `[N, 11]` float32, columns in `config.FEATURES` order, **z-scored**.
+- Input `X`: `[N, 11]` float32, columns in `config.FEATURES` order, **RAW units** (the model z-scores internally — D-009).
 - Target `Y`: `[N, 11]` float32, temperature (°C) at `config.DEPTHS`.
 - Model output: `[N, 11]` in **real units** (un-normalized inside `predict_mlp`).
 - **Assert** shapes/dtypes at every boundary. Never silently reshape.
@@ -13,15 +13,15 @@ Status: **Day 1 complete for the MLP.** Signatures below are FROZEN — B and C 
 |---|---|---|---|---|---|---|
 | `MLPProfile.forward` | `(N,11)` | `(N,11)` | `config.FEATURES` order | `config.DEPTHS` order | z-scored in, **z-scored out** | dimensionless |
 | `MLPProfile.denormalize` | `(N,11)` z | `(N,11)` | — | `config.DEPTHS` | z → real | °C |
-| `predict_mlp` | `(N,11)` z-scored | `(N,11)` | `config.FEATURES` | `config.DEPTHS` | z in, **real out** | °C |
-| `mc_dropout_predict` *(Day 4)* | `(N,11)` z-scored | `mean(N,11)`, `std(N,11)` | — | `config.DEPTHS` | real out | °C |
+| `predict_mlp` | `(N,11)` **raw** | `(N,11)` | `config.FEATURES` | `config.DEPTHS` | **raw in, real out** (internal) | °C |
+| `mc_dropout_predict` *(Day 4)* | `(N,11)` **raw** | `mean(N,11)`, `std(N,11)` | — | `config.DEPTHS` | real out | °C |
 | `observation_priority` *(Day 4)* | three `(100,240)` grids | `(100,240)` | — | — | each min-max normalized | [0,1] |
 
 ## Frozen public signatures (A implements; B/C consume)
 ```python
 class MLPProfile(nn.Module): ...                    # 11 -> 128 -> 128 -> 11, dropout=0.2 (config.MLP)
 def load_mlp(path) -> MLPProfile
-def predict_mlp(model, X: np.ndarray) -> np.ndarray             # (N,11) real units
+def predict_mlp(model, X: np.ndarray) -> np.ndarray             # RAW in -> (N,11) real degC
 def mc_dropout_predict(model, X, n=30) -> tuple[np.ndarray, np.ndarray]   # mean(N,11), std(N,11)
 def observation_priority(anomaly_grid, uncertainty_grid, sparsity_grid) -> np.ndarray  # (100,240) in [0,1]
 ```
@@ -36,13 +36,23 @@ the **train split only**. Rationale: `docs/DECISIONS.md` D-007.
 Defaults are identity (mean 0 / std 1), so an untrained model is a no-op rather than a silent scaler.
 `set_norm_stats` clamps std to ≥1e-6 so a constant feature cannot produce `inf`.
 
-### ⚠ Contract mismatch pending Unit B  `[UNKNOWN]`
-`predict_mlp` expects **z-scored** `X`, but `artifacts/sample_X.npy` is **raw** — verified range
-`[-1.000, 36.994]`, i.e. SST in °C next to sin/cos encodings in [-1,1]. `artifacts/norm_stats.json`
-does not exist yet. **Unresolved:** will B's real `X_train.npy` ship pre-z-scored, or raw plus
-`norm_stats.json`? Until B confirms, the caller must z-score. `predict_mlp` emits a `RuntimeWarning`
-when the input looks raw (`|mean|>3` or `std>5`) — this failure is otherwise silent and would put
-plausible-but-wrong temperatures straight into the demo.
+### RAW IN / REAL OUT — resolved (D-009)  `[VERIFIED 2026-08-25]`
+Raised by Unit B: with the stats living in the checkpoint, "who normalizes?" was ambiguous, and both
+wrong answers (double-normalize / skip-normalize) fail **silently** as plausible-but-wrong temperatures.
+
+**Resolved in Unit B's favour: `predict_mlp` takes RAW features and does everything internally.**
+`inference/predict.py` and the panels pass raw arrays straight through — there is no normalization
+step a caller can get wrong. `predict_mlp` still warns if the input looks *already* z-scored (the one
+remaining misuse), detected by comparing the input's spread against the model's own `feat_mean`.
+
+Verified: `predict_mlp(load_mlp(...), np.load("sample_X.npy"))` — raw off disk, zero caller-side
+normalization — returns `(500,11)` float32, 8.42–30.82 °C, RMSE 0.214 °C.
+
+### Checkpoint provenance (D-010)  `[VERIFIED]`
+`MLPProfile` carries a `trained_on_fixtures` buffer. `train_mlp.py` stamps it, `load_mlp()` raises a
+`RuntimeWarning` on load, and `model.is_fixture_model` exposes it. A fixture-trained checkpoint has
+fixture statistics baked into its normalization buffers, so it **must not** back the demo — this is
+enforced in code, not just documented.
 
 ## Verified behaviour  `[VERIFIED 2026-08-25, fixtures]`
 - `pytest tests/test_model.py` — **11 passed**.

@@ -38,6 +38,27 @@
   finish early stopping/seed hygiene. NOTE: `lightgbm` not yet installed locally.
 - BLOCKERS: none for Day 2. Day 3 needs B's real `X_train/y_train/X_test/y_test.npy` + `norm_stats.json`.
 
+### Addendum (same day) — responding to Unit B's three points
+- **B1 "fixtures don't exist" — INCORRECT [VERIFIED]:** `artifacts/sample_X.npy (500,11)` and
+  `sample_y.npy (500,11)` ARE committed, in B's own `f0d1175` and `8f9c538`, and B's own HANDOFF entry
+  below documents shipping them. Unit A invented nothing — `train_mlp.py` loaded B's real files.
+  Fixtures are NOT the critical path; GLORYS/Argo download still is.
+- **B2 "noise trap" — right conclusion, wrong diagnosis [VERIFIED by measurement]:** the fixtures are
+  NOT random. `make_fixtures.py` builds `y = (sst-6)*exp(-depth/250)+6+N(0,0.2)`. Measured:
+  r(sst,T)=0.83-1.00 at all depths; linear fit scores +86.9% vs predict-the-mean. So "loss falls" and
+  the anti-collapse check ARE meaningful and did pass — no afternoon would have been wasted.
+  BUT B's fix is still needed for a different reason: r(ssh,T) = -0.002..+0.041 and
+  r(sin_doy,sst) = -0.014, i.e. 10 of 11 features are decoys. Logged as **D-011**.
+- **B3 normalization ambiguity — ACCEPTED, implemented B's preference:** `predict_mlp` now takes
+  **RAW** X and normalizes internally (**D-009**). `reconstruct()` cannot get it wrong.
+  Also implemented B's fixture-checkpoint warning as a code guard, not a doc line (**D-010**):
+  `trained_on_fixtures` buffer, `load_mlp()` warns, `model.is_fixture_model` for a hard check.
+- TESTS AFTER CHANGES: `pytest tests/ -q` -> **17 passed**. Raw-in end-to-end re-verified:
+  raw `sample_X.npy` straight off disk, zero caller-side normalization -> (500,11) float32,
+  8.42-30.82 degC, RMSE 0.214 degC vs predict-the-mean 1.503 degC.
+- STILL NEEDS B: **D-011** (fixture physics: couple SSH->thermocline, add seasonality) and
+  **D-008** (DEPTHS 11@500m vs the statement's 15@1000m).
+
 ## 2026-08-25 — Unit B (Darshan) — scaffold seeded
 - CURRENT PHASE: Day 1 (scaffold + contracts + fixtures) — DONE for the core.
 - BRANCH: main

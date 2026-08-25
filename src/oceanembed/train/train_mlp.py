@@ -109,6 +109,9 @@ def main() -> None:
 
     model = MLPProfile()
     model.set_norm_stats(**stats)
+    # Stamp provenance into the checkpoint so a fixture-trained model can never be
+    # mistaken for a real one downstream (docs/DECISIONS.md D-010).
+    model.trained_on_fixtures.fill_(1.0 if use_fixtures else 0.0)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.MSELoss()
 
@@ -164,7 +167,7 @@ def main() -> None:
     # Real-units validation RMSE per depth -- the number that actually means something.
     model.eval()
     with torch.no_grad():
-        pred = model.denormalize(model(Xva)).numpy()
+        pred = model.denormalize(model(Xva)).numpy()   # Xva is already z-scored here
     rmse_per_depth = np.sqrt(((pred - y_val) ** 2).mean(axis=0))
 
     print("-" * 62)
@@ -175,7 +178,12 @@ def main() -> None:
         print(f"  {d:5d} m : {r:6.3f}")
     print(f"  overall : {rmse_per_depth.mean():6.3f}")
     if use_fixtures:
-        print("\nFIXTURES -- synthetic data. These numbers are PLUMBING ONLY, never a result.")
+        print()
+        print("=" * 62)
+        print("FIXTURES -- synthetic data. PLUMBING ONLY, never a reported result.")
+        print("Checkpoint stamped trained_on_fixtures=1; load_mlp() will warn.")
+        print("MUST be retrained on real GLORYS before it backs the demo.")
+        print("=" * 62)
 
 
 if __name__ == "__main__":

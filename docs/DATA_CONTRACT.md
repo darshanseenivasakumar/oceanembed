@@ -62,3 +62,29 @@ Fixtures currently ship as **CSV** because pyarrow isn't installed yet; `pip ins
   the model normalizes/denormalizes and inference can normalize raw inputs.
 - **TODO [real data]:** GLORYS `dataset_id` is [INFERRED] — confirm with `copernicusmarine describe`; then inspect one
   real file and record here (with [VERIFIED]) the latitude order, longitude convention (0–360 vs −180–180), depth sign, and units.
+
+## REAL data findings [VERIFIED 2026-08-25 by execution]
+
+### GLORYS12 — dataset id CONFIRMED
+`copernicusmarine.describe(contains=['GLOBAL_MULTIYEAR_PHY_001_030'])` (works WITHOUT login) lists:
+- **`cmems_mod_glo_phy_my_0.083deg_P1D-m`** ← GLORYS12V1 daily means, what we use
+- also `..._P1M-m` (monthly), `..._0.083deg-climatology_P1M-m`, `..._static`
+The `subset` **download itself still requires a free CMEMS account** (`copernicusmarine login`). NOT yet downloaded.
+
+### Argo — REAL data downloaded ✅
+`artifacts/argo_test.parquet` — **24,328 measurements from ~2,453 real profiles**, NIO, all 12 months of 2022.
+- lat 5.00–25.53 °N, lon 45.58–91.45 °E → **100 % inside the frozen region**
+- temp 9.35–32.32 °C; mean profile **29.0 °C @0 m → 12.2 °C @500 m** (textbook tropical stratification)
+- QC-filtered to flags {1,2} (good / probably good) on TEMP, PRES, POSITION
+- interpolated onto `DEPTHS` **without extrapolation** (values beyond a profile's own sampled range → NaN)
+
+**Known limitation — 0 m level:** only 32 obs. Argo floats rarely sample at exactly 0 m (shallowest is typically
+~4–6 m), and we deliberately do NOT extrapolate upward. All other depths have ~2,350–2,450 obs. If Unit C wants
+0 m validation, the honest options are (a) validate at 10 m instead, or (b) explicitly document surface
+extrapolation as an assumption. Do **not** silently extrapolate.
+
+**Windows SSL note:** the Argo ERDDAP server fails with `CERTIFICATE_VERIFY_FAILED` because Python's default SSL
+context finds no CA bundle. `download_argo._fix_ssl()` sets `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` from `certifi`
+at import — every teammate gets this automatically.
+
+**Dependency pin:** `erddapy<3` — argopy 1.4.0 imports a private symbol removed in erddapy 3.x.

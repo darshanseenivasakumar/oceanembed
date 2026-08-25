@@ -8,6 +8,58 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+
+## 2026-08-25 — Unit A (Arjhun) — observation_priority() implemented + BLOCKING repo bug
+
+### ⚠ BLOCKER FOR EVERYONE — `src/oceanembed/data/` is not in the repo (Unit B to fix)
+`.gitignore` line 2 is `data/`, which has no leading slash, so it matches **any** directory named
+`data` at any depth — including `src/oceanembed/data/`. Unit B's preprocessing module was therefore
+never committed. [VERIFIED]:
+```
+$ git check-ignore -v src/oceanembed/data/preprocess.py
+.gitignore:2:data/      src/oceanembed/data/preprocess.py
+
+$ python scripts/prepare_dataset.py
+ModuleNotFoundError: No module named 'oceanembed.data'
+
+$ python scripts/run_slice.py
+Run `python scripts/prepare_dataset.py` first to build artifacts.
+```
+Consequence: **anyone who clones cannot build artifacts or run the slice.** Units A and C are both
+blocked on real-data work. It only runs on Darshan's machine, where the file exists untracked.
+FIX (Unit B owns `.gitignore`): anchor the rule to the repo root — `/data/` instead of `data/` —
+then `git add -f src/oceanembed/data/` and commit. One line.
+
+### observation_priority() — DONE
+- BRANCH: `feat/unit-a-priority`, branched off current `main` (3f85e52) so it merges clean.
+- WHAT WORKS [VERIFIED by execution]:
+  - `pytest tests/test_observation_priority.py -q` -> **11 passed**.
+  - Verified against the REAL seam (`predict.py:165-176`, real `_argo_sparsity()`, today's no-Argo
+    state): `priority (100,240) float32`, ocean 0.0000-1.0000, mean 0.5654, 856 distinct values,
+    land all-NaN, ocean all finite. `reconstruct_grid` no longer returns `priority=None`, so the
+    Streamlit panel lights up automatically via B's auto-detection.
+- DESIGN (full rationale in `docs/ARCHITECTURE.md`): weighted geometric mean of normalized
+  |anomaly| x uncertainty x sparsity, default weights (1,1,1), 1st-99th percentile normalization.
+  Multiplicative because a site must be anomalous AND uncertain AND unobserved. Geometric mean
+  rather than raw product because the ranking is identical (asserted in a test) but the product
+  collapses toward 0 and renders a near-black map.
+- **The bug this design prevents**: `_argo_sparsity()` returns a UNIFORM grid when `argo_test` is
+  absent — the repo's state today. Min-max scaling a constant grid gives all-zeros, which would
+  silently zero the whole priority map: a blank panel that looks like a bug, not a missing input.
+  Constant/all-NaN factors are therefore treated as NEUTRAL and warn; if all three are degenerate
+  the result is all-NaN so the UI hides the panel instead of painting the basin as max priority.
+- FILES MODIFIED: `src/oceanembed/products/observation_priority.py`,
+  `tests/test_observation_priority.py` (new), `docs/ARCHITECTURE.md`, `docs/HANDOFF.md`.
+- NEXT (A): LightGBM baseline + quantile uncertainty (`models/lgbm_baseline.py`,
+  `train/train_lgbm.py` — both still stubs). Then rebase the useful parts of `feat/unit-a-mlp`
+  (weights_only=True safety, norm-stats-in-checkpoint, fixture-provenance guard D-010, 17 tests).
+- STILL OPEN FOR B: the `.gitignore` blocker above; **D-008** depths (now VERIFIED from the official
+  page https://sih2026.vuce.in/en -> SIH26066: 15 levels to 1000 m, ours is 11 to 500 m);
+  **D-009** raw-in vs z-scored-in for `predict_mlp` (your committed version is z-scored-in, but you
+  asked for raw-in).
+- WITHDRAWN by A: **D-011** (fixture physics) is now moot — the pipeline trains on synthetic GLORYS
+  via `build_samples`, not on `sample_X.npy`. Don't spend time on it.
+
 ## 2026-08-25 — Unit B — Day 4: reconstruct() seam + Streamlit demo (CLICKABLE)
 - WHAT WORKS [VERIFIED by execution]:
   - `inference/predict.py`: `reconstruct(lat,lon,date)` → profile_mean/std, reliability, climatology, anomaly,

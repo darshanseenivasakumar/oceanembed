@@ -103,13 +103,23 @@ def run(raw_glob: str | None = None, out_path: str | None = None) -> str:
 
     land_mask = np.isnan(surf["sst"]).all(axis=0)   # land = NaN at EVERY timestep
 
+    # BATHYMETRY. The surface land-mask only says "is there water at the top". It does NOT say how
+    # DEEP the water is, and 24% of surface-ocean cells in this basin (Persian Gulf, Gulf of
+    # Thailand, continental shelves) are shallower than 1000 m. GLORYS gives NaN below the sea
+    # floor, so a NaN in the TARGET at depth d means "there is no water at depth d here".
+    # Without this mask the model happily prints a 1000 m temperature for a 20 m deep gulf.
+    valid_mask = ~np.isnan(temp).any(axis=0)        # (lat, lon, depth) True = real water
+
     # Provenance travels WITH the data, not inferred from a sibling file (docs/DECISIONS.md D-018).
     source = "real-glorys" if kind == "REAL GLORYS" else "synthetic"
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     np.savez_compressed(out_path, times=times, temp=temp, land_mask=land_mask,
-                        source=np.array(source), **surf)
+                        valid_mask=valid_mask, source=np.array(source), **surf)
     print(f"[preprocess] source={source}")
+    deep = int(valid_mask[..., -1].sum()); shallow = int((~land_mask).sum() - deep)
+    print(f"[preprocess] bathymetry: {deep} cells reach {config.DEPTHS[-1]} m, "
+          f"{shallow} surface-ocean cells are shallower (predictions there will be masked)")
     print(f"[preprocess] wrote {out_path}: T={len(times)}, grid={config.N_LAT}x{config.N_LON}x{config.N_DEPTHS}, "
           f"land cells={int(land_mask.sum())}, span {times.min()}..{times.max()}")
     return out_path

@@ -104,6 +104,23 @@ def _climatology():
     return io.load_npy(p) if os.path.exists(p) else None
 
 
+@functools.lru_cache(maxsize=1)
+def _valid_mask():
+    """(lat, lon, depth) True where there is REAL water at that depth.
+
+    A surface land-mask only says "is there water on top". 24% of surface-ocean cells in this basin
+    (Persian Gulf, Gulf of Thailand, shelves) are shallower than 1000 m, and the per-column model
+    happily emits 15 numbers for every one of them. Those deep values are fabricated -- there is no
+    water there to have a temperature. Bathymetry always comes from the GLORYS grids, since the
+    satellite file has no subsurface truth to derive it from.
+    """
+    p = os.path.join(config.DATA_PROCESSED, "grids.npz")
+    if not os.path.exists(p):
+        return None
+    with np.load(p, allow_pickle=False) as z:
+        return z["valid_mask"] if "valid_mask" in z.files else None
+
+
 def available_dates() -> list:
     """Dates present in the processed grids (what the UI may offer)."""
     return [pd.Timestamp(t).date() for t in _grids()["times"]]
@@ -176,6 +193,22 @@ def reconstruct(lat: float, lon: float, date) -> dict:
     mean, std = mc_dropout_predict(_model(), Xraw)
     mean, std = mean[0], std[0]
 
+    # Blank out depths below the sea floor rather than printing an invented temperature.
+    vm = _valid_mask()
+    if vm is not None:
+        below = ~vm[i, j]
+        # The satellite and GLORYS products disagree slightly on the coastline (12,274 vs 12,168
+        # land cells), so a cell can read as ocean in the satellite surface field while GLORYS has
+        # no water column there at all. Say "no data" instead of drawing an empty chart.
+        if below.all():
+            return dict(lat=float(config.LAT[i]), lon=float(config.LON[j]),
+                        date=pd.Timestamp(g["times"][t]).date(), is_land=True,
+                        depths=config.DEPTHS, profile_mean=None, profile_std=None,
+                        model_spread=None, measured_error=None,
+                        climatology=None, anomaly=None, surface=None)
+        mean = np.where(below, np.nan, mean)
+        std = np.where(below, np.nan, std)
+
     clim = _climatology()
     month = pd.Timestamp(g["times"][t]).month
     clim_prof = clim[month - 1, i, j] if clim is not None else None
@@ -227,6 +260,12 @@ def reconstruct_grid(date, with_uncertainty: bool = True) -> dict:
     else:
         temp[ii, jj] = predict_mlp(_model(), X)
 
+    vm = _valid_mask()
+    if vm is not None:
+        temp = np.where(vm, temp, np.nan)
+        if unc is not None:
+            unc = np.where(vm, unc, np.nan)
+
     month = pd.Timestamp(g["times"][t]).month
     clim = _climatology()
     anom = None
@@ -243,6 +282,16 @@ def reconstruct_grid(date, with_uncertainty: bool = True) -> dict:
                 warnings.simplefilter("ignore", RuntimeWarning)
                 a2d = np.nanmean(np.abs(anom), axis=2)
                 u2d = np.nanmean(unc, axis=2)
+            # Do not rank cells an Argo float cannot occupy. Sparsity is "distance to the nearest
+            # float", so the shallow marginal seas floats CANNOT enter (Persian Gulf, Gulf of
+            # Thailand) scored maximum sparsity and dominated the top of the list. Recommending a
+            # deployment where the water is 20 m deep is the kind of thing an INCOIS reviewer spots
+            # immediately. Restrict ranking to cells with water at every target depth.
+            if vm is not None:
+                deep_enough = vm[..., -1]
+                a2d = np.where(deep_enough, a2d, np.nan)
+                u2d = np.where(deep_enough, u2d, np.nan)
+                sparsity = np.where(deep_enough, sparsity, np.nan)
             priority = observation_priority(a2d, u2d, sparsity)
         except Exception:
             priority = None  # not implemented yet — expected before Unit A lands it

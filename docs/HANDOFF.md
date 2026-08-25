@@ -11,6 +11,48 @@
 
 
 
+
+## 2026-08-25 - Unit A (Arjhun) - Day 3 PREPPED (blocked on real data), + a real bug found
+
+- BRANCH: `feat/unit-a-priority`. **`pytest tests/ -q` -> 50 passed.**
+- **Day 3 cannot complete**: it is "train for real; beat the baseline", and there is no real data because
+  `prepare_dataset.py` still fails (`.gitignore` excludes `src/oceanembed/data/`). Checked `origin/main` - no fix
+  pushed yet. So I built everything that does NOT depend on real data.
+- NEW `oceanembed/train/compare_models.py` - the three-way verdict harness. `scripts/run_slice.py` compares MLP
+  vs climatology only and has no LightGBM arm, so the Day-3 decision ("if MLP can't beat LightGBM, say so and we
+  ship LightGBM") had nothing producing it. One command now does:
+  `python -m oceanembed.train.compare_models`. Degrades gracefully when a model is missing; refuses to write
+  fixture runs to EXPERIMENT_LOG.md.
+- NEW `oceanembed/train/_data.py` - one loader shared by training AND evaluation (see D-014).
+
+### BUG FOUND AND FIXED - a live instance of Darshan's D-009 concern
+`train_lgbm` and `compare_models` each had their own fixture loader; one z-scored X, the other did not. Nothing
+errored. The models silently saw different scales:
+- MLP evaluated at **RMSE 36.20 degC** (trained z-scored, evaluated raw)
+- then LightGBM at **RMSE 2.51 degC, worse than climatology** (trained raw, evaluated z-scored)
+Neither model was broken - the caller was, twice, in opposite directions. Fixed by making both delegate to
+`train/_data.py`; tests assert train and test share one scale. **Darshan: this is exactly the silent failure you
+predicted. With the stats living outside the model, every caller answers "who normalizes?" separately and gets it
+wrong quietly. Strongest argument yet for resolving D-009.**
+I also corrected a misleading comment I had written in `lgbm_baseline.py`: trees do not NEED scaling, but that is
+not the same as being safe under a change of scale between fit and predict.
+
+### Harness verified on fixtures [VERIFIED by execution]
+climatology 1.4664 | LightGBM 0.2225 (+0.848) | MLP 0.2223 (+0.848)
+VERDICT: LIGHTGBM (**NOT conclusive**) - 0.1% gap, under the 2% noise margin, ships the simpler model.
+That is the correct answer: D-013 predicted both models saturate the 0.20 degC noise floor, and they do.
+NOT written to EXPERIMENT_LOG.md - fixture runs are not experiments.
+
+- FILES MODIFIED: `src/oceanembed/train/compare_models.py` (new), `src/oceanembed/train/_data.py` (new),
+  `src/oceanembed/train/train_lgbm.py`, `src/oceanembed/models/lgbm_baseline.py` (comment fix),
+  `tests/test_compare_models.py` (new), `docs/DECISIONS.md` (D-014, D-015), `docs/HANDOFF.md`.
+- NEXT (A), the moment the `.gitignore` fix lands - about 10 minutes of work:
+  `python scripts/prepare_dataset.py` -> `train_lgbm` -> `train_mlp` ->
+  `python -m oceanembed.train.compare_models` -> real verdict auto-logged to EXPERIMENT_LOG.md.
+- OPEN FOR B (all still blocking or unanswered): `.gitignore` blocker | **D-008** depths (VERIFIED 15 levels to
+  1000 m at https://sih2026.vuce.in/en -> SIH26066; ours is 11 to 500 m) | **D-009** raw-in vs z-scored-in |
+  add `lgbm_quantiles.pkl` to DATA_CONTRACT.md.
+
 ## 2026-08-25 — Unit A (Arjhun) — Day 2 COMPLETE (baselines + full training loop + tests)
 
 - BRANCH: `feat/unit-a-priority` (off current main 3f85e52). **`pytest tests/ -q` -> 36 passed.**

@@ -53,3 +53,27 @@ advantage over trees" or "ship either one" from this run. The model-selection de
 "if MLP can't beat LightGBM, say so and we ship LightGBM") can only be made on REAL GLORYS data, where the signal
 is not a 1-D exponential decay and there is genuine structure for a nonlinear model to exploit. Re-run the
 comparison after `prepare_dataset.py --real` and record the result here.
+
+## D-014 - Training and evaluation MUST share one data loader (`oceanembed.train._data`)
+DATE 2026-08-25. OWNER Unit A. CAUSE: `train_lgbm` and `compare_models` each had their own fixture loader.
+One z-scored X, the other did not. Nothing errored - the models just silently saw different scales:
+- Round 1: MLP evaluated at **RMSE 36.20 degC** (trained z-scored, evaluated raw). Looked like a broken model.
+- Round 2: LightGBM at **RMSE 2.51 degC, WORSE than climatology** (trained raw, evaluated z-scored).
+Neither model was broken. The CALLER was, both times, in opposite directions.
+LESSON: "trees are scale-invariant" means trees do not NEED scaling - NOT that you may change the scale between
+fit and predict. A booster's split thresholds are learned in the units it was trained on.
+DECISION: `oceanembed/train/_data.py` is the single source of truth. `load_real()` and `load_fixtures()` both
+return the SAME convention as Unit B's `build_samples`: **X always z-scored, y always real degC.** Fixtures are
+z-scored with TRAIN-SPLIT stats only. `train_lgbm` and `compare_models` both delegate to it, and
+`tests/test_compare_models.py` asserts train and test share one scale.
+CONSEQUENCES: a preparation bug is now identical everywhere, i.e. visible, instead of a silent 20x error in one
+path. **This is a live instance of the D-009 ambiguity Darshan raised** - with the stats living outside the model,
+"who normalizes?" is answered separately by every caller, and the failure is silent every time.
+
+## D-015 - Verdict rule: a sub-2% RMSE gap is a TIE, and ties ship the simpler model
+DATE 2026-08-25. OWNER Unit A. REASON: TEAM_PLAN Day 3 says to pick MLP or LightGBM on the evidence, but a raw
+`argmin(rmse)` reads run-to-run noise as a win. `compare_models._verdict` declares a TIE when the relative RMSE
+gap is under `TIE_MARGIN = 2%`, marks the result NOT conclusive, and defaults to LightGBM as the simpler, faster,
+more inspectable model. CONSEQUENCE (measured on fixtures): MLP 0.2223 vs LightGBM 0.2225 - a 0.1% gap - is
+correctly reported as a tie rather than an MLP win. Fixture runs are additionally never written to
+EXPERIMENT_LOG.md, so a synthetic number cannot later be mistaken for a result.

@@ -25,21 +25,7 @@ from oceanembed.models.lgbm_baseline import (
     save_lgbm,
     train_boosters,
 )
-from oceanembed.utils import io
-
-
-def _load(fixtures: bool) -> tuple[np.ndarray, np.ndarray, str]:
-    if fixtures:
-        return (
-            io.load_npy(config.art("sample_X.npy")).astype("float32"),
-            io.load_npy(config.art("sample_y.npy")).astype("float32"),
-            "FIXTURES (artifacts/sample_*.npy)",
-        )
-    return (
-        io.load_npy(config.art("X_train.npy")).astype("float32"),
-        io.load_npy(config.art("y_train.npy")).astype("float32"),
-        "real artifacts (X_train.npy / y_train.npy)",
-    )
+from oceanembed.train import _data
 
 
 def train(
@@ -51,7 +37,8 @@ def train(
     """Train the baseline. Returns a summary dict; writes artifacts/lgbm_model.pkl."""
     np.random.seed(config.SEED)
 
-    X, y, source = _load(fixtures)
+    d = _data.load(fixtures=fixtures)
+    X, y, source = d["X_train"], d["y_train"], d["dataset"]
     assert len(X) == len(y), f"X/y row mismatch: {len(X)} vs {len(y)}"
 
     n_val = max(1, int(len(X) * val_frac))

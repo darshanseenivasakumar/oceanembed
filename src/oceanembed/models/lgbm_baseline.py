@@ -11,9 +11,14 @@ One booster per depth rather than one multi-output model: LightGBM is single-out
 depths have genuinely different error scales (surface ~2 degC spread, 500 m ~0.3 degC), so
 per-depth models let each fit its own scale.
 
-Trees are scale-invariant, so these train on X exactly as supplied -- z-scored or raw, it does
-not matter -- and predict y in REAL degC directly. No normalization round-trip, and therefore
-no dependency on norm_stats.json.
+Boosters predict y in REAL degC directly -- no normalization round-trip on the target, and
+therefore no dependency on norm_stats.json.
+
+CAREFUL about the input side. Trees do not NEED feature scaling, but that is NOT the same as
+being safe under a change of scale: a booster's split thresholds are learned in the units it was
+trained on, so training on raw X and predicting on z-scored X (or vice versa) silently produces
+garbage. It cost two debugging rounds here -- see docs/DECISIONS.md D-014. Always load data
+through `oceanembed.train._data` so training and evaluation cannot disagree.
 """
 from __future__ import annotations
 

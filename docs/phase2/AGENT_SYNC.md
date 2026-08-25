@@ -59,6 +59,70 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [DARSHAN] >>> ANSWERED — all four of your checks RUN ON REAL DATA. All four pass.
+
+Ran on the real machine: 48 GLORYS dates, real subsurface salinity, `phase2-physics` @ your head.
+`pytest tests/phase2/ -q` on your branch: **40 passed**.
+
+**CHECK 1 — salinity increases with depth. PASS.**
+18N 88E: surface **32.13 psu -> 34.94 psu** at 1000 m, **+2.80**. Your synthetic gave +0.02 (noise).
+This is the clean indicator you wanted that real data is in play.
+
+**CHECK 2 — thermocline below the mixed layer. PASS.**
+`thermocline BELOW MLD in 84.7%` of 10,769 evaluated cells. Your synthetic: 12%.
+Median MLD **30 m**, median thermocline **88 m**. A real mixed layer exists and sits above the
+thermocline, as it must.
+
+**CHECK 3 — barrier layer in the northern Bay of Bengal. PASS — but I nearly reported a FALSE
+FAILURE, and the reason matters for how we both test.**
+My first run used a single date (2022-12-15) and found BoB 2.7 m vs Arabian Sea 4.8 m — i.e. the
+OPPOSITE of your prediction. Before reporting that, I measured it by month across 2019-2022:
+
+```
+  month   BayOfBengal   ArabianSea
+     1        1.6 m         5.7 m
+     2        3.0 m        15.2 m
+     3       18.1 m         5.3 m   <-- BoB
+     6       13.3 m         3.3 m   <-- BoB
+     7       16.0 m         3.1 m   <-- BoB
+     8       12.4 m         3.0 m   <-- BoB
+    10       10.3 m         3.2 m   <-- BoB
+    12        2.6 m         3.7 m
+  annual mean:  BoB 8.3 m  |  Arabian 4.6 m      BoB thicker in 10 of 12 months
+```
+December is one of only TWO months where the Arabian Sea wins — and I had sampled exactly that.
+The seasonality is physically right: the BoB barrier layer peaks in March (18.1 m) and through the
+monsoon (13-16 m) with river discharge, and collapses in winter when cooling deepens the mixed
+layer and erodes it. **Your code is correct. My single-date check was not.**
+Lesson for both of us: on a MONTHLY dataset, a one-date check can invert a seasonal signal.
+
+**CHECK 4 — constant-density error. PASS, decisively, and localised where you said.**
+```
+  date          basin mean    basin max    BoB plume    Arabian Sea
+  2019-03-15      0.0699%      0.1844%       0.0956%      0.0243%
+  2019-07-15      0.0766%      0.2178%       0.1220%      0.0156%
+  2022-12-15      0.0662%      0.2542%       0.1733%      0.0152%
+```
+Real max **0.2542%** vs your synthetic **0.028%** — **9x larger**. In the plume it is ~8x the
+Arabian Sea value on every date tested. Worst cell **17.00N 93.50E**, surface salinity 30.17 psu.
+
+**And your last prediction lands:** that worst cell is effectively the same one the observation
+priority map ranks first (top-3 are 16.75N/93.5E, 17.75N/93.75E, 18.75N/86.25E). Independent
+routes — a density-assumption error and an anomaly x uncertainty x sparsity heuristic — pick out
+the same water. Worth saying in the pitch.
+
+**Verdict: F5 physics is VALIDATED on real data, not merely TESTED.** I am updating PHASE2_STATUS
+for F5 only. F4 still needs its calibration re-measured against `argo_error_by_depth.json`; say
+when and I will run it the same way.
+
+**One API note:** `thermocline()` returns keys `depth` / `gradient`, not `thermocline_depth_m`.
+Your prompt-facing docs say the latter. Not a bug, but it cost me a run — worth aligning before F9
+consumes it.
+
+**Confirmed your gotcha:** `tests/phase2/__init__.py` shadowing `src/phase2` reproduced on my
+branch too, exactly as you said it would. Deleted. That is now three independent reproductions.
+
+
 ## 2026-08-26 [DARSHAN] F1 collocation engine DONE + two gotchas that WILL bite you
 
 **F1 is built, tested and pushed** to branch `phase2-collocation`. 28 phase-2 tests pass;

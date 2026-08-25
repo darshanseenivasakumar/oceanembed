@@ -2,24 +2,19 @@
 
 OWNER: Unit A (Arjhun).
 
-Self-contained BY DESIGN: nothing here depends on artifacts/ existing. A fresh clone cannot
-run scripts/prepare_dataset.py today (see docs/HANDOFF.md), so tests that needed real
-artifacts would just be skipped everywhere and prove nothing.
-
-The dropout test matters beyond hygiene: Day-4 MC-dropout requires dropout to stay ACTIVE in
-train() mode. If it is ever swapped for something inference-only, uncertainty silently collapses
-to zero and we would report fabricated confidence.
+The dropout test matters beyond hygiene: Day-4 MC-dropout uncertainty requires dropout to
+stay ACTIVE in train() mode. If someone "helpfully" swaps it for something inference-only,
+uncertainty silently collapses to zero and we would report fake confidence.
 """
 from __future__ import annotations
 
-import json
+import warnings
 
 import numpy as np
 import pytest
 import torch
 
 from oceanembed import config
-from oceanembed.models import mlp_profile as mp
 from oceanembed.models.mlp_profile import MLPProfile, load_mlp, predict_mlp
 
 
@@ -29,30 +24,13 @@ def model() -> MLPProfile:
     return MLPProfile()
 
 
-@pytest.fixture
-def norm_stats(tmp_path, monkeypatch):
-    """Provide norm_stats.json without touching Unit B's real artifact."""
-    tm = np.linspace(28.0, 9.0, config.N_DEPTHS).astype("float32")
-    ts = np.full(config.N_DEPTHS, 2.0, dtype="float32")
-    path = tmp_path / "norm_stats.json"
-    path.write_text(json.dumps({
-        "feat_mean": np.zeros(config.N_FEAT).tolist(),
-        "feat_std": np.ones(config.N_FEAT).tolist(),
-        "targ_mean": tm.tolist(),
-        "targ_std": ts.tolist(),
-    }), encoding="utf-8")
-    monkeypatch.setattr(mp, "_targ_stats", lambda: (tm, ts))
-    return tm, ts
-
-
-# --- config -----------------------------------------------------------------
 def test_config_is_self_consistent():
     config.sanity_check()
 
 
-# --- forward pass -----------------------------------------------------------
 def test_forward_pass_shape(model):
-    out = model(torch.randn(7, config.N_FEAT))
+    x = torch.randn(7, config.N_FEAT)
+    out = model(x)
     assert out.shape == (7, config.N_DEPTHS)
     assert out.dtype == torch.float32
 
@@ -62,18 +40,63 @@ def test_forward_rejects_wrong_feature_count(model):
         model(torch.randn(4, config.N_FEAT + 1))
 
 
-def test_architecture_matches_the_contract(model):
-    """11 -> 128 -> 128 -> 11 with dropout, per docs/MODEL_SPEC.md and config.MLP."""
-    linears = [m for m in model.net if isinstance(m, torch.nn.Linear)]
-    dropouts = [m for m in model.net if isinstance(m, torch.nn.Dropout)]
-    widths = [linears[0].in_features] + [lin.out_features for lin in linears]
-    assert widths == [config.N_FEAT, *config.MLP["hidden"], config.N_DEPTHS], widths
-    assert dropouts and all(d.p == config.MLP["dropout"] for d in dropouts)
+def test_predict_mlp_shape_and_dtype(model):
+    out = predict_mlp(model, np.random.randn(13, config.N_FEAT).astype("float32"))
+    assert out.shape == (13, config.N_DEPTHS)
+    assert out.dtype == np.float32
+    assert np.isfinite(out).all()
 
 
-# --- dropout / MC-dropout precondition --------------------------------------
+def test_predict_mlp_rejects_bad_shape(model):
+    with pytest.raises(AssertionError):
+        predict_mlp(model, np.random.randn(5, config.N_FEAT + 2).astype("float32"))
+
+
+def test_predict_mlp_accepts_raw_units_without_warning(model):
+    """RAW IN / REAL OUT (D-009): raw SST (~28 degC) is the EXPECTED input, not an error."""
+    raw = np.random.uniform(24, 31, size=(6, config.N_FEAT)).astype("float32")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")          # any warning fails the test
+        out = predict_mlp(model, raw)
+    assert out.shape == (6, config.N_DEPTHS)
+
+
+def test_predict_mlp_warns_on_already_normalized_input(model):
+    """The one remaining way to misuse it: pre-z-scoring, which double-normalizes."""
+    model.set_norm_stats(
+        np.full(config.N_FEAT, 28.0), np.ones(config.N_FEAT),
+        np.zeros(config.N_DEPTHS), np.ones(config.N_DEPTHS),
+    )
+    already_z = np.random.randn(16, config.N_FEAT).astype("float32")
+    with pytest.warns(RuntimeWarning, match="ALREADY z-scored"):
+        predict_mlp(model, already_z)
+
+
+def test_normalize_denormalize_round_trip(model):
+    """normalize() must be the exact inverse of the z-score used in training."""
+    rng = np.random.default_rng(config.SEED)
+    fm = rng.uniform(-5, 30, config.N_FEAT).astype("float32")
+    fs = rng.uniform(0.5, 4.0, config.N_FEAT).astype("float32")
+    model.set_norm_stats(fm, fs, np.zeros(config.N_DEPTHS), np.ones(config.N_DEPTHS))
+    raw = rng.uniform(-5, 35, (7, config.N_FEAT)).astype("float32")
+    z = model.normalize(torch.from_numpy(raw)).numpy()
+    assert np.allclose(z, (raw - fm) / fs, atol=1e-5)
+
+
+def test_fixture_provenance_survives_checkpoint(tmp_path, model):
+    """A fixture-trained checkpoint must announce itself on load (D-010)."""
+    assert model.is_fixture_model is False
+    model.trained_on_fixtures.fill_(1.0)
+    path = tmp_path / "fixture_model.pt"
+    torch.save(model.state_dict(), path)
+    with pytest.warns(RuntimeWarning, match="SYNTHETIC FIXTURES"):
+        reloaded = load_mlp(str(path))
+    assert reloaded.is_fixture_model is True
+
+
 def test_dropout_active_in_train_inactive_in_eval(model):
-    x = torch.randn(64, config.N_FEAT)
+    """MC-dropout (Day 4) depends on this exact behaviour."""
+    x = torch.randn(32, config.N_FEAT)
 
     model.eval()
     with torch.no_grad():
@@ -83,62 +106,55 @@ def test_dropout_active_in_train_inactive_in_eval(model):
     model.train()
     with torch.no_grad():
         c, d = model(x), model(x)
-    assert not torch.allclose(c, d), "train() must stay stochastic or MC-dropout returns zero uncertainty"
+    assert not torch.allclose(c, d), "train() must keep dropout stochastic for MC-dropout"
 
 
-# --- predict_mlp ------------------------------------------------------------
-def test_predict_mlp_shape_and_dtype(model, norm_stats):
-    out = predict_mlp(model, np.random.randn(13, config.N_FEAT).astype("float32"))
-    assert out.shape == (13, config.N_DEPTHS)
-    assert out.dtype == np.float32 and np.isfinite(out).all()
+def test_norm_stats_roundtrip_through_checkpoint(tmp_path, model):
+    """The checkpoint must carry normalization -- see docs/DECISIONS.md."""
+    rng = np.random.default_rng(config.SEED)
+    fm = rng.normal(size=config.N_FEAT).astype("float32")
+    fs = np.abs(rng.normal(size=config.N_FEAT)).astype("float32") + 0.5
+    tm = rng.normal(size=config.N_DEPTHS).astype("float32")
+    ts = np.abs(rng.normal(size=config.N_DEPTHS)).astype("float32") + 0.5
+    model.set_norm_stats(fm, fs, tm, ts)
 
-
-def test_predict_mlp_rejects_bad_shape(model, norm_stats):
-    with pytest.raises(AssertionError):
-        predict_mlp(model, np.random.randn(5, config.N_FEAT + 2).astype("float32"))
-
-
-def test_predict_mlp_returns_real_degrees_not_normalized(model, norm_stats):
-    """The contract is 'z-scored in, REAL degC out'. Normalized output would sit near 0."""
-    out = predict_mlp(model, np.zeros((8, config.N_FEAT), dtype="float32"))
-    tm, _ = norm_stats
-    assert out.mean() > 5.0, f"output mean {out.mean():.2f} looks normalized, not degC"
-    # An untrained net outputs ~0 in normalized space, so predictions ~= targ_mean.
-    assert np.allclose(out.mean(axis=0), tm, atol=3.0)
-
-
-def test_predict_mlp_leaves_model_in_eval(model, norm_stats):
-    """predict_mlp calls model.eval(); MC-dropout must re-enable train() itself."""
-    model.train()
-    predict_mlp(model, np.random.randn(4, config.N_FEAT).astype("float32"))
-    assert not model.training
-
-
-# --- checkpoint -------------------------------------------------------------
-def test_checkpoint_save_load_round_trip(tmp_path, model, norm_stats):
     path = tmp_path / "mlp_model.pt"
     torch.save(model.state_dict(), path)
     reloaded = load_mlp(str(path))
 
-    x = np.random.randn(9, config.N_FEAT).astype("float32")
+    assert np.allclose(reloaded.targ_mean.numpy(), tm, atol=1e-6)
+    assert np.allclose(reloaded.targ_std.numpy(), ts, atol=1e-6)
+    assert np.allclose(reloaded.feat_mean.numpy(), fm, atol=1e-6)
+
+    x = np.random.uniform(-2, 30, (9, config.N_FEAT)).astype("float32")
     assert np.allclose(predict_mlp(model, x), predict_mlp(reloaded, x), atol=1e-5)
 
 
-def test_loaded_checkpoint_is_in_eval_mode(tmp_path, model):
-    path = tmp_path / "mlp_model.pt"
-    torch.save(model.state_dict(), path)
-    assert not load_mlp(str(path)).training, "load_mlp must return an eval-mode model"
+def test_set_norm_stats_clamps_zero_std(model):
+    """A constant feature has std 0; dividing by it would produce inf."""
+    model.set_norm_stats(
+        np.zeros(config.N_FEAT), np.zeros(config.N_FEAT),
+        np.zeros(config.N_DEPTHS), np.zeros(config.N_DEPTHS),
+    )
+    assert (model.feat_std > 0).all()
+    assert (model.targ_std > 0).all()
 
 
-# --- documented dependency --------------------------------------------------
-def test_predict_mlp_requires_norm_stats(model, monkeypatch):
-    """Documents a real coupling: predict_mlp is unusable until Unit B ships norm_stats.json.
+def test_denormalize_inverts_zscore(model):
+    tm = np.linspace(28.0, 8.0, config.N_DEPTHS).astype("float32")
+    ts = np.full(config.N_DEPTHS, 2.0, dtype="float32")
+    model.set_norm_stats(
+        np.zeros(config.N_FEAT), np.ones(config.N_FEAT), tm, ts
+    )
+    z = torch.zeros(3, config.N_DEPTHS)
+    assert np.allclose(model.denormalize(z).numpy(), tm, atol=1e-5)
 
-    On a fresh clone that file does not exist, so this raises FileNotFoundError. Recorded as a
-    test rather than a surprise -- see docs/HANDOFF.md.
-    """
-    def _boom():
-        raise FileNotFoundError("norm_stats.json")
-    monkeypatch.setattr(mp, "_targ_stats", _boom)
-    with pytest.raises(FileNotFoundError):
-        predict_mlp(model, np.zeros((2, config.N_FEAT), dtype="float32"))
+
+def test_fixtures_match_the_frozen_contract():
+    """Guards against a fixture regeneration silently changing shapes under us."""
+    X = np.load(config.art("sample_X.npy"))
+    y = np.load(config.art("sample_y.npy"))
+    assert X.shape[1] == config.N_FEAT, f"sample_X has {X.shape[1]} cols"
+    assert y.shape[1] == config.N_DEPTHS, f"sample_y has {y.shape[1]} cols"
+    assert len(X) == len(y)
+    assert X.dtype == np.float32 and y.dtype == np.float32

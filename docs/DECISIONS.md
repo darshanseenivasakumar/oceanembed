@@ -156,3 +156,54 @@ directory and run it there. It takes two minutes and is the only way to catch th
 CLEAN RESULTS from the same sweep, worth recording: no hardcoded or fabricated metrics anywhere in code or docs
 [VERIFIED by grep across *.py and *.md]; the app degrades gracefully on missing artifacts (`st.error` + `st.stop`,
 never a traceback); land / no-data points are rejected with a clear message.
+## D-007 — Normalization stats live INSIDE the model checkpoint
+DATE 2026-08-25. OWNER Unit A. REASON: `predict_mlp` must return real °C, so it needs target mean/std — but
+`artifacts/norm_stats.json` is Unit B's file and does not exist yet, and Unit A must not create it. Registering
+`feat_mean/feat_std/targ_mean/targ_std` as buffers on `MLPProfile` puts them in `state_dict()`, so `mlp_model.pt`
+is self-describing and needs no companion file. ALTERNATIVES: (a) have A write `norm_stats.json` — REJECTED,
+violates file ownership; (b) require callers to pass stats into `predict_mlp` — REJECTED, changes a frozen
+signature that B and C already code against; (c) save a dict of numpy arrays next to the state_dict — REJECTED,
+`torch.load` defaults to `weights_only=True` since PyTorch 2.6 and numpy arrays are not allowed under it, so it
+would force the unsafe `weights_only=False`. CONSEQUENCES: `train_mlp.py` prefers B's `norm_stats.json` when it
+appears and falls back to train-split stats otherwise, logging which path it took; no signature changes for B/C.
+
+## D-008 — OPEN QUESTION for Unit B: DEPTHS is 11 levels to 500 m; the problem statement names 15 to 1000 m
+DATE 2026-08-25. RAISED BY Unit A. The SIH26066 statement lists standard depths
+`0,5,10,20,30,50,75,100,125,150,200,300,500,700,1000` (15 levels). `config.DEPTHS` currently has 11, stopping at
+500 m — missing 5, 125, 700 and 1000 m. This sets the MLP output width, so changing it later means a retrain and a
+contract change for every unit. Cost to change now is ~zero (four more depth levels from the same GLORYS download;
+output layer 11→15). NOT ACTIONED — `config.py` is Unit B's file and the constants are frozen by group decision.
+DECISION REQUIRED FROM: Darshan + team. CONSEQUENCES IF DEFERRED: either a retrain later, or we ship a demo that
+visibly does not match the depth list judges are scoring against.
+
+## D-009 — `predict_mlp` takes RAW features; the model normalizes internally
+DATE 2026-08-25. RAISED BY Unit B, ACCEPTED by Unit A. REASON: once D-007 put the z-score stats inside the
+checkpoint, "who normalizes?" became ambiguous, and BOTH wrong answers fail silently — double-normalizing or
+skipping normalization produce plausible-but-wrong temperatures rather than an error. Making the model own the
+whole transform removes the choice from the caller. ALTERNATIVES: (a) keep normalized-in and warn on raw-looking
+input — REJECTED, a warning is not a guarantee and `reconstruct()` can still get it wrong; (b) pass stats into
+predict_mlp — REJECTED, more caller state to get wrong. CONSEQUENCES: `inference/predict.py` and the panels pass
+raw arrays straight through. `mc_dropout_predict` (Day 4) inherits the same convention. `predict_mlp` still warns
+if input looks ALREADY z-scored, the one remaining misuse. VERIFIED: raw `sample_X.npy` off disk with zero
+caller-side normalization -> (500,11) float32, 8.42-30.82 degC, RMSE 0.214 degC.
+
+## D-010 — Fixture-trained checkpoints are stamped and refuse to pass silently
+DATE 2026-08-25. RAISED BY Unit B, ACCEPTED by Unit A. REASON: a checkpoint trained on fixtures has FIXTURE
+statistics baked into its normalization buffers; if it reached the demo it would produce confident nonsense.
+IMPLEMENTATION: `MLPProfile` carries a `trained_on_fixtures` buffer (float, so it survives
+`torch.load(weights_only=True)`); `train_mlp.py` stamps it from the `--fixtures/--real` flag; `load_mlp()` emits a
+RuntimeWarning; `model.is_fixture_model` exposes it for a hard check in the demo path. CONSEQUENCES: enforced in
+code rather than relying on a doc line. `artifacts/mlp_model.pt` is currently stamped 1 and MUST be retrained once
+real GLORYS data lands.
+
+## D-011 — OPEN, for Unit B: the fixtures encode only ONE signal (SST), not the SIH physics
+DATE 2026-08-25. RAISED BY Unit A (measurement), CONVERGENT with Unit B's own "noise trap" concern.
+`scripts/make_fixtures.py` builds the target as `y[:,d] = (sst - 6.0) * exp(-depth/250) + 6.0 + N(0, 0.2)`.
+`ssh`, `sss`, `u`, `v`, lat/lon and day-of-year are generated but NEVER used to build `y` — 10 of 11 features are
+decoys. MEASURED on `sample_X/y`: r(sst, T) = 0.83-1.00 across all depths; r(ssh, T) = -0.002 to +0.041 at every
+depth; r(sin_doy, sst) = -0.014. A linear fit scores +86.9% skill vs predict-the-mean, so the fixtures are
+STRUCTURED, not noise — Unit A's "loss falls" and anti-collapse checks are therefore meaningful and did pass.
+BUT the model is only ever exercised on a 1-D exponential decay, so nothing tests the multi-feature problem, and
+Unit C's anomaly/priority panels will render an ocean where SSH does nothing. FIX (Unit B owns the file): couple
+SSH to thermocline depth and add a day-of-year cycle, per Unit B's own proposal. NOT ACTIONED by Unit A —
+`scripts/make_fixtures.py` is Unit B's file.

@@ -8,6 +8,65 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+
+## 2026-08-25 - Unit A + C (Arjhun) - status after your merges; 1 commit still outstanding
+
+Thanks for merging both branches and for closing D-009 and D-018 properly. **`pytest tests/ -q` on
+`main` -> 130 passed, 1 skipped** [VERIFIED]. Confirmed your fixes landed: `predict.py` now has
+ZERO `_normalize()` calls (raw-in adopted), and `provenance.json` writes `{source, built, x_units}`
+into the artifacts - the real fix, better than the inferred workaround I had put in `_data.py`.
+
+### 1 commit still to merge
+`feat/unit-c-coverage` @ **31b7d6d** - literature + novelty matrices. Already rebased onto your
+current `main`, **0 conflicts**, 130 tests pass on it. Everything else of mine is already in `main`.
+
+### ⚠ Read NOVELTY_MATRIX.md before the pitch - our strongest claim does NOT survive
+The seeded matrix had observation-priority as "UNDEREXPLORED / POTENTIALLY NOVEL". I went looking
+specifically to break that, and it breaks:
+- **Optimizing the Biogeochemical Argo Float Distribution** (J. Atmos. Ocean. Tech. 40(11), 2023) -
+  sequentially picks Argo **deployment locations** to minimise objective mapping uncertainty. That
+  is our idea, done rigorously, for Argo specifically.
+- Optimal sensor placement via differentiable Gumbel-Softmax, under explicit sensor budgets.
+- Adaptive float sampling / FloatCast (2026).
+
+So `anomaly x uncertainty x sparsity` is a **simple heuristic version of a solved problem**, not an
+invention. **INCOIS is the sponsor - they will know this literature.** Claiming novelty there costs
+us the room. Honest reframing that still lands: *"a lightweight, interpretable heuristic that
+surfaces candidate regions, complementary to formal observing-system design."*
+
+Also softened the NIO claim: no NIO-specific paper surfaced, BUT DORS 2022 is global and therefore
+already covers the NIO, and Indian regional literature (INCOIS / NIO Goa / IITM) is unsearched.
+"First in the NIO" is not defensible. "NIO-focused, independently validated, limitations stated" is.
+
+Caveat on both matrices: every row is tagged **[ABSTRACT-ONLY]**. The PDFs in `all research papers/`
+are not on my machine (searched D:, Downloads, Desktop, Documents - absent), so no methods section
+has been read by anyone. Fine for positioning; NOT enough to quote a method or to assert what a
+paper did not do. Whoever has the PDFs can upgrade rows to [VERIFIED].
+
+### Still open, in priority order
+1. **D-008 - the only one that gets MORE expensive with time.** `config.DEPTHS` is 11 levels to
+   500 m; SIH26066 names 15 to 1000 m (`0,5,10,20,30,50,75,100,125,150,200,300,500,700,1000`) -
+   verified at https://sih2026.vuce.in/en -> SIH26066. It sets every array width across all three
+   units. Cheap now, a full retrain later. **Needs your ruling.**
+2. `validation_panel` has no hook in the shell - it calls profile/map/priority only. Two lines:
+   `fn = _panel("validation")` / `if fn: fn()`.
+3. `use_container_width` is deprecated (removal was slated 2025-12-31, already past) and
+   `app/streamlit_app.py` still uses it. My panels moved to `width='stretch'`.
+4. `lgbm_quantiles.pkl` -> `DATA_CONTRACT.md`: `{"q10": [...11], "q90": [...11]}`.
+   `lgbm_model.pkl` is unchanged, still exactly the contracted list of 11 boosters.
+
+### Ready the moment real GLORYS lands (~30 min of my time, nothing blocking me)
+`prepare_dataset.py --real` -> retrain both -> `python -m oceanembed.train.compare_models` gives the
+first REAL MLP-vs-LightGBM verdict (D-013), and `python -m oceanembed.validation.validate_argo`
+opens its own gate automatically once provenance reads `real`. Then freeze weights + cache the demo
+tensors. Everything is built and tested against the seam; it just needs real numbers.
+
+### Reminder on D-016 before any reliability claim
+MC-dropout is overconfident at depth: sigma/RMSE 1.25 at 0 m -> 0.31 at 500 m, i.e. it understates
+real error at 500 m by 3.2x, most confident where least trustworthy. LightGBM quantiles calibrate
+much better (0.70 -> 0.92). Expect this to get WORSE on real GLORYS, not better, since deep error
+grows while MC-dropout sigma keeps shrinking. Decide which uncertainty the demo ships.
+
 ## 2026-08-25 — Unit B — ALL THREE BRANCHES MERGED + two integration bugs fixed
 
 ### ✅ Merged to main: `feat/unit-a-priority`, `feat/unit-c-coverage`, `feat/unit-a-mlp`

@@ -35,9 +35,17 @@ def _model():
 
 
 @functools.lru_cache(maxsize=1)
-def _norm():
-    s = io.load_json(config.art("norm_stats.json"))
-    return np.asarray(s["feat_mean"], "float32"), np.asarray(s["feat_std"], "float32")
+def provenance() -> dict:
+    """Read the provenance stamp written by build_samples (D-018).
+
+    Read from the ARTIFACTS, never inferred from data/raw/ -- artifacts/ is portable and
+    data/raw/ is gitignored, so inference would silently read "real" on a demo laptop.
+    """
+    p = config.art("provenance.json")
+    if os.path.exists(p):
+        return io.load_json(p)
+    return {"source": "unknown", "built": None,
+            "note": "artifacts/provenance.json missing -- rebuild with scripts/prepare_dataset.py"}
 
 
 @functools.lru_cache(maxsize=1)
@@ -69,11 +77,6 @@ def _features_at(i_lat: int, i_lon: int, t_idx: int) -> np.ndarray:
                      g["v"][t_idx, i_lat, i_lon], sl, cl, so, co, sd, cd], dtype="float32")
 
 
-def _normalize(X: np.ndarray) -> np.ndarray:
-    fm, fs = _norm()
-    return ((X - fm) / fs).astype("float32")
-
-
 def _reliability(std: np.ndarray) -> list[str]:
     """Map MC-dropout std to a coarse label. Thresholds are calibrated on the test set — see
     VALIDATION_PROTOCOL.md. Never invent confidence numbers beyond what the spread supports."""
@@ -102,8 +105,9 @@ def reconstruct(lat: float, lon: float, date) -> dict:
                     depths=config.DEPTHS, profile_mean=None, profile_std=None,
                     reliability=None, climatology=None, anomaly=None, surface=None)
 
-    Xn = _normalize(_features_at(i, j, t)[None, :])
-    mean, std = mc_dropout_predict(_model(), Xn)
+    # RAW features straight through: the model normalizes internally (D-009).
+    Xraw = _features_at(i, j, t)[None, :]
+    mean, std = mc_dropout_predict(_model(), Xraw)
     mean, std = mean[0], std[0]
 
     clim = _climatology()
@@ -142,19 +146,18 @@ def reconstruct_grid(date, with_uncertainty: bool = True) -> dict:
     ocean = ~g["land_mask"] & ~np.isnan(g["sst"][t])
     ii, jj = np.where(ocean)
 
-    X = np.stack([_features_at(int(i), int(j), t) for i, j in zip(ii, jj)])
-    Xn = _normalize(X)
+    X = np.stack([_features_at(int(i), int(j), t) for i, j in zip(ii, jj)])  # RAW (D-009)
 
     shape = (config.N_LAT, config.N_LON, config.N_DEPTHS)
     temp = np.full(shape, np.nan, dtype="float32")
     unc = np.full(shape, np.nan, dtype="float32") if with_uncertainty else None
 
     if with_uncertainty:
-        mean, std = mc_dropout_predict(_model(), Xn)
+        mean, std = mc_dropout_predict(_model(), X)
         temp[ii, jj] = mean
         unc[ii, jj] = std
     else:
-        temp[ii, jj] = predict_mlp(_model(), Xn)
+        temp[ii, jj] = predict_mlp(_model(), X)
 
     month = pd.Timestamp(g["times"][t]).month
     clim = _climatology()

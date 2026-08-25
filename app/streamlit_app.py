@@ -52,12 +52,24 @@ except FileNotFoundError as e:
     st.error(str(e))
     st.stop()
 
-synthetic = os.path.exists(os.path.join(config.DATA_RAW, "synthetic_glorys.nc"))
-if synthetic:
+# D-018: provenance is READ FROM THE ARTIFACTS, never inferred from data/raw/. artifacts/ is small
+# and portable while data/raw/ is gitignored, so the old check silently reported "real" as soon as
+# the artifacts were copied to a demo laptop -- presenting simulated data as real ocean performance.
+_prov = P.provenance()
+_source = _prov.get("source", "unknown")
+if _source == "real-glorys":
+    st.caption(f"Data provenance: **real GLORYS** · artifacts built {_prov.get('built', '?')}")
+elif _source == "synthetic":
     st.warning(
         "**SYNTHETIC DATA MODE** — these fields are simulated for pipeline testing. "
         "Numbers are illustrative, **not** real ocean performance. Run the real CMEMS download "
-        "(`prepare_dataset.py --real`) before showing results to judges.", icon="⚠️")
+        f"(`prepare_dataset.py --real`) before showing results to judges. "
+        f"(artifacts built {_prov.get('built', '?')})", icon="⚠️")
+else:
+    st.error(
+        "**UNKNOWN DATA PROVENANCE** — `artifacts/provenance.json` is missing, so this app cannot "
+        "confirm whether these numbers come from real or simulated data. Rebuild with "
+        "`python scripts/prepare_dataset.py` before trusting anything shown here.", icon="🚫")
 
 with st.sidebar:
     st.header("Query")

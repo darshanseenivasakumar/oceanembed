@@ -90,8 +90,13 @@ def run(raw_glob: str | None = None, out_path: str | None = None) -> str:
 
     land_mask = np.isnan(surf["sst"]).all(axis=0)   # land = NaN at EVERY timestep
 
+    # Provenance travels WITH the data, not inferred from a sibling file (docs/DECISIONS.md D-018).
+    source = "real-glorys" if kind == "REAL GLORYS" else "synthetic"
+
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    np.savez_compressed(out_path, times=times, temp=temp, land_mask=land_mask, **surf)
+    np.savez_compressed(out_path, times=times, temp=temp, land_mask=land_mask,
+                        source=np.array(source), **surf)
+    print(f"[preprocess] source={source}")
     print(f"[preprocess] wrote {out_path}: T={len(times)}, grid={config.N_LAT}x{config.N_LON}x{config.N_DEPTHS}, "
           f"land cells={int(land_mask.sum())}, span {times.min()}..{times.max()}")
     return out_path

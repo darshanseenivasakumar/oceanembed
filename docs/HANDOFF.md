@@ -8,6 +8,58 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+## 2026-08-25 — Unit B — ALL THREE BRANCHES MERGED + two integration bugs fixed
+
+### ✅ Merged to main: `feat/unit-a-priority`, `feat/unit-c-coverage`, `feat/unit-a-mlp`
+`pytest` after the merge: **120 passed, 2 skipped** [VERIFIED]. Everyone pull.
+Conflict resolution: `mlp_profile.py` / `train_mlp.py` / `tests/test_model.py` -> **Arjhun's
+versions** (his files, and his implementation is better: normalization as registered buffers, so
+checkpoints are self-describing and survive `torch.load(weights_only=True)`, plus D-010 fixture
+stamping). The conflict existed because my Day-3 vertical slice wrote into Unit A's files — my
+error; I should not have implemented them.
+
+### 🔴 BUG FOUND AND FIXED — silent double-normalization
+`build_samples` wrote **z-scored** X, and Arjhun's `train_mlp` z-scored it **again** via
+`norm_stats.json`. MEASURED on the merged tree: X_train mean 0.000/std 1.000 -> after the second
+z-score **mean -14.29 / std 29.95**. The model would train on doubly-scaled data and be served
+single-scaled data at inference. Nothing errors; the temperatures are just wrong.
+**FIX (my file):** `build_samples` now writes X in **RAW units**; the model owns the whole
+transform, exactly as D-009 intended. [VERIFIED: X_train sst col = 28.35 degC, sss = 34.67 psu.]
+
+### ✅ D-018 CLOSED — provenance no longer inferred
+Arjhun is right that the banner could silently switch itself off. `preprocess` now records which
+files it actually read, and `build_samples` stamps `artifacts/provenance.json`
+`{source: "synthetic"|"real-glorys", built, x_units, n_train, n_test}`. The Streamlit banner reads
+**that**, and shows a hard **UNKNOWN PROVENANCE** error if the file is missing — so a portable
+`artifacts/` folder can no longer masquerade as real data. [VERIFIED: reads `real-glorys` today.]
+
+### 📥 Real GLORYS is downloading (6/48 files, 350 MB so far)
+MEASURED 54.3 MB / ~127 s per date, so full daily 2019-2022 (~79 GB / ~51 h) is infeasible; we take
+**one date per month x 4 years = 48 timesteps** (~2.6 GB), still ~1.15M training rows. Resumable.
+**Artifacts are currently PARTIAL: `n_test = 0`** because only 2019 dates have arrived; the 2022
+test year is still downloading. Do not run comparisons or `run_slice` until it finishes.
+
+### ➡️ ASK FOR UNIT A (Arjhun) — one small follow-up
+`train/_data.py::load_real()` still documents *"X_train/X_test are ALREADY z-scored"*, and
+`load_fixtures()` z-scores fixtures to match. With the fix above the real path is now RAW, so both
+should pass raw straight through (`sample_X.npy` already ships raw). Not a live bug — each path is
+internally consistent and trees are scale-invariant — but the two paths now disagree on convention,
+which is the D-014 trap. Your file, your call.
+
+### ➡️ UNIT C — nothing blocking
+Panels, `anomaly.py`, `validate_argo.py`, metrics + the pooled-R2 finding are all merged. Correct
+call on holding Argo validation: the checkpoint is still fixture-stamped and the test year has not
+downloaded. `standardized_anomaly` sigma request (a climatology STD array) is noted and is mine —
+I will add it after the download completes.
+
+### Corrections to my earlier notes
+- My Day-3 claim that "uncertainty shrinking with depth is explained by natural variability" was
+  incomplete. Arjhun's D-016 measured the calibration ratio: MC-dropout **under-states** real error
+  at 500 m by 3.2x. It is overconfident exactly where the model is least trustworthy. Do not quote
+  MC-dropout confidence at depth until re-measured on real data.
+- My Day-3 "R2 = 0.999" was misleading. Unit C measured that climatology alone scores pooled
+  R2 = +0.95, so pooled R2 sits on a very high floor. Quote `r2_by_depth` / `skill_vs_clim`.
+
 ## 2026-08-25 — Unit B — REAL Argo data + critical .gitignore fix
 
 ### 🔴 CRITICAL BUG FIXED — repo was incomplete for everyone

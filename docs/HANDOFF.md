@@ -10,6 +10,52 @@
 
 
 
+
+## 2026-08-25 — Unit A (Arjhun) — Day 2 COMPLETE (baselines + full training loop + tests)
+
+- BRANCH: `feat/unit-a-priority` (off current main 3f85e52). **`pytest tests/ -q` -> 36 passed.**
+- Day 2 item 1 (LightGBM baseline + quantile uncertainty): DONE — see the entry below.
+- Day 2 item 2 (MLP loop: seed, early stopping, save checkpoint): **already done in B's
+  `train_mlp.py`** [VERIFIED by reading it: `_seed()`, patience + best-state restore, saves
+  `mlp_model.pt`]. Not duplicated.
+- Day 2 item 3 (`tests/test_model.py`): DONE — was still an 8-line stub on `main`. 12 tests:
+  architecture matches `config.MLP` (11->128->128->11, dropout 0.2), forward shapes, dropout
+  ACTIVE in train() / inactive in eval() (the MC-dropout precondition), predict_mlp shape/dtype,
+  real-degC-not-normalized output, eval-state hygiene, checkpoint round-trip.
+  **Self-contained by design** — nothing depends on `artifacts/` existing, because a fresh clone
+  cannot run `prepare_dataset.py` today, so artifact-dependent tests would skip everywhere and
+  prove nothing.
+
+### Findings
+- **[VERIFIED] `predict_mlp` hard-fails without `artifacts/norm_stats.json`** — raw
+  `FileNotFoundError` from `_targ_stats()`. On a fresh clone that file does not exist, so the
+  whole predict path is unusable. Combined with the `.gitignore` blocker (no pipeline -> no
+  norm_stats.json) the demo path is dead on a clean clone. Recorded as a test
+  (`test_predict_mlp_requires_norm_stats`) rather than left as a surprise. **B: consider a
+  clearer error, or having `mlp_model.pt` carry its own stats (that is D-007 on
+  `feat/unit-a-mlp`).**
+- **[VERIFIED] MY MISTAKE, now fixed:** a fixture-trained `mlp_model.pt` from `feat/unit-a-mlp`
+  was left in gitignored `artifacts/` and survived the branch switch. It has norm buffers that
+  B's `MLPProfile` does not define, so `load_mlp()` failed with "Unexpected key(s) in
+  state_dict". Not a bug in B's code — my stale artifact. Deleted. Anyone switching between
+  these branches must clear `artifacts/*.pt` first.
+
+### D-009 — NOT actioned, and deliberately so
+`predict.py` calls `_normalize()` before `predict_mlp` [VERIFIED: `Xn = _normalize(...)` at
+predict.py:105 and :145], so the live integration is **z-scored-in**. Porting the raw-in version
+from `feat/unit-a-mlp` would DOUBLE-NORMALIZE and silently corrupt every temperature in the demo
+— precisely the failure Darshan flagged. Resolving it properly means deleting `_normalize()` from
+`predict.py`, which is B's file. **So D-009 needs Darshan's decision, not a unilateral change.**
+This branch keeps B's z-scored-in contract throughout.
+
+- NEXT (A): blocked on real data for the honest MLP-vs-LightGBM verdict (D-013). Once B's
+  `.gitignore` fix lands: `prepare_dataset.py` -> `train_lgbm` + `train_mlp` on real X_train ->
+  re-run the comparison -> log to EXPERIMENT_LOG.md -> Day 4 (MC-dropout tuning already exists in
+  B's `uncertainty.py`; `observation_priority()` is done).
+- OPEN FOR B: `.gitignore` blocker | **D-008** depths (VERIFIED 15 levels to 1000 m at
+  https://sih2026.vuce.in/en -> SIH26066; ours is 11 to 500 m) | **D-009** above |
+  add `lgbm_quantiles.pkl` to DATA_CONTRACT.md.
+
 ## 2026-08-25 — Unit A (Arjhun) — LightGBM baseline DONE
 
 - BRANCH: `feat/unit-a-priority` (continues from observation_priority).

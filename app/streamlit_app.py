@@ -99,7 +99,7 @@ else:
 with st.sidebar:
     st.header("Query")
     lat = st.slider("Latitude (°N)", float(config.LAT.min()), float(config.LAT.max()), 15.0, 0.25)
-    lon = st.slider("Longitude (°E)", float(config.LON.min()), float(config.LON.max()), 75.0, 0.25)
+    lon = st.slider("Longitude (°E)", float(config.LON.min()), float(config.LON.max()), 65.0, 0.25)
     date = st.selectbox("Date", dates, index=len(dates) - 1)
     st.divider()
     show_map = st.checkbox("Compute full-grid maps (slower)", value=False)
@@ -117,9 +117,15 @@ if not st.session_state.get("ran"):
 
 # ---- point reconstruction ----------------------------------------------------
 @st.cache_data(show_spinner=False, max_entries=64)
-def _point_cached(_lat, _lon, _date, _source):
-    """Cached per (lat, lon, date, source) so widget re-runs do not re-run 30 MC-dropout passes."""
-    return P.reconstruct(_lat, _lon, _date)
+def _point_cached(lat_, lon_, date_, source_):
+    """Cached per (lat, lon, date, source) so widget re-runs do not repeat 30 MC-dropout passes.
+
+    NOTE: names must NOT start with an underscore. st.cache_data treats a leading underscore as
+    "do not hash this argument", so `_lat, _lon, ...` excluded EVERY argument from the cache key
+    and the first result was returned forever regardless of what the user selected.
+    """
+    P.set_source(source_)
+    return P.reconstruct(lat_, lon_, date_)
 
 
 with st.spinner("Running model…"):
@@ -181,10 +187,11 @@ with right:
 if show_map:
     st.divider()
     @st.cache_data(show_spinner=False, max_entries=8)
-    def _grid_cached(_date, _source):
-        """Cached per (date, source). The depth slider re-runs the script, and recomputing all
-        24k cells on every slider nudge made the map feel broken."""
-        return P.reconstruct_grid(_date)
+    def _grid_cached(date_, source_):
+        """Cached per (date, source). Same underscore rule as above — leading underscores would
+        drop these from the cache key and pin the map to whatever was computed first."""
+        P.set_source(source_)
+        return P.reconstruct_grid(date_)
 
     with st.spinner("Reconstructing the full grid…"):
         gout = _grid_cached(date, _choice)

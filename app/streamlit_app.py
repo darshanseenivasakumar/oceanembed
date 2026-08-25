@@ -75,7 +75,7 @@ if _source == "real-glorys":
         st.success(
             "**Reconstructing from REAL SATELLITE OBSERVATIONS** — OSTIA SST, DUACS sea level and "
             "Multiobs salinity, bias-corrected onto the training scale using **train-period dates "
-            "only**. Validated against independent Argo floats: **RMSE 0.954 °C, skill +0.393 vs "
+            "only**. Validated against independent Argo floats: **RMSE 0.951 °C, skill +0.395 vs "
             "climatology** — statistically indistinguishable from using reanalysis inputs.", icon="🛰️")
     else:
         st.caption(f"Model running on **GLORYS reanalysis** (its training source — an upper bound, "
@@ -148,14 +148,23 @@ with right:
     st.subheader("Per-depth detail")
     tbl = pd.DataFrame({
         "depth (m)": out["depths"],
-        "temp (°C)": np.round(out["profile_mean"], 3),
-        "± std (°C)": np.round(out["profile_std"], 3),
-        "reliability": out["reliability"],
+        "temp (°C)": np.round(out["profile_mean"], 2),
     })
+    if out.get("measured_error"):
+        tbl["typical error (°C)"] = [None if v is None else round(v, 2)
+                                     for v in out["measured_error"]]
     if out["anomaly"] is not None:
-        tbl["anomaly (°C)"] = np.round(out["anomaly"], 3)
+        tbl["vs climatology (°C)"] = np.round(out["anomaly"], 2)
+    tbl["model spread (°C)"] = np.round(out["profile_std"], 2)
     st.dataframe(tbl, hide_index=True, width='stretch')
-    st.caption("Reliability is derived from the MC-dropout spread — not an invented confidence number.")
+    st.caption(
+        "**typical error** = the error this model actually made at that depth against "
+        "**independent Argo floats** (879 profiles, test year) — a measured number, not a "
+        "claim of confidence. "
+        "**model spread** = MC-dropout spread, shown for transparency but **not calibrated**: "
+        "at 75 m it reports ~0.3 °C while the measured error is ~1.2 °C, so it must not be "
+        "read as a confidence interval (DECISIONS D-016). "
+        "**vs climatology** uses a 3-year monthly mean, not a 30-year climatology.")
 
 # ---- optional grid maps ------------------------------------------------------
 if show_map:

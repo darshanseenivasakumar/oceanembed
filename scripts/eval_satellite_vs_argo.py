@@ -122,6 +122,23 @@ def main() -> None:
     for k, dep in enumerate(config.DEPTHS):
         sk = 1 - d_s[k] / d_c[k] if np.isfinite(d_c[k]) and d_c[k] > 0 else np.nan
         print(f"  {dep:6d} {n[k]:6d} {d_c[k]:8.3f} {d_g[k]:8.3f} {d_s[k]:10.3f} {sk:+10.3f}")
+    # Persist per-depth measured error so the UI can show a REAL number instead of a
+    # fabricated confidence label. MC-dropout sigma is uncalibrated (DECISIONS D-016); this is
+    # the error the model ACTUALLY made against independent floats at each depth.
+    io.save_json({
+        "measured_against": "independent Argo floats, test year",
+        "n_profiles": int(len(common)),
+        "max_days_offset": MAX_DAYS,
+        "depths": list(config.DEPTHS),
+        "rmse_satellite": [None if not np.isfinite(v) else round(float(v), 3) for v in d_s],
+        "rmse_glorys": [None if not np.isfinite(v) else round(float(v), 3) for v in d_g],
+        "rmse_climatology": [None if not np.isfinite(v) else round(float(v), 3) for v in d_c],
+        "n_obs_per_depth": [int(v) for v in n],
+        "note": ("This is measured error, not model confidence. Quote it instead of the "
+                 "MC-dropout spread, which D-016 measured as overconfident at the thermocline."),
+    }, config.art("argo_error_by_depth.json"))
+    print(f"[wrote {config.art('argo_error_by_depth.json')}]")
+
     print("-" * 78)
     print(f"  DOMAIN-SHIFT COST: {r_s - r_g:+.4f} degC RMSE "
           f"({100*(r_s-r_g)/r_g:+.1f}% vs the GLORYS ceiling)")

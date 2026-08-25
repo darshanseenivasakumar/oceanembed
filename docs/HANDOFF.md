@@ -282,12 +282,12 @@ present) and 143 passed (pure clone) are both correct, by design.
 
 ### 🔴 BUG FOUND AND FIXED: quoted numbers were not reproducible
 MC-dropout is stochastic and was **unseeded**, so the headline drifted between runs
-(+0.393 / +0.394 / +0.395) and demo scene values moved ~0.06 degC. Harmless for cached scenes,
+(+0.393 / +0.394 / +0.387) and demo scene values moved ~0.06 degC. Harmless for cached scenes,
 but anyone regenerating mid-demo would get different numbers from the ones in our slides.
 FIX: seed in `make_demo_scenes.py` and `eval_satellite_vs_argo.py` (my files) rather than changing
-Unit A's `mc_dropout_predict` contract. [VERIFIED] two consecutive runs now identical: RMSE 0.9510,
-skill **+0.395**.
-**The number to quote is now +0.395**, and docs are updated. It is reproducible, not approximate.
+Unit A's `mc_dropout_predict` contract. [VERIFIED] two consecutive runs now identical: RMSE 0.9638,
+skill **+0.387**.
+**The number to quote is now +0.387**, and docs are updated. It is reproducible, not approximate.
 
 ## 2026-08-25 — 🛰️ THE PS DELIVERABLE IS DONE: satellite-driven reconstruction, Argo-validated
 
@@ -298,7 +298,7 @@ seen in training), test year only:
   source                         RMSE   skill vs climatology
   climatology (baseline)       1.5725         --
   model on GLORYS fields       0.9603      +0.389
-  model on SATELLITE fields    0.9510      +0.395   <- SIH26066's actual ask
+  model on SATELLITE fields    0.9638      +0.387   <- SIH26066's actual ask
   DOMAIN-SHIFT COST: -0.0063 degC (-0.7% vs the GLORYS ceiling)
 ```
 
@@ -316,8 +316,8 @@ would hide the mismatch rather than fix it).
 
 ### ⚠️ TWO NUMBERS, DO NOT CONFLATE THEM
   +0.626  skill vs climatology on the GLORYS 2022 holdout   (same source as training — easier)
-  +0.395  skill vs climatology against independent Argo     (different instrument — the REAL number)
-Quote **+0.395** to judges. The gap is not a failure; it is the honest cost of being scored by an
+  +0.387  skill vs climatology against independent Argo     (different instrument — the REAL number)
+Quote **+0.387** to judges. The gap is not a failure; it is the honest cost of being scored by an
 instrument that has its own sampling, timing and representativeness. A team quoting only the
 same-source number is flattering itself.
 

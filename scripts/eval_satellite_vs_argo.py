@@ -134,6 +134,15 @@ def main() -> None:
         "rmse_glorys": [None if not np.isfinite(v) else round(float(v), 3) for v in d_g],
         "rmse_climatology": [None if not np.isfinite(v) else round(float(v), 3) for v in d_c],
         "n_obs_per_depth": [int(v) for v in n],
+        # Overall figures, so the UI validation panel can show MEASURED numbers instead of
+        # computing something from whatever dict it happens to be handed.
+        "overall": {
+            "satellite": {"rmse": round(float(r_s), 4), "mae": round(float(np.nanmean(np.abs(p_sat[isx] - truth))), 4),
+                          "skill_vs_clim": round(float(1 - r_s / r_c), 4)},
+            "glorys":    {"rmse": round(float(r_g), 4), "mae": round(float(np.nanmean(np.abs(p_glo[ig] - truth))), 4),
+                          "skill_vs_clim": round(float(1 - r_g / r_c), 4)},
+            "climatology": {"rmse": round(float(r_c), 4)},
+        },
         "note": ("This is measured error, not model confidence. Quote it instead of the "
                  "MC-dropout spread, which D-016 measured as overconfident at the thermocline."),
     }, config.art("argo_error_by_depth.json"))

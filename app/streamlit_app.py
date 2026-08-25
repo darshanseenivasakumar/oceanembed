@@ -32,6 +32,27 @@ def _to_image(arr):
     return np.flipud(np.nan_to_num(norm))
 
 
+def _argo_metrics(source: str):
+    """Measured validation metrics against independent Argo floats, for the active source.
+
+    These are read from artifacts/argo_error_by_depth.json (written by
+    scripts/eval_satellite_vs_argo.py) -- never recomputed in the UI, so what the panel shows is
+    exactly what the logged evaluation produced.
+    """
+    import json
+    p = os.path.join(os.path.dirname(__file__), "..", "artifacts", "argo_error_by_depth.json")
+    if not os.path.exists(p):
+        return None
+    with open(p, "r", encoding="utf-8") as fh:
+        d = json.load(fh)
+    key = "satellite" if source == "satellite" else "glorys"
+    o = d.get("overall", {}).get(key)
+    if not o:
+        return None
+    return {"rmse": o["rmse"], "mae": o["mae"], "skill_vs_clim": o["skill_vs_clim"],
+            "rmse_by_depth": d.get("rmse_%s" % key), "n_profiles": d.get("n_profiles")}
+
+
 def _panel(name: str):
     """Return Unit C's render() if it exists and is implemented, else None."""
     try:
@@ -75,7 +96,7 @@ if _source == "real-glorys":
         st.success(
             "**Reconstructing from REAL SATELLITE OBSERVATIONS** — OSTIA SST, DUACS sea level and "
             "Multiobs salinity, bias-corrected onto the training scale using **train-period dates "
-            "only**. Validated against independent Argo floats: **RMSE 0.951 °C, skill +0.395 vs "
+            "only**. Validated against independent Argo floats: **RMSE 0.964 °C, skill +0.387 vs "
             "climatology** — statistically indistinguishable from using reanalysis inputs.", icon="🛰️")
     else:
         st.caption(f"Model running on **GLORYS reanalysis** (its training source — an upper bound, "
@@ -208,13 +229,25 @@ if show_map:
     if gout["priority"] is not None:
         st.subheader("Observation priority")
         fn = _panel("priority")
-        fn(gout) if fn else st.image(_to_image(gout["priority"]), width='stretch')
+        # Must be a statement, not an expression. As `a if fn else b` this evaluated to the
+        # panel's return value (None) and Streamlit's magic rendered a stray "None" badge.
+        if fn:
+            fn(gout)
+        else:
+            st.image(_to_image(gout["priority"]), width='stretch')
         st.caption("Regions where **additional in-situ observations may provide high scientific value** "
                    "(anomaly × uncertainty × observation sparsity). Not a deployment directive.")
     else:
         st.info("Observation-priority map appears once `observation_priority()` has all three inputs.")
 
+    # validation_panel.render(metrics=None, ...) expects a METRICS dict. Passing the grid dict
+    # made every field fall back to NaN, so the panel showed "nan / nan / n/a". Feed it the real
+    # measured numbers from the Argo evaluation instead. No subheader here -- the panel draws its
+    # own, and adding one printed "Validation" twice.
     fn = _panel("validation")
     if fn:
-        st.subheader("Validation")
-        fn(gout)
+        metrics = _argo_metrics(_choice)
+        if metrics:
+            fn(metrics)
+        else:
+            st.info("Run `python scripts/eval_satellite_vs_argo.py` to populate validation metrics.")

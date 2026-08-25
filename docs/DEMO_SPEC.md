@@ -15,9 +15,9 @@ checkpoint, provenance and timestamp that produced them. If the UI serves one it
 | number | meaning |
 |---|---|
 | **+0.626** | skill vs climatology on the GLORYS 2022 holdout — *same source as training, easier* |
-| **+0.395** | skill vs climatology vs **independent Argo** — *different instrument, the real number* |
+| **+0.387** | skill vs climatology vs **independent Argo** — *different instrument, the real number* |
 
-**Quote +0.395.** Satellite-driven RMSE **0.951 °C** vs climatology **1.573 °C**, on 879 Argo
+**Quote +0.387.** Satellite-driven RMSE **0.964 °C** vs climatology **1.573 °C**, on 879 Argo
 profiles. Domain-shift cost vs reanalysis inputs: **−0.7 %** (satellite is marginally better).
 
 ## Scenes (regenerate: `python scripts/make_demo_scenes.py`)

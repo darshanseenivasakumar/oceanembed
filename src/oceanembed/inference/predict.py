@@ -125,8 +125,8 @@ def _reliability(std: np.ndarray) -> list[str]:
 def reconstruct(lat: float, lon: float, date) -> dict:
     """Single-point reconstruction.
 
-    Returns {lat, lon, date, depths[11], surface{...}, profile_mean[11], profile_std[11],
-             reliability[11], climatology[11]|None, anomaly[11]|None, is_land}
+    Returns {lat, lon, date, depths[15], surface{...}, profile_mean[15], profile_std[15],
+             reliability[15], climatology[15]|None, anomaly[15]|None, is_land}
     """
     from oceanembed.inference.uncertainty import mc_dropout_predict
 
@@ -170,7 +170,7 @@ def reconstruct(lat: float, lon: float, date) -> dict:
 def reconstruct_grid(date, with_uncertainty: bool = True) -> dict:
     """Whole-grid reconstruction for maps.
 
-    Returns {date, temp(100,240,11), uncertainty(100,240,11)|None, anomaly(100,240,11)|None,
+    Returns {date, temp(100,240,15), uncertainty(100,240,15)|None, anomaly(100,240,15)|None,
              priority(100,240)|None, land_mask(100,240)}
     """
     from oceanembed.models.mlp_profile import predict_mlp

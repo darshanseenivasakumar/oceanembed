@@ -8,7 +8,7 @@ fit in memory at once (each file is ~300x720x32 per variable; the accumulated ou
 Output: data/processed/grids.npz with keys
   times    datetime64[D]        (T,)
   sst,sss,ssh,u,v  float32      (T, 100, 240)      # surface fields
-  temp     float32              (T, 100, 240, 11)  # temperature at config.DEPTHS
+  temp     float32              (T, 100, 240, 15)  # temperature at config.DEPTHS
   land_mask bool                (100, 240)         # True = land (surface NaN)
 
 VERIFIED against real GLORYS 2026-08-25: latitude ascending, longitude -180..180 (our box is +45..105,

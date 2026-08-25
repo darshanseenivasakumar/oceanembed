@@ -38,7 +38,7 @@ from oceanembed.utils import io
 
 
 def mc_dropout_predict(model, X: np.ndarray, n: int = config.MLP["mc_passes"]):
-    """Run model n times with dropout ON -> (mean(N,11), std(N,11)) in REAL units.
+    """Run model n times with dropout ON -> (mean(N,15), std(N,15)) in REAL units.
 
     This is EPISTEMIC (model) uncertainty only -- the spread of what this one network believes.
     It does not include observation noise or the error from training on GLORYS rather than the
@@ -88,14 +88,14 @@ def calibration_ratio(sigma: np.ndarray, y_true: np.ndarray, y_pred: np.ndarray)
     sigma = np.asarray(sigma, dtype="float32")
     y_true = np.asarray(y_true, dtype="float32")
     y_pred = np.asarray(y_pred, dtype="float32")
-    assert sigma.shape == y_true.shape == y_pred.shape, "sigma, y_true, y_pred must all be (N,11)"
+    assert sigma.shape == y_true.shape == y_pred.shape, "sigma, y_true, y_pred must all be (N,15)"
 
     rmse = np.sqrt(np.nanmean((y_pred - y_true) ** 2, axis=0))
     return (np.nanmean(sigma, axis=0) / np.maximum(rmse, 1e-9)).astype("float32")
 
 
 def relative_uncertainty(sigma: np.ndarray) -> np.ndarray:
-    """sigma as a fraction of each depth's natural variability -> (N,11).
+    """sigma as a fraction of each depth's natural variability -> (N,15).
 
     Real-units sigma is not comparable across depths: 0.05 degC at 500 m (natural spread
     ~0.34 degC) means something very different from 0.05 degC at the surface (spread ~2.06 degC).

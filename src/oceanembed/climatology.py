@@ -10,8 +10,8 @@ from oceanembed.utils import io, grids
 
 
 def build_climatology(y_train: np.ndarray, meta_train: pd.DataFrame, save: bool = True) -> np.ndarray:
-    """y_train:(N,11) + meta_train[month,cell_id] -> (12,100,240,11). Empty cells filled by monthly-global mean."""
-    assert y_train.shape[1] == config.N_DEPTHS, "y_train must be (N,11)"
+    """y_train:(N,15) + meta_train[month,cell_id] -> (12,100,240,15). Empty cells filled by monthly-global mean."""
+    assert y_train.shape[1] == config.N_DEPTHS, "y_train must be (N,15)"
     shape = (12, config.N_LAT, config.N_LON, config.N_DEPTHS)
     ssum = np.zeros(shape, dtype="float64")
     cnt = np.zeros((12, config.N_LAT, config.N_LON), dtype="int64")
@@ -42,7 +42,7 @@ def build_climatology(y_train: np.ndarray, meta_train: pd.DataFrame, save: bool 
 
 
 def climatology_predict(meta: pd.DataFrame, clim: np.ndarray | None = None) -> np.ndarray:
-    """Look up climatology at each row's (month, cell) -> (N,11)."""
+    """Look up climatology at each row's (month, cell) -> (N,15)."""
     if clim is None:
         clim = io.load_npy(config.art("climatology.npy"))
     months = meta["month"].to_numpy().astype(int) - 1

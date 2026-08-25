@@ -63,17 +63,13 @@ def test_max_depth_reaches_1000m():
     assert max(config.DEPTHS) == 1000, "the problem statement requires coverage to 1000 m"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "D-008: config.DEPTHS has the right COUNT (15) but not the problem statement's SET -- "
-        "5 m was substituted for 400 m. Fix is cheap and needs NO re-download: MAX_DEPTH=1100 "
-        "means the GLORYS file already holds every level to 1062 m, so only preprocess -> "
-        "build_samples -> retrain are affected. Swap 400 -> 5 (or keep 400 as a 16th level and "
-        "record it in DECISIONS.md). When fixed, this xfail turns into an unexpected PASS and the "
-        "marker must be deleted -- that is deliberate, so the exemption cannot outlive the bug."
-    ),
-)
+# D-008 RESOLVED 2026-08-25: config.DEPTHS now matches the PS set exactly.
+# The strict xfail that guarded this is deleted, as its own reason required -- it went XPASS the
+# moment 400 -> 5 landed, which is precisely why the exemption could not outlive the bug.
+# Decision: ship the PS's exact 15, NOT a 16-level superset. 5 m is a genuine GLORYS level
+# (0.494, 1.5, 2.6, 3.8, 5.1 m), so it is not redundant with 0 m; and 'right count, right set' is
+# the cheapest thing a judge can verify. 400 m is a Phase-2 nice-to-have, not worth widening
+# every array in the codebase for.
 def test_depths_match_the_problem_statement_exactly():
     assert list(config.DEPTHS) == PS_DEPTHS, (
         f"\n  PS  : {PS_DEPTHS}"

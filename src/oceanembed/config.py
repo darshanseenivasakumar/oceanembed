@@ -19,7 +19,7 @@ LON = np.arange(REGION["lon_min"], REGION["lon_max"], REGION["step"]).astype("fl
 # 15 levels to 1000 m — the Problem Statement depth requirement (docs/DECISIONS.md D-008).
 # Spacing is fine near the surface (steep gradients / thermocline) and coarse below 500 m
 # where the profile is smooth, so 15 levels resolve the structure that actually varies.
-DEPTHS = [0, 10, 20, 30, 50, 75, 100, 125, 150, 200, 300, 400, 500, 700, 1000]  # meters, 15 levels
+DEPTHS = [0, 5, 10, 20, 30, 50, 75, 100, 125, 150, 200, 300, 500, 700, 1000]  # meters, 15 levels
 
 FEATURES = [
     "sst", "sss", "ssh", "u", "v",
@@ -28,7 +28,7 @@ FEATURES = [
 
 N_LAT = len(LAT)          # 100
 N_LON = len(LON)          # 240
-N_DEPTHS = len(DEPTHS)    # 11
+N_DEPTHS = len(DEPTHS)    # 15
 N_FEAT = len(FEATURES)    # 11
 
 # ----------------------------------------------------------------------------

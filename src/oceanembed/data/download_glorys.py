@@ -10,7 +10,7 @@ The catalog listing works WITHOUT login; `subset` DOES need a free CMEMS account
 MEASURED COST [VERIFIED 2026-08-25]: one day, all 5 variables, 0-520 m, full NIO box
   = 54.3 MB and ~127 s.  Full daily 2019-2022 would be ~79 GB / ~51 h -> NOT feasible.
 => We subsample DATES (default: one per month). 48 dates ~= 2.6 GB, ~100 min, and still yields
-   ~1.15M training rows (each date contributes ~24k ocean cells x 11 depths).
+   ~1.15M training rows (each date contributes ~24k ocean cells x 15 depths).
 
 Resumable: a date whose file already exists is skipped, so an interrupted run just continues.
 

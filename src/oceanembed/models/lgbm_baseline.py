@@ -100,7 +100,7 @@ def train_boosters(
 
 
 def predict_lgbm(models: list, X: np.ndarray) -> np.ndarray:
-    """X:(N,11) -> (N,11) temperature in REAL degC. Mirrors predict_mlp's output contract."""
+    """X:(N,11) features -> (N,15) temperature in REAL degC. Mirrors predict_mlp's output contract."""
     X = np.asarray(X, dtype="float32")
     assert X.ndim == 2 and X.shape[1] == config.N_FEAT, f"X must be (N,{config.N_FEAT}), got {X.shape}"
     assert len(models) == config.N_DEPTHS, f"expected {config.N_DEPTHS} boosters, got {len(models)}"

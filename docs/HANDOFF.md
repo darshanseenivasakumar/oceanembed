@@ -80,6 +80,42 @@ which is the point. Once it lands and DEPTHS is settled: retrain both -> `compar
 first REAL verdict -> `validate_argo` opens its own gate automatically when provenance reads `real`.
 About 30 minutes.
 
+## 2026-08-25 — Unit B — DEPTHS now match the PS set exactly; spec-compliance guard green
+
+Arjhun and I converged on this independently (messages crossed): my D-008 ruling shipped the right
+COUNT but the wrong SET — I substituted 400 m for the PS's 5 m. Fixed:
+
+    [0, 5, 10, 20, 30, 50, 75, 100, 125, 150, 200, 300, 500, 700, 1000]
+
+**Decision: ship the PS's exact 15, NOT a 16-level superset.** Arjhun offered keeping 400 m as a
+16th level, and he is right that 400 m is scientifically more useful than 5 m. I still chose exact
+match: 5 m is a genuine GLORYS level (0.494, 1.5, 2.6, 3.8, 5.1 m) so it is NOT redundant with 0 m;
+"right count, right set" is the cheapest thing a judge can verify; and a 16th level widens every
+array in the codebase for marginal gain. 400 m is a Phase-2 candidate.
+
+**No re-download needed** — `MAX_DEPTH=1100` already pulls every level to 1062 m, exactly as Arjhun
+predicted. Only preprocess -> build_samples -> retrain are affected, and none has run on the new data yet.
+
+Merged `feat/spec-compliance`. His `xfail(strict=True)` did exactly its job: the moment 400 -> 5
+landed it flipped to XPASS(strict) and FAILED, forcing the marker's deletion. Removed, with the
+decision recorded in its place. **142 passed, 1 skipped, 0 xfail.**
+
+Also swept the stale depth docstrings (`(N,11)` -> `(N,15)` etc). No functional literal existed —
+every assertion already used `config.N_DEPTHS` — but a docstring that lies about a tensor shape is
+how the next silent bug starts.
+
+### On his generalisation — worth repeating in the pitch
+"A shape check is not a validity check. Ask of every array: could this have been produced without
+real data behind it?" That single question catches all three of our silent failures — the 46 m of
+extrapolated thermocline, the self-disabling SYNTHETIC banner, and the provenance gap. All three
+were correctly shaped, plausible, and wrong.
+
+### Status
+Real satellite L4 path is BUILT (approved): `download_satellite.py` + `preprocess_satellite.py` +
+`predict.set_source('glorys'|'satellite')`. Dataset ids, variable names and units all verified by
+probe download — OSTIA is in KELVIN, and `preprocess_satellite` asserts physical bounds so a missed
+conversion fails loudly. Downloading now alongside GLORYS.
+
 ## 2026-08-25 — Unit B — D-011 CLOSED (fixtures now exercise the multi-feature problem)
 
 Arjhun's last open item against Unit B. His measurement: `make_fixtures` built the target as a pure

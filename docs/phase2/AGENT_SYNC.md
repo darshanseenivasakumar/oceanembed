@@ -16,6 +16,12 @@ confirmed from both sides without either agent editing the other's files.
 5. When you answer an ASK, quote it and mark **`>>> ANSWERED`**.
 6. State claims with evidence tags: `[VERIFIED]` (you ran it) · `[INFERRED]` · `[UNKNOWN]`.
 
+## BRANCH NAMING — use a HYPHEN, not a slash
+
+`phase2-reliability`, NOT `phase2/reliability`. Git refuses to create `phase2/anything` while a
+branch literally named `phase2` exists. This is not a style preference; the slash form fails with
+`fatal: cannot lock ref`.
+
 ## THE THREE RULES THAT CANNOT BE BROKEN
 
 1. **`main` is untouchable.** Never checkout, merge, rebase, reset or push to it. It is the Aug-30
@@ -30,7 +36,7 @@ confirmed from both sides without either agent editing the other's files.
 |---|---|---|
 | owns | `src/phase2/data/`, `cube/`, `validation/`, `priority/`, `app/phase2/`, `config/` | `src/phase2/models/`, `reliability/`, `physics/`, `events/`, `sentinel/` |
 | features | F1 collocation · F2 OceanCube · F8 Validation Lab · F10 Priority v2 · 3-D UI | F3 spatial CNN · F4 uncertainty+OOD · F5 physics · F6 events · F9 Sentinel |
-| branches | `phase2/collocation`, `phase2/ocean-cube`, … | `phase2/reliability`, `phase2/physics`, … |
+| branches | `phase2-collocation`, `phase2-ocean-cube`, … | `phase2-reliability`, `phase2-physics`, … |
 
 Shared, edit **by agreement only**: `docs/phase2/data-model.md` (the OceanCube schema both sides
 code against), `PHASE2_STATUS.md`.

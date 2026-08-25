@@ -69,7 +69,23 @@ def _check(name: str, arr: np.ndarray, date) -> None:
         )
 
 
-def run(in_dir: str = IN_DIR, out_path: str = OUT) -> str:
+# Only correct a variable whose satellite/GLORYS correlation is high. A LOW-corr variable is a
+# different physical quantity (ugos/vgos are geostrophic-only vs GLORYS' full flow), and shifting
+# its mean does not turn it into the right quantity -- it just hides the mismatch.
+BIAS_CORR_MIN = 0.85
+
+
+def _bias() -> dict:
+    """Offsets fitted on TRAIN-period dates only (scripts/fit_satellite_bias.py)."""
+    p = config.art("satellite_bias.json")
+    if not os.path.exists(p):
+        return {}
+    import json
+    with open(p, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def run(in_dir: str = IN_DIR, out_path: str = OUT, apply_bias: bool = False) -> str:
     dates = sorted({os.path.basename(f).split("_")[1].split(".")[0]
                     for f in _glob.glob(os.path.join(in_dir, "*_*.nc"))})
     if not dates:
@@ -100,6 +116,25 @@ def run(in_dir: str = IN_DIR, out_path: str = OUT) -> str:
     if not times:
         raise RuntimeError("no complete satellite date triples found")
 
+    # Bias correction onto the GLORYS scale the model was trained on (DECISIONS: adt vs zos are
+    # different reference surfaces). Offsets come from TRAIN-period dates only -- fitting them on
+    # the test year would tune inference with held-out data.
+    applied = {}
+    if apply_bias:
+        b = _bias()
+        if not b:
+            raise SystemExit("apply_bias=True but artifacts/satellite_bias.json is missing -- "
+                             "run scripts/fit_satellite_bias.py first.")
+        for k in list(fields):
+            info = b.get(k)
+            if info and info["corr"] >= BIAS_CORR_MIN:
+                fields[k] = [a - info["offset"] for a in fields[k]]
+                applied[k] = round(info["offset"], 4)
+        print(f"[sat-pre] bias-corrected (corr >= {BIAS_CORR_MIN}): {applied}")
+        skipped = {k: round(b[k]["corr"], 3) for k in b if b[k]["corr"] < BIAS_CORR_MIN}
+        if skipped:
+            print(f"[sat-pre] NOT corrected (corr too low, different physical quantity): {skipped}")
+
     times = np.array(times, dtype="datetime64[D]")
     order = np.argsort(times)
     times = times[order]
@@ -107,8 +142,9 @@ def run(in_dir: str = IN_DIR, out_path: str = OUT) -> str:
     land_mask = np.isnan(out["sst"]).all(axis=0)
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    tag = "satellite-l4-biascorrected" if apply_bias else "satellite-l4"
     np.savez_compressed(out_path, times=times, land_mask=land_mask,
-                        source=np.array("satellite-l4"), **out)
+                        source=np.array(tag), **out)
     print(f"[sat-pre] wrote {out_path}: T={len(times)}, span {times.min()}..{times.max()}, "
           f"land cells={int(land_mask.sum())}")
     for k in ["sst", "sss", "ssh", "u", "v"]:
@@ -118,4 +154,5 @@ def run(in_dir: str = IN_DIR, out_path: str = OUT) -> str:
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    run(apply_bias="--bias" in sys.argv)

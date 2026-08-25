@@ -80,6 +80,44 @@ which is the point. Once it lands and DEPTHS is settled: retrain both -> `compar
 first REAL verdict -> `validate_argo` opens its own gate automatically when provenance reads `real`.
 About 30 minutes.
 
+## 2026-08-25 — 🛰️ THE PS DELIVERABLE IS DONE: satellite-driven reconstruction, Argo-validated
+
+`scripts/eval_satellite_vs_argo.py` — 879 independent Argo profiles (a DIFFERENT INSTRUMENT, never
+seen in training), test year only:
+
+```
+  source                         RMSE   skill vs climatology
+  climatology (baseline)       1.5725         --
+  model on GLORYS fields       0.9603      +0.389
+  model on SATELLITE fields    0.9539      +0.393   <- SIH26066's actual ask
+  DOMAIN-SHIFT COST: -0.0063 degC (-0.7% vs the GLORYS ceiling)
+```
+
+**The satellite path costs essentially nothing** — marginally BETTER than the reanalysis the model
+was trained on. Plausible reason, stated as a hypothesis not a claim: OSTIA SST is an observational
+product and Argo is observational, so observation-to-observation may be slightly favoured over
+reanalysis-to-observation. Either way the honest headline is that the domain shift is negligible
+AFTER bias correction.
+
+**Why the bias correction was legitimate:** offset fitted on TRAIN-period dates only (+0.4186 m),
+and it matched the independently-measured test-period offset (+0.4169 m) to 0.002 m. A stable
+systematic offset, not year-specific noise, so it cannot be overfit. u/v were deliberately NOT
+corrected (corr 0.70 — geostrophic-only is a different physical quantity, and shifting its mean
+would hide the mismatch rather than fix it).
+
+### ⚠️ TWO NUMBERS, DO NOT CONFLATE THEM
+  +0.626  skill vs climatology on the GLORYS 2022 holdout   (same source as training — easier)
+  +0.393  skill vs climatology against independent Argo     (different instrument — the REAL number)
+Quote **+0.393** to judges. The gap is not a failure; it is the honest cost of being scored by an
+instrument that has its own sampling, timing and representativeness. A team quoting only the
+same-source number is flattering itself.
+
+### Caveats to state, unprompted
+- 0 m has only 12 Argo obs -> its +0.266 is not meaningful. Use 5 m (n=800, skill +0.507).
+- 1000 m: skill +0.233 on n=547, and climatology RMSE there is only 0.284 degC — little variance to
+  explain, so a modest skill is expected, not a weakness.
+- Argo matched within +/-5 days of a gridded date; both sources use the IDENTICAL profile set.
+
 ## 2026-08-25 — 🎯 FIRST VALID 15-DEPTH RESULTS (held-out 2022, n=107,676)
 
 ```

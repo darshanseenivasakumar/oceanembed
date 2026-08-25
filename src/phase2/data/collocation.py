@@ -178,9 +178,15 @@ class CollocationEngine:
         if abs(t_off) > self.tolerance_days:
             flags.append("TEMPORAL_OFFSET_EXCEEDS_TOLERANCE")
 
+        # "LAND" alone is ambiguous — WHOSE land? The two products disagree about the coastline
+        # in 464 cells (179 ocean in satellite only, 285 in GLORYS only), concentrated in the
+        # Persian Gulf, Gulf of Thailand and Red Sea. At 29.5N 48.25E GLORYS masks the shallow
+        # head of the Persian Gulf while the satellite product resolves it and reports
+        # 19.3 degC / 39.55 psu — winter-cool and hypersaline, which is physically correct.
+        # Saying only "LAND" there would misrepresent real satellite data as absent.
         is_land = bool(g["land_mask"][i, j])
         if is_land:
-            flags.append("LAND")
+            flags.append("LAND_IN_GLORYS")
 
         sources: dict[str, Any] = {}
 
@@ -224,6 +230,15 @@ class CollocationEngine:
         else:
             sources["satellite"] = None
             flags.append("SATELLITE_UNAVAILABLE")
+
+        # Coastline disagreement is itself a finding, and F9 Sentinel consumes it.
+        sat_grid = self._npz("satellite_grids.npz")
+        if sat_grid is not None:
+            sat_is_ocean = not bool(sat_grid["land_mask"][i, j])
+            if is_land and sat_is_ocean:
+                flags.append("COASTLINE_DISAGREEMENT_SATELLITE_SAYS_OCEAN")
+            elif (not is_land) and (not sat_is_ocean):
+                flags.append("COASTLINE_DISAGREEMENT_SATELLITE_SAYS_LAND")
 
         # Argo — independent instrument. Nearest profile within tolerance, or None.
         sources["argo"] = self._match_argo(latitude, longitude, req_dt)
@@ -289,7 +304,7 @@ class CollocationEngine:
 
     def _quality(self, r: Collocation) -> str:
         """Quality is derived from MEASURED offsets, never asserted."""
-        if "LAND" in r.flags or "OUTSIDE_DOMAIN" in r.flags:
+        if "LAND_IN_GLORYS" in r.flags or "OUTSIDE_DOMAIN" in r.flags:
             return "REJECT"
         if "TEMPORAL_OFFSET_EXCEEDS_TOLERANCE" in r.flags or "SPATIAL_OFFSET_EXCEEDS_CELL" in r.flags:
             return "REJECT"

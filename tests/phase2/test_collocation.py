@@ -81,8 +81,19 @@ def test_missing_data_is_none_not_zero(engine, date):
 
 def test_land_is_rejected_and_flagged(engine, date):
     r = engine.collocate(*LAND, date)
-    assert "LAND" in r.flags
+    assert "LAND_IN_GLORYS" in r.flags, "the flag must name WHOSE land mask fired"
     assert r.quality == "REJECT"
+
+
+def test_coastline_disagreement_is_reported(engine, date):
+    """GLORYS masks the shallow head of the Persian Gulf; the satellite product resolves it.
+    That disagreement is a finding, not noise — F9 Sentinel consumes it."""
+    r = engine.collocate(29.5, 48.25, date)
+    assert "LAND_IN_GLORYS" in r.flags
+    assert any(f.startswith("COASTLINE_DISAGREEMENT") for f in r.flags), r.flags
+    sat = r.sources.get("satellite")
+    if sat is not None and sat.get("sss") is not None:
+        assert sat["sss"] > 38.0, "the Persian Gulf is hypersaline; a low value would be suspect"
 
 
 def test_outside_domain_is_flagged(engine, date):

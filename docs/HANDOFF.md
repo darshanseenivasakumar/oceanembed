@@ -12,6 +12,55 @@
 
 
 
+
+## 2026-08-25 - Unit A (Arjhun) - Day 4 COMPLETE (uncertainty investigated + bug fixed)
+
+- BRANCH: `feat/unit-a-priority`. **`pytest tests/ -q` -> 63 passed.**
+- Day 4 item 2 (`observation_priority()`): DONE earlier - see the entry below.
+- Day 4 item 1 (`inference/uncertainty.py`): the sanity check the assignment asks for FAILS, and I
+  investigated rather than papering over it. **This is the most important finding so far - read D-016.**
+
+### D-016 - MC-dropout is OVERCONFIDENT at depth [VERIFIED by measurement]
+The assignment says sigma should rise with depth. It falls (0.26 -> 0.055 degC). The cause is mechanical:
+dropout perturbs a SHARED trunk feeding all 11 outputs, so spread is flat in NORMALIZED space
+(std/targ_std = 0.127 -> 0.162, spread 0.043); multiplying by targ_std - which shrinks with depth - makes
+real-units sigma shrink. **Darshan: your Day-3 explanation ("deep water is naturally less variable") is right,
+but it is the CONSEQUENCE of the un-normalization, not independent confirmation that the uncertainty is sound.**
+
+Calibration measured (sigma / actual RMSE; 1.0 = calibrated, <1.0 = OVERCONFIDENT):
+
+        depth    MC-dropout    quantile
+          0 m       1.25         0.70
+        500 m       0.31         0.92
+        drift       4.0x         1.8x
+
+**MC-dropout under-states real error at 500 m by 3.2x** - most confident exactly where least trustworthy.
+LightGBM quantiles are better calibrated because each depth has its own booster.
+Expect this to WORSEN on real GLORYS: deep error will grow while MC-dropout sigma keeps shrinking.
+**Do not quote MC-dropout confidence at depth in the demo or to a judge until re-measured on real data.**
+
+### D-017 - BUG FIXED: mc_dropout_predict leaked train() mode
+It called `model.train()` and never restored the previous mode, so every later plain forward pass on that model
+was silently stochastic. `predict_mlp` masked it by calling `.eval()` itself, so nothing failed visibly - the kind
+of bug that later shows up as irreproducible numbers. Fixed with save/restore in a `finally`, plus two tests.
+[VERIFIED: model.training was True after the call before the fix, False after.]
+
+### Added (Unit A files)
+- `calibration_ratio(sigma, y_true, y_pred)` -> (11,) - the honest per-depth diagnostic. Use it instead of
+  eyeballing whether sigma rises with depth; a rising sigma can still be badly calibrated.
+- `relative_uncertainty(sigma)` -> sigma as a fraction of each depth's natural variability, so depths are
+  comparable. 0.05 degC at 500 m (natural spread 0.34) is NOT the same confidence as 0.05 degC at the surface
+  (natural spread 2.06). **Unit C: this is what the reliability panel should display, not raw degC.**
+- `tests/test_uncertainty.py` - 13 tests including strictly-positive spread (zero spread = dropout off =
+  fabricated certainty), mode restoration, and overconfidence detection.
+
+- FILES MODIFIED: `src/oceanembed/inference/uncertainty.py`, `tests/test_uncertainty.py` (new),
+  `docs/DECISIONS.md` (D-016, D-017), `docs/HANDOFF.md`.
+- NEXT (A): Day 5 integration support. Still blocked from any REAL number by the `.gitignore` issue.
+- OPEN FOR B (unchanged): `.gitignore` blocker | **D-008** depths (15 to 1000 m per the official page) |
+  **D-009** raw-in vs z-scored-in | add `lgbm_quantiles.pkl` to DATA_CONTRACT.md | **D-016** decide whether the
+  demo ships MC-dropout or quantile uncertainty.
+
 ## 2026-08-25 - Unit A (Arjhun) - Day 3 PREPPED (blocked on real data), + a real bug found
 
 - BRANCH: `feat/unit-a-priority`. **`pytest tests/ -q` -> 50 passed.**

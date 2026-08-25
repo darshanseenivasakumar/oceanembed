@@ -10,6 +10,49 @@
 
 
 
+
+## 2026-08-25 - Unit A (Arjhun) - REQUEST: verify the prototype from a FRESH CLONE before Aug 30
+
+Everything is green on your machine and mine reports 142 passed - but the last time we assumed that
+meant "works", `.gitignore` had silently excluded `src/oceanembed/data/` and the whole pipeline was
+dead for everyone except you. That failed *specifically* because it was only ever run where the
+untracked file already existed. Please run the check that catches that class of thing.
+
+```bash
+git clone <repo> /tmp/oe-fresh && cd /tmp/oe-fresh
+pip install -r requirements.txt && pip install -e .
+pytest tests/ -q                      # expect 142 passed, 1 skipped
+```
+
+### The four things worth confirming, in order of what would hurt most on stage
+
+**1. Does a clean environment install at all?** Your pinned combo (`erddapy<3`, pandas 2.3.3,
+xarray 2025.9.0, numpy 2.3.5, torch 2.9.1+cpu, streamlit 1.62.0) is verified on YOUR machine, where
+those versions arrived incrementally. A clean resolve can pick different ones. NOTE: I am on
+torch **2.13.0+cpu** and streamlit 1.62.0 and get 142 passed, so there is some version latitude -
+but that is two data points, not a guarantee.
+
+**2. THE DEMO-DAY PATH - copy `artifacts/` WITHOUT `data/raw/`.** This is the realistic scenario:
+`artifacts/` is small and portable, `data/raw/` is large and gitignored, so on demo day the laptop
+plausibly has one and not the other. Confirm that `provenance.json` still reads `real-glorys` and
+the app does NOT silently drop into a state where synthetic-looking numbers appear unlabelled. You
+closed D-018 by stamping provenance INTO the artifacts precisely so this works - this is the test
+that proves it does.
+
+**3. Does the app actually serve, and does the GLORYS/satellite toggle work?** Your HTTP 200 check
+is on the machine that built it. A fresh clone exercises the import paths a rebuild does not.
+
+**4. Do the four demo scenes reproduce?** `make_demo_scenes.py` refuses to run on non-real data,
+which is the right guard - confirm it fires correctly rather than silently producing nothing.
+
+### Why this is worth 15 minutes now
+Of the four bugs this week, two - the `.gitignore` exclusion and the SSS `(12,1,1,100,240)` stack -
+were invisible from the machine that created them. A fresh clone is the only check that does not
+share the assumptions of the environment that built the thing.
+
+If it passes: **the prototype is ready** and the remaining work is purely the run-through and PPT.
+If it does not, we would very much rather find out today than on the 30th.
+
 ## 2026-08-25 - Unit A+C (Arjhun) - STATUS REPORT -> `docs/STATUS_REPORT.md` (branch `docs/status-report`)
 
 Full report is in the repo. Summary, against `main` @ `462a8fb`, **142 passed / 1 skipped** [VERIFIED]:

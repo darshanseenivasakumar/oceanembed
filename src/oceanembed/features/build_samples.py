@@ -3,13 +3,15 @@
 OWNER: Unit B (Darshan). Pure numpy/pandas -> fully testable.
 
 Writes to artifacts/ (see docs/DATA_CONTRACT.md):
-  X_train.npy, X_test.npy      float32 (N, 11)  z-scored, FEATURES order
+  X_train.npy, X_test.npy      float32 (N, 11)  RAW units, FEATURES order (D-009)
   y_train.npy, y_test.npy      float32 (N, 11)  temperature (deg C, real units)
   meta_train.*, meta_test.*    [lat, lon, date, month, cell_id]
   norm_stats.json              {feat_mean[11],feat_std[11],targ_mean[11],targ_std[11]}
   land_mask.npy                bool (100, 240)
+  provenance.json              {source: synthetic|real-glorys, built, x_units} (D-018)
 """
 from __future__ import annotations
+import datetime as _dt
 import numpy as np
 import pandas as pd
 from oceanembed import config
@@ -62,23 +64,35 @@ def run(processed_path: str, write: bool = True) -> dict:
     if tr.sum() == 0:
         raise ValueError("no TRAIN rows — check TRAIN_YEARS vs the data's time range")
 
-    # Normalize features using TRAIN rows only; keep y in real units (targ stats for the model to use)
+    # Stats come from TRAIN rows ONLY (never val/test) -- that is what keeps evaluation honest.
+    # X is written in RAW units: the model owns the whole normalization transform (DECISIONS D-009),
+    # so no caller can double-normalize or skip it. norm_stats.json carries the stats for whoever
+    # needs them (train_mlp bakes them into the checkpoint's buffers).
     feat_mean = X[tr].mean(axis=0); feat_std = X[tr].std(axis=0) + 1e-6
     targ_mean = y[tr].mean(axis=0); targ_std = y[tr].std(axis=0) + 1e-6
-    Xn = ((X - feat_mean) / feat_std).astype("float32")
+    X = X.astype("float32")
 
     stats = dict(feat_mean=feat_mean.tolist(), feat_std=feat_std.tolist(),
                  targ_mean=targ_mean.tolist(), targ_std=targ_std.tolist())
 
-    result = dict(n_train=int(tr.sum()), n_test=int(te.sum()), stats=stats)
+    source = str(g["source"]) if "source" in g else "unknown"
+    result = dict(n_train=int(tr.sum()), n_test=int(te.sum()), stats=stats, source=source)
     if write:
-        io.save_npy(Xn[tr], config.art("X_train.npy")); io.save_npy(y[tr], config.art("y_train.npy"))
-        io.save_npy(Xn[te], config.art("X_test.npy"));  io.save_npy(y[te], config.art("y_test.npy"))
+        io.save_npy(X[tr], config.art("X_train.npy")); io.save_npy(y[tr], config.art("y_train.npy"))
+        io.save_npy(X[te], config.art("X_test.npy"));  io.save_npy(y[te], config.art("y_test.npy"))
         io.save_table(meta.loc[tr].reset_index(drop=True), config.art("meta_train"))
         io.save_table(meta.loc[te].reset_index(drop=True), config.art("meta_test"))
         io.save_json(stats, config.art("norm_stats.json"))
         io.save_npy(g["land_mask"], config.art("land_mask.npy"))
-        print(f"[build_samples] train={result['n_train']} test={result['n_test']} -> artifacts/")
+        # D-018: provenance lives IN the artifacts. artifacts/ is small and portable while
+        # data/raw/ is large and gitignored, so anything that infers "is this synthetic?" from a
+        # sibling file silently reads "real" the moment the artifacts are copied to a demo laptop.
+        io.save_json({"source": source,
+                      "built": _dt.datetime.now().isoformat(timespec="seconds"),
+                      "x_units": "raw (model normalizes internally, DECISIONS D-009)",
+                      "n_train": result["n_train"], "n_test": result["n_test"]},
+                     config.art("provenance.json"))
+        print(f"[build_samples] source={source} train={result['n_train']} test={result['n_test']} -> artifacts/")
     return result
 
 

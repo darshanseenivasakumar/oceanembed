@@ -40,7 +40,7 @@ SEED     = 42
 | File | Producer | Shape / schema |
 |---|---|---|
 | `sample_X.npy`,`sample_y.npy`,`sample_meta.{parquet\|csv}` | B (done) | fixtures N=500, real shapes |
-| `X_train.npy`,`X_test.npy` | B | float32 `(N,11)` FEATURES order |
+| `X_train.npy`,`X_test.npy` | B | float32 `(N,11)` FEATURES order, **RAW units** (D-009) |
 | `y_train.npy`,`y_test.npy` | B | float32 `(N,11)` temp at DEPTHS |
 | `meta_train.{parquet\|csv}`,`meta_test.*` | B | row-aligned: `[lat,lon,date,month,cell_id]` |
 | `norm_stats.json` | B | `{feat_mean[11],feat_std[11],targ_mean[11],targ_std[11]}` |
@@ -49,6 +49,8 @@ SEED     = 42
 | `mlp_model.pt` | A | state_dict for MLPProfile |
 | `lgbm_model.pkl` | A | list of 11 boosters |
 | `climatology.npy` | C | `(12,100,240,11)` = [month,lat,lon,depth] |
+| `provenance.json` | B | `{source: "synthetic"\|"real-glorys", built, x_units, n_train, n_test}` (D-018) |
+| `lgbm_quantiles.pkl` | A | `{"q10":[...11], "q90":[...11]}` boosters (D-012) |
 
 **Table format note:** parquet when `pyarrow` is installed, else CSV — use `utils.io.save_table/load_table` (auto-detect).
 Fixtures currently ship as **CSV** because pyarrow isn't installed yet; `pip install -r requirements.txt` switches to parquet.
@@ -88,3 +90,32 @@ context finds no CA bundle. `download_argo._fix_ssl()` sets `SSL_CERT_FILE`/`REQ
 at import — every teammate gets this automatically.
 
 **Dependency pin:** `erddapy<3` — argopy 1.4.0 imports a private symbol removed in erddapy 3.x.
+
+
+## X UNITS: RAW, not z-scored  [changed 2026-08-25, resolves D-009]
+`build_samples` writes `X_train/X_test` in **RAW physical units** (°C, psu, m, m/s, and the
+sin/cos encodings). The **model owns the entire normalization transform** — it carries
+`feat_mean/feat_std` as registered buffers and z-scores internally, so no caller can
+double-normalize or skip it.
+
+**Why this changed [VERIFIED bug].** Previously `build_samples` wrote z-scored X while
+`train_mlp` z-scored *again* using `norm_stats.json`. Measured on the merged tree:
+`X_train` mean 0.000/std 1.000 → after the second z-score, **mean −14.29 / std 29.95**.
+The model would have been trained on doubly-scaled data and then served single-scaled data
+at inference. Nothing would have errored; the temperatures would just have been wrong.
+
+`norm_stats.json` is unchanged and still carries the stats (computed from TRAIN rows only);
+`train_mlp` bakes them into the checkpoint buffers.
+
+**Unit A follow-up:** `train/_data.py::load_real()` still says *"X_train/X_test are ALREADY
+z-scored"* and `load_fixtures()` z-scores the fixtures to match that. Both should now pass RAW
+straight through — `sample_X.npy` already ships raw. Not a live bug (each path is internally
+consistent, and trees are scale-invariant), but the two paths now disagree on convention, which
+is exactly the D-014 trap.
+
+## PROVENANCE: `artifacts/provenance.json`  [D-018 fixed]
+`build_samples` stamps `{"source": "synthetic"|"real-glorys", "built": <iso>}` **into the
+artifacts**. `preprocess` determines it from which files it actually read. The Streamlit banner
+and any log MUST read this file — never infer provenance from `data/raw/`, which is gitignored
+and absent on a demo laptop. If the file is missing, the app shows a hard **UNKNOWN PROVENANCE**
+error rather than silently implying the data is real.

@@ -53,6 +53,89 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [ARJHUN] F5 physics built on your subsurface data. Your test caught my synthetic stand-in.
+
+Branch **`phase2-physics`**. 31 tests. Baseline untouched, your directories untouched, `main` never
+checked out.
+
+### Your extraction unblocked F5, and the payoff is bigger than "one fewer caveat"
+
+MLD now uses the **DENSITY** criterion (de Boyer Montegut et al. 2004, JGR 109 C12003:
+0.03 kg m-3 from a 10 m reference), not temperature. The two criteria disagree wherever salinity
+sets the stratification, and **their difference IS the barrier layer**:
+
+    barrier layer thickness = ILD (temperature) - MLD (density)
+
+Your 6.43 psu at 22.50N / 91.25E is the Meghna/Ganges signature of exactly that. So a
+temperature-only MLD is systematically **too deep** in the northern Bay of Bengal — the cyclone
+genesis region, and the cell our priority map ranks first. [VERIFIED on a realistic plume profile:
+the error is **>= 50 m**.] Barrier layers are a recognised control on cyclone intensification, so
+this is the difference between describing this basin and mis-describing it.
+
+Built: `physics/seawater.py` (one-atm EOS-80), `layers.py` (MLD / ILD / barrier layer /
+thermocline), `ohc.py` (real rho(S,theta), every assumption named).
+
+**EOS coefficients verified BEFORE building on them.** Fifteen hand-entered constants are how a
+plausible-but-wrong number enters a pipeline — four published UNESCO check values asserted,
+including the classic rho(35,25) = 1023.343, all agreeing to < 1e-3 kg m-3. Implemented directly
+rather than adding `gsw`: `requirements.txt` is yours, so a team-wide dependency is not my call,
+and sigma_theta needs only the one-atmosphere polynomial.
+
+### >>> YOUR TEST CAUGHT MY SYNTHETIC DATA. That is the headline.
+
+`subsurface.npz` is gitignored and absent here, so I regenerated it locally from
+`synthetic_glorys.nc` to develop against. Running the full suite,
+**`test_salinity_generally_increases_with_depth_in_the_bay_of_bengal` FAILED**:
+
+```
+AssertionError: Bay of Bengal should be saltier at depth than at the surface
+assert 34.58458 > 34.602943
+```
+
+34.60 psu at the surface, 34.58 at depth, at 18N/88E — 0.018 psu, i.e. noise. The real basin has a
+fresh cap over saltier water, and your test encodes that.
+
+**It rejected data with the correct shape, dtype, units and plausible magnitudes but no ocean
+structure.** That is the Phase-1 failure mode caught by a *scientific* test rather than a shape
+test, and it is the best argument yet for the rule we keep repeating. **No code was changed in
+response** — adjusting a sanity test to accommodate synthetic data would be exactly backwards.
+It only fails locally: the file is gitignored and your test skips when it is absent, so on your
+machine with real GLORYS it should pass.
+
+A second number looked wrong and was not, worth recording because the checking is the point:
+"thermocline below MLD in only 11.6% of cells". I printed a profile instead of assuming either way —
+`make_synthetic_glorys.py` builds temperature as `exp(-z/250)` **from the surface**, so there is no
+mixed layer and the steepest gradient sits at the top by construction. Consistent with the data,
+not a fault.
+
+### >>> ASK DARSHAN (3): a copy of `data/processed/subsurface.npz`
+Or the raw `glorys_*.nc`. Then F5 gives real numbers, the barrier-layer claim above becomes
+**measured rather than argued**, and your salinity test passes here too.
+
+That is now **three asks, all the same shape** — the code is ready, the data is on your machine only:
+1. whitelist `artifacts/argo_error_by_depth.json` (~15 numbers, a result not raw data) — unblocks F4
+2. persist per-profile residuals + sigma — unblocks F4's *held-out* calibration path
+3. `subsurface.npz` (or raw GLORYS) — unblocks F5 validation
+
+If a single zip of `data/raw/` + `data/processed/` + `artifacts/` is easier than three separate
+things, that covers all of it — and it doubles as the demo-day copy rehearsal, since the
+presentation laptop will need exactly those directories and they do not travel through git.
+
+### Scaffold: `tests/phase2/__init__.py` reproduced independently
+It came back with `origin/phase2` on the new branch and broke `phase2.physics` imports exactly as
+it broke `phase2.reliability`. **Two independent reproductions.** It will hit `phase2/collocation`
+too. Deleted again here. (And the branch name itself: `phase2/<feature>` is impossible while
+`phase2` exists as a branch — I am on `phase2-physics`.)
+
+### Next from me
+F6 events — but only the parts your data supports: single-snapshot eddy/front **detection**, and
+upwelling once your monthly wind-stress download lands, using **wind-stress curl (Ekman pumping)**
+directly since the monthly product carries `eastward_stress`/`northward_stress` rather than a drag
+coefficient we would have to assume. F7 persistence stays blocked on monthly cadence — agreed, that
+one cannot be made honest.
+
+---
+
 ## 2026-08-26 [DARSHAN] Phase-2 data layer unblocked. Two audit findings CORRECTED.
 
 **1. Subsurface salinity was never missing.** The audit said it was a blocker for F5 ocean heat

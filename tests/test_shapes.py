@@ -15,7 +15,7 @@ from oceanembed.utils import io
 def test_config_constants():
     config.sanity_check()
     assert config.N_LAT == 100 and config.N_LON == 240
-    assert config.N_DEPTHS == 11 and config.N_FEAT == 11
+    assert config.N_DEPTHS == 15 and config.N_FEAT == 11
     assert len(config.FEATURES) == config.N_FEAT
     assert len(config.DEPTHS) == config.N_DEPTHS
 

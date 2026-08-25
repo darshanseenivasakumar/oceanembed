@@ -8,6 +8,41 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+## 2026-08-25 — Unit B — D-011 CLOSED (fixtures now exercise the multi-feature problem)
+
+Arjhun's last open item against Unit B. His measurement: `make_fixtures` built the target as a pure
+function of SST, so `r(ssh, T) = -0.002..+0.041` at EVERY depth — 10 of 11 features were decoys,
+nothing tested feature combination, and Unit C's panels rendered an ocean where SSH did nothing.
+
+**FIX:** the profile is now built the way the ocean actually encodes subsurface information —
+a two-layer profile whose THERMOCLINE DEPTH is displaced by SSH:
+
+    T(z) = T_deep + (T_surface - T_deep) * 0.5 * (1 + tanh((z_t - z)/w))
+    z_t  = 120 m + 180*ssh + 25*seasonal + 30*v        (clipped 40-400 m)
+    T_deep = 8.0 - 0.05*(lat-5) + 0.6*ssh              (weak, real deep structure)
+
+A positive sea-level anomaly = a deeper thermocline (warm water piled up, as in an anticyclonic
+eddy). So SST sets the mixed layer, **SSH sets where the transition happens**, season shifts both,
+and `v` tilts it. SSS stays only weakly informative — honest, since salinity says little about
+temperature.
+
+**MEASURED after the fix** (`scripts/make_fixtures.py` prints this table every run):
+
+    depth      r(sst,T)   r(ssh,T)
+        0        +0.802     +0.748
+      125        +0.612     +0.885     <- SSH dominates at the thermocline
+     1000        +0.672     +0.308     <- weak but learnable
+
+Second pass caught my own regression: with a CONSTANT `T_deep`, depths 500-1000 m came out as pure
+noise (r ~ 0.02), so deep-level tests would have proved nothing. Deep temperature now varies with
+latitude and SSH, matching the ~7.98 degC our real Argo shows at 1000 m.
+
+Fixtures are regenerated at **15 depths** and committed. `tests/test_shapes.py` updated 11 -> 15
+(it failed first, which is exactly what that guardian is for). **130 passed, 1 skipped.**
+
+All four Unit-B items Arjhun raised are now closed: D-008 (depths), D-012 (lgbm_quantiles row),
+D-018 (provenance), D-011 (fixtures).
+
 ## 2026-08-25 — Unit B — 🎉 FIRST REAL RESULTS on real GLORYS (+ a demo-breaking bug fixed)
 
 ### ✅ Real data pipeline complete

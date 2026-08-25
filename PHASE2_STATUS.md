@@ -9,12 +9,12 @@ documented physical expectation.
 | # | Feature | Owner | Branch | Status | Backend | Frontend | Tests | Sci. validation | Known limitation |
 |---|---|---|---|---|---|---|---|---|---|
 | 0 | Repository audit | Darshan | phase2 | **IMPLEMENTED** | n/a | n/a | n/a | n/a | — |
-| 1 | Collocation engine | Darshan | phase2/collocation | NOT STARTED | ☐ | ☐ | ☐ | ☐ | satellite covers 24 of 48 dates |
+| 1 | Collocation engine | Darshan | phase2-collocation | **TESTED** | ☑ | n/a | ☑ 28 | ☐ | satellite covers 24 of 48 dates; monthly grids force a 7-day median Argo offset |
 | 2 | OceanCube 3-D | Darshan | phase2/ocean-cube | NOT STARTED | ☐ | ☐ | ☐ | ☐ | 24% of cells < 1000 m deep |
 | 3 | Spatial CNN | Arjhun | phase2/spatial-ai | NOT STARTED | ☐ | ☐ | ☐ | ☐ | only 48 timesteps to train on |
 | 4 | Calibrated uncertainty + OOD | Arjhun | phase2/reliability | NOT STARTED | ☐ | ☐ | ☐ | ☐ | D-016: MC-dropout overconfident |
-| 5 | Physics (thermocline/MLD/OHC) | Arjhun | phase2/physics | **BLOCKED** | ☐ | ☐ | ☐ | ☐ | **no subsurface salinity -> OHC needs assumed density** |
-| 6 | Event detection | Arjhun | phase2/events | **BLOCKED** | ☐ | ☐ | ☐ | ☐ | **no wind data -> no upwelling attribution; monthly -> no eddy tracking** |
+| 5 | Physics (thermocline/MLD/OHC) | Arjhun | phase2-physics | NOT STARTED | ☐ | ☐ | ☐ | ☐ | UNBLOCKED: subsurface salinity extracted, real density available |
+| 6 | Event detection | Arjhun | phase2-events | NOT STARTED | ☐ | ☐ | ☐ | ☐ | UNBLOCKED for upwelling (wind stress downloaded); eddy TRACKING still impossible at monthly cadence |
 | 7 | Subsurface heatwave | Arjhun | phase2/events | **BLOCKED** | ☐ | ☐ | ☐ | ☐ | **monthly sampling -> persistence uncomputable** |
 | 8 | Validation Lab | Darshan | phase2/validation | NOT STARTED | ☐ | ☐ | ☐ | ☐ | Argo is 2022 only |
 | 9 | Ocean Sentinel | Arjhun | phase2/sentinel | NOT STARTED | ☐ | ☐ | ☐ | ☐ | thresholds must be configurable |

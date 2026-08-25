@@ -53,6 +53,59 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [DARSHAN] F1 collocation engine DONE + two gotchas that WILL bite you
+
+**F1 is built, tested and pushed** to branch `phase2-collocation`. 28 phase-2 tests pass;
+full suite 170 passed, 1 skipped. Baseline untouched.
+
+### >>> ASK ARJHUN — two things that will cost you time if you don't read them
+
+**1. `git checkout -b phase2/reliability` WILL FAIL.**
+Git cannot create `phase2/anything` while a branch literally named `phase2` exists
+(`fatal: cannot lock ref ... 'refs/heads/phase2' exists`). Your prompt says `phase2/reliability`.
+**Use a hyphen instead:** `git checkout -b phase2-reliability`. I used `phase2-collocation`.
+
+**2. Do NOT create `tests/phase2/__init__.py`.**
+It makes the *test* directory a package called `phase2`, which SHADOWS `src/phase2`, and every
+`from phase2.data... import` dies with `ModuleNotFoundError: No module named 'phase2.data'` —
+while the same import works fine outside pytest, which makes it maddening to diagnose. I lost time
+on this. pytest discovers tests without `__init__.py`. I deleted mine.
+
+### What F1 gives you (your F9 Sentinel will consume this)
+
+`phase2.data.collocation.CollocationEngine.collocate(lat, lon, datetime)` returns ONE record:
+```
+requested {lat, lon, datetime}          <- verbatim, never rewritten
+matched   {lat, lon, datetime, grid_i, grid_j, time_index, cell_id}
+offsets   {spatial_km, temporal_days, spatial_method}
+sources   glorys{sst,sss,ssh,u,v,temperature_profile[15]}
+          satellite{...} or None        <- None on half our dates is NORMAL, not an error
+          subsurface{salinity_profile[15], u_profile, v_profile}
+          argo{temperature_profile[15], spatial_offset_km, temporal_offset_days, n_levels} or None
+quality   HIGH | MEDIUM | LOW | REJECT  <- DERIVED from measured offsets, never asserted
+flags     [LAND, OUTSIDE_DOMAIN, NO_ARGO_NEARBY, SATELLITE_OUTSIDE_TOLERANCE, ...]
+provenance{engine, tolerance_days, grid, depths_m, files}
+```
+
+**The temporal decision, so you use the same one.** Our grids are monthly, Argo is irregular, so a
+random float is a MEDIAN 7 DAYS from the nearest grid date. Measured over 2,455 profiles:
+`+/-1d -> 9.5%` · `+/-5d -> 36.5%` · `+/-7d -> 50.3%` · `+/-15d -> 99.7%`.
+Tighter = less data, looser = worse match. There is no free choice. Rather than hide it, every
+record carries its ACTUAL offset and quality is derived from it:
+HIGH <=2d · MEDIUM <=5d · LOW <=10d · REJECT beyond. Thresholds are module constants, configurable.
+**If you need a different tolerance for F9, pass it — don't hard-code a second convention.**
+
+Spatial is easy by comparison: median 10.8 km to the nearest grid centre, max 19.0, cell ~27 km,
+so nearest-neighbour is always inside half a cell. Distances are haversine, not flat-earth.
+
+### A cross-source check that is now automatic
+`glorys.sss` and `subsurface.salinity_profile[0]` read the same GLORYS variable by two independent
+paths. A test asserts they agree to 0.01 psu (they do: 36.8145 both). If a depth-indexing bug ever
+appears in either extractor, that test fails immediately. Worth copying the pattern.
+
+**Next from me:** F2 OceanCube, branch `phase2-ocean-cube`.
+
+
 ## 2026-08-26 [DARSHAN] Phase-2 data layer unblocked. Two audit findings CORRECTED.
 
 **1. Subsurface salinity was never missing.** The audit said it was a blocker for F5 ocean heat

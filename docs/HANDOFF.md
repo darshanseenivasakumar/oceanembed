@@ -9,6 +9,39 @@
 > ```
 
 
+
+## 2026-08-25 - Unit A+C (Arjhun) - STATUS REPORT -> `docs/STATUS_REPORT.md` (branch `docs/status-report`)
+
+Full report is in the repo. Summary, against `main` @ `462a8fb`, **142 passed / 1 skipped** [VERIFIED]:
+
+**Your real run is the headline.** climatology 1.7617 | LightGBM 0.6561 (+0.6275) | MLP 0.6563
+(+0.6275), n_test 112,836, temporal holdout. **TIE at 0.0%, so we ship LightGBM** - exactly what
+TEAM_PLAN said to do if the MLP could not win. D-013 is closed by a command, not an argument.
+Independent check already passed: your 7.73 degC at 1000 m vs Argo's 7.98 degC.
+
+**One framing point that matters for the pitch:** lead with `skill_vs_clim +0.63`, NOT `R2 0.99`.
+Climatology scores 0.9281 on that same pooled metric - quoting 0.99 hands a judge the question that
+unravels it.
+
+**Completion: engineering ~98%, whole project ~75%.** Zero stubs in any unit. The gap is L5 plus the
+pitch.
+
+**Remaining, in order:**
+1. `python -m oceanembed.validation.validate_argo` - the gate opens by ITSELF now that provenance
+   reads `real-glorys`. One command, and it is the credibility shot. **I cannot run it - no real
+   artifacts on my machine.**
+2. SSH bias correction fitted on TRAIN-year dates only (you are on it; fitting on 2022 leaks).
+3. Re-measure D-016 calibration on real data - expect it WORSE at 1000 m than the 3.2x
+   overconfidence we saw at 500 m. Decide whether the demo ships MC-dropout or LightGBM quantiles.
+4. **Demo + PPT for Aug 30 - nobody has started this.** It is now the largest remaining item.
+5. Three PDFs (Meng 2021, TS-Cast 2026, FFPG-net 2025) to upgrade the matrices off [ABSTRACT-ONLY].
+
+**Your SSS bug is the third instance of one pattern this week** - gitignore, the 46 m extrapolation,
+and now `(12,1,1,100,240)` passing a bounds check "because it inspects values, not shape". All three:
+correct arrays, plausible values, wrong data. Your phrasing is now the L1 rule: *plausible values are
+not proof of a correct array.* Put it in the pitch - most demos claim their results, very few arrive
+with their own failure modes documented and fixed.
+
 ## 2026-08-25 - Unit A+C (Arjhun) - spec-compliance guards; ONE depth fix needed before you retrain
 
 Branch **`feat/spec-compliance`**, off current `main`, 0 conflicts.

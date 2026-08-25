@@ -37,12 +37,25 @@ def _coords(ds):
     return lat, lon
 
 
-def _regrid(da) -> np.ndarray:
+def _regrid(da, name: str = "field") -> np.ndarray:
+    """Regrid one variable to the frozen grid and return EXACTLY (N_LAT, N_LON).
+
+    Products carry different leading axes: OSTIA/DUACS give (time, lat, lon) but the Multiobs SSS
+    product also has a DEPTH axis -- (time, depth, lat, lon). Squeezing only `ndim == 3` let SSS
+    through as (1, 1, lat, lon) and it stacked to (12, 1, 1, 100, 240). The per-variable value
+    bounds still passed, because a bounds check inspects VALUES, not SHAPE. Hence the assert.
+    """
     ds = da.to_dataset(name="v")
     lat, lon = _coords(ds)
     ds = ds.sortby(lat).sortby(lon).interp({lat: config.LAT, lon: config.LON}, method="linear")
     arr = ds["v"].values.astype("float32")
-    return arr[0] if arr.ndim == 3 else arr           # drop a length-1 time axis
+    while arr.ndim > 2 and arr.shape[0] == 1:   # drop any leading singleton (time, depth, ...)
+        arr = arr[0]
+    assert arr.shape == (config.N_LAT, config.N_LON), (
+        f"{name}: expected ({config.N_LAT},{config.N_LON}) after regrid, got {arr.shape} "
+        f"(source dims {da.dims}). A leading axis was not singleton -- do not squeeze it blindly."
+    )
+    return arr
 
 
 def _check(name: str, arr: np.ndarray, date) -> None:
@@ -72,11 +85,11 @@ def run(in_dir: str = IN_DIR, out_path: str = OUT) -> str:
             continue
 
         with xr.open_dataset(p_sst) as d:
-            sst = _regrid(d["analysed_sst"]) - 273.15          # KELVIN -> degC
+            sst = _regrid(d["analysed_sst"], "sst") - 273.15          # KELVIN -> degC
         with xr.open_dataset(p_ssh) as d:
-            ssh = _regrid(d["adt"]); u = _regrid(d["ugos"]); v = _regrid(d["vgos"])
+            ssh = _regrid(d["adt"], "ssh"); u = _regrid(d["ugos"], "u"); v = _regrid(d["vgos"], "v")
         with xr.open_dataset(p_sss) as d:
-            sss = _regrid(d["sos"])
+            sss = _regrid(d["sos"], "sss")
 
         vals = dict(sst=sst, sss=sss, ssh=ssh, u=u, v=v)
         for k, a in vals.items():

@@ -80,6 +80,44 @@ which is the point. Once it lands and DEPTHS is settled: retrain both -> `compar
 first REAL verdict -> `validate_argo` opens its own gate automatically when provenance reads `real`.
 About 30 minutes.
 
+## 2026-08-25 — Unit B — REBUILD DONE at PS depths + domain shift MEASURED
+
+### ✅ Real 15-depth build
+`prepare_dataset.py --real` on all 48 GLORYS dates: grid **100x240x15**, train **323,028** /
+test **107,676**. Provenance flips clean: `source=real-glorys, n_depths=15, stale=null`.
+L1 sanity passes: monotonic cooling 28.49 -> **7.73 degC at 1000 m**, no NaNs.
+
+**Independent corroboration [VERIFIED]:** GLORYS says **7.73 degC** at 1000 m; our real Argo says
+**7.98 degC**. Two entirely separate sources agreeing within 0.25 degC at the deepest level.
+
+### 📊 DOMAIN SHIFT: real satellite L4 vs GLORYS (12 common dates, 2022)
+```
+  var    bias(sat-glo)      RMSD    corr    n_cells
+  sst          -0.0760    0.4954   0.961     138564
+  sss          +0.3422    1.4429   0.860     137136
+  ssh          +0.4169    0.4191   0.975     138888
+  u            -0.0234    0.1856   0.702     138888
+  v            +0.0183    0.1773   0.678     138887
+```
+**Every prediction logged BEFORE measuring was confirmed:** SST high-corr/low-bias; ADT vs zos
+high-corr with a LARGE offset (+0.417 m, I predicted ~0.4 m); geostrophic currents ~0.70 corr
+because they are a different physical quantity from GLORYS' full flow. That the predictions were
+recorded first is what makes these attributable rather than post-hoc.
+
+**SSH corr 0.975 with a pure offset** -> bias correction is clean and justified (near-perfect shape
+agreement, wrong level). **Leakage trap avoided:** satellite data so far covers only 2022 = the TEST
+year, so fitting the offset there would leak. Downloading 4 dates/year across 2019-21 to fit the
+correction on TRAIN dates only.
+
+### 🔴 BUG FOUND — SSS came through with the wrong SHAPE and the bounds check missed it
+The Multiobs SSS product carries a **depth** axis, so `sos` is (time, depth, lat, lon) while
+OSTIA/DUACS are (time, lat, lon). `_regrid` squeezed only `ndim == 3`, so SSS stacked as
+**(12, 1, 1, 100, 240)**. The per-variable physical bounds check PASSED, because a bounds check
+inspects VALUES, not SHAPE — and there was no shape assert at all.
+FIX: squeeze all leading singleton axes, then **assert the result is exactly (100, 240)** with the
+source dims in the message. Third instance of the same lesson: plausible values are not proof of a
+correct array.
+
 ## 2026-08-25 — Unit B — satellite path WORKS, and the ADT/zos offset is real
 
 `download_satellite` + `preprocess_satellite` verified end to end on all 12 test-year dates

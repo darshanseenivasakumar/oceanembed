@@ -1,0 +1,28 @@
+# Core
+numpy
+pandas
+pyarrow            # fast parquet tables (falls back to csv if missing)
+pyyaml
+
+# Ocean data
+xarray
+netCDF4
+copernicusmarine   # GLORYS12 download (CMEMS) — Unit B
+argopy             # Argo float profiles — Unit B/C
+
+# ML
+scikit-learn
+lightgbm           # baseline + quantile uncertainty — Unit A
+torch              # per-column MLP — Unit A
+
+# App / viz
+streamlit          # demo UI — Unit B shell + Unit C panels
+plotly
+matplotlib
+
+# Dev
+pytest
+
+# Install this package in editable mode so `import oceanembed` works:
+#   pip install -r requirements.txt
+#   pip install -e .

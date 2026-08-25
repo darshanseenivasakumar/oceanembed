@@ -8,6 +8,40 @@
 > FILES MODIFIED: | TESTS RUN: | KNOWN ISSUES: | NEXT TASK: | BLOCKERS:
 > ```
 
+## 2026-08-25 — Unit B — REAL Argo data + critical .gitignore fix
+
+### 🔴 CRITICAL BUG FIXED — repo was incomplete for everyone
+`.gitignore` had a bare `data/` pattern, which matches ANY directory named `data` at any depth — so
+**`src/oceanembed/data/` (download_glorys, download_argo, preprocess) was NEVER committed**. A fresh clone
+would die with ImportError. Patterns are now root-anchored (`/data/`, `/artifacts/*`, `/all research papers/`).
+[VERIFIED] fresh `git clone` now imports every module including `data/`.
+**Everyone: `git pull` — you were missing the data module.**
+
+### ✅ REAL Argo data downloaded (no credentials needed — Argo is public)
+`artifacts/argo_test.parquet`: **24,328 measurements / ~2,453 real profiles**, NIO, all 12 months of 2022.
+100% inside our region; 29.0 °C @0 m → 12.2 °C @500 m; QC flags {1,2} only; no extrapolation.
+(This file is gitignored — regenerate with `python -m oceanembed.data.download_argo`, ~5 min.)
+
+### ✅ GLORYS dataset id VERIFIED (no login needed for the catalog)
+`cmems_mod_glo_phy_my_0.083deg_P1D-m` — confirmed via `copernicusmarine.describe`. The **download** still
+needs a free CMEMS account.
+
+### ⚠️ DO NOT run Argo validation yet — it would be meaningless
+The current `mlp_model.pt` is trained on **SYNTHETIC** GLORYS. Comparing a synthetic-trained model against
+**real** Argo profiles produces garbage numbers that would look like a real result. Sequence must be:
+real GLORYS download → retrain → *then* Argo validation. Unit C: build `validate_argo.py` against the
+committed fixtures/structure, but do not publish metrics until the model is trained on real data.
+
+### Environment notes (saves everyone hours)
+- `erddapy<3` pinned — argopy 1.4.0 imports a symbol removed in erddapy 3.x.
+- Windows SSL: `download_argo._fix_ssl()` sets `SSL_CERT_FILE` from `certifi` (ERDDAP fails otherwise).
+- Verified working combo: pandas 2.3.3, xarray 2025.9.0, numpy 2.3.5, torch 2.9.1+cpu, streamlit 1.62.0.
+- Regression-checked: pipeline + seam still pass after those dependency downgrades.
+
+### NEXT
+- **B (Darshan):** `copernicusmarine login` → download real GLORYS → `prepare_dataset.py --real` → retrain → real metrics.
+- **A (Arjhun):** `observation_priority()` — the seam already calls it and shows the panel automatically once it exists.
+- **C (Mitun+Niru):** panels (`render(recon_output, argo_df)`), `anomaly.py`, `validate_argo.py` (hold metrics until real data).
 
 
 

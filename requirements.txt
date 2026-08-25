@@ -1,14 +1,20 @@
+# Versions below are the combination VERIFIED working on Windows/Python 3.12 (2026-08-25).
+# Install:  pip install -r requirements.txt  &&  pip install -e .
+
 # Core
 numpy
 pandas
-pyarrow            # fast parquet tables (falls back to csv if missing)
+pyarrow            # parquet tables (utils.io falls back to csv if missing)
 pyyaml
 
 # Ocean data
 xarray
 netCDF4
-copernicusmarine   # GLORYS12 download (CMEMS) — Unit B
+scipy
+copernicusmarine   # GLORYS12 download (needs a free CMEMS account) — Unit B
 argopy             # Argo float profiles — Unit B/C
+erddapy<3          # PIN: argopy 1.4.0 imports a private symbol removed in erddapy 3.x
+certifi            # CA bundle; download_argo sets SSL_CERT_FILE from it (Windows SSL fix)
 
 # ML
 scikit-learn
@@ -22,7 +28,3 @@ matplotlib
 
 # Dev
 pytest
-
-# Install this package in editable mode so `import oceanembed` works:
-#   pip install -r requirements.txt
-#   pip install -e .

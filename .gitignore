@@ -1,21 +1,20 @@
 # --- Data & large files (NEVER commit these) ---
-data/
-data/raw/
-data/processed/
+# NOTE: leading slash = repo root ONLY. A bare `data/` would also match src/oceanembed/data/
+# (our source module) and silently drop it from the repo. Keep these anchored.
+/data/
 *.nc
 *.zarr/
 *.grib
 
 # Research papers stay local, never in the repo
-all research papers/
-../all research papers/
+/all research papers/
 
 # --- Model artifacts: ignore everything EXCEPT the tiny fixtures ---
-artifacts/*
-!artifacts/sample_X.npy
-!artifacts/sample_y.npy
-!artifacts/sample_meta.parquet
-!artifacts/sample_meta.csv
+/artifacts/*
+!/artifacts/sample_X.npy
+!/artifacts/sample_y.npy
+!/artifacts/sample_meta.parquet
+!/artifacts/sample_meta.csv
 *.pt
 *.pkl
 *.ckpt

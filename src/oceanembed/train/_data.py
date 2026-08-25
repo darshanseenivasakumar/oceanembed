@@ -35,19 +35,45 @@ _PIPELINE_BROKEN_HINT = (
 )
 
 
+def artifact_provenance() -> tuple[str, str]:
+    """(status, label) for what the artifacts were actually built from.
+
+    status is one of "synthetic" | "real" | "unverified".
+
+    The artifacts carry NO provenance flag today (docs/DECISIONS.md D-018), so this infers it
+    from `data/raw/`. That is a weak signal by design-of-necessity, not by choice: copy
+    `artifacts/` to another machine without `data/raw/` and the evidence vanishes. So the
+    fallback is **"unverified", never "real"** -- we do not upgrade an absence of evidence into
+    a claim. The real fix is Unit B writing {"source": ...} into the artifacts.
+    """
+    raw = config.DATA_RAW
+    if os.path.exists(os.path.join(raw, "synthetic_glorys.nc")):
+        return "synthetic", "SYNTHETIC-derived artifacts (data/raw/synthetic_glorys.nc present)"
+
+    if os.path.isdir(raw) and any(f.endswith(".nc") for f in os.listdir(raw)):
+        return "real", "real GLORYS artifacts (real .nc in data/raw/)"
+
+    return "unverified", (
+        "artifacts with UNVERIFIED provenance -- data/raw/ is absent, and build_samples writes "
+        "no provenance flag (D-018). Could be synthetic. Do not report as real."
+    )
+
+
 def load_real() -> dict:
     """Unit B's artifacts. X_train/X_test are ALREADY z-scored by build_samples."""
     missing = [n for n in REQUIRED_REAL if not os.path.exists(config.art(n))]
     if missing:
         raise SystemExit("Missing artifacts: " + ", ".join(missing) + "\n" + _PIPELINE_BROKEN_HINT)
 
+    status, label = artifact_provenance()
     return dict(
         X_train=io.load_npy(config.art("X_train.npy")).astype("float32"),
         y_train=io.load_npy(config.art("y_train.npy")).astype("float32"),
         X_test=io.load_npy(config.art("X_test.npy")).astype("float32"),
         y_test=io.load_npy(config.art("y_test.npy")).astype("float32"),
         split="train[2019,2020,2021] test[2022] (by TIME)",
-        dataset="real artifacts",
+        dataset=label,
+        provenance=status,
     )
 
 

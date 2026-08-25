@@ -62,6 +62,7 @@ def compare(fixtures: bool = False, verbose: bool = True) -> dict:
     results = {name: compute_metrics(y_test, p, y_clim=clim) for name, p in preds.items()}
     out = dict(
         dataset=d["dataset"],
+        provenance=d.get("provenance", "fixtures" if fixtures else "unverified"),
         split=d["split"],
         n_test=len(y_test),
         results=results,
@@ -164,11 +165,19 @@ def log_to_experiment_log(out: dict) -> None:
     v = out["verdict"]
     stamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    lines = [
-        "\n## model-comparison " + stamp + "\n",
+    # Provenance goes in the HEADER, not buried in a field. Someone skimming headers months
+    # later must not be able to mistake a synthetic run for a result (docs/DECISIONS.md D-018).
+    prov = out.get("provenance", "unverified")
+    tag = "" if prov == "real" else f"  [{prov.upper()} DATA -- NOT A RESULT]"
+
+    lines = ["\n## model-comparison " + stamp + tag + "\n"]
+    if prov != "real":
+        lines.append(
+            f"> WARNING: provenance is '{prov}'. {out['dataset']} "
+            "These numbers describe the PIPELINE, not real ocean performance. Do not quote them.\n")
+    lines.append(
         "models: {} | dataset: {} | split: {} | seed: {} | n_test: {}\n".format(
-            ", ".join(r), out["dataset"], out["split"], config.SEED, out["n_test"]),
-    ]
+            ", ".join(r), out["dataset"], out["split"], config.SEED, out["n_test"]))
     for name, m in r.items():
         skill = m.get("skill_vs_clim")
         skill_s = "--" if skill is None else "{:+.4f}".format(skill)

@@ -65,6 +65,10 @@ elif _source == "synthetic":
         "Numbers are illustrative, **not** real ocean performance. Run the real CMEMS download "
         f"(`prepare_dataset.py --real`) before showing results to judges. "
         f"(artifacts built {_prov.get('built', '?')})", icon="⚠️")
+elif _source == "stale":
+    st.error(
+        "**STALE ARTIFACTS** — the provenance stamp does not match the current depth contract, so "
+        f"these artifacts were built under different settings. {_prov.get('note','')}", icon="🚫")
 else:
     st.error(
         "**UNKNOWN DATA PROVENANCE** — `artifacts/provenance.json` is missing, so this app cannot "

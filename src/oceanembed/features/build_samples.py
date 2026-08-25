@@ -90,6 +90,11 @@ def run(processed_path: str, write: bool = True) -> dict:
         io.save_json({"source": source,
                       "built": _dt.datetime.now().isoformat(timespec="seconds"),
                       "x_units": "raw (model normalizes internally, DECISIONS D-009)",
+                      # Depth set is stamped so a STALE provenance file is detectable. A stamp that
+                      # records only "real-glorys" still reads as authoritative after the contract
+                      # moves underneath it -- which is exactly what happened when DEPTHS went
+                      # 11 -> 15 and the old stamp kept claiming a valid real build.
+                      "depths": list(config.DEPTHS), "n_depths": config.N_DEPTHS,
                       "n_train": result["n_train"], "n_test": result["n_test"]},
                      config.art("provenance.json"))
         print(f"[build_samples] source={source} train={result['n_train']} test={result['n_test']} -> artifacts/")

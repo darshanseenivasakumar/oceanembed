@@ -78,6 +78,20 @@ def provenance() -> dict:
     if os.path.exists(p):
         d = dict(io.load_json(p))
         d["inference_source"] = _source          # what the CURRENT run is reading surface fields from
+        # A stamp is only valid for the contract it was written under. If DEPTHS has moved since,
+        # the artifacts it describes no longer exist in a usable form -- say STALE, not "real".
+        stamped = d.get("depths")
+        if stamped is not None and list(stamped) != list(config.DEPTHS):
+            d["stale"] = True
+            d["source"] = "stale"
+            d["note"] = (f"provenance stamped for {len(stamped)} depths {stamped}, but config.DEPTHS "
+                         f"is now {config.N_DEPTHS} {list(config.DEPTHS)}. Rebuild with "
+                         f"scripts/prepare_dataset.py --real before trusting any number.")
+        elif stamped is None:
+            d["stale"] = True
+            d["source"] = "stale"
+            d["note"] = ("provenance predates depth stamping, so it cannot be checked against the "
+                         "current contract. Rebuild with scripts/prepare_dataset.py --real.")
         return d
     return {"source": "unknown", "built": None,
             "note": "artifacts/provenance.json missing -- rebuild with scripts/prepare_dataset.py"}

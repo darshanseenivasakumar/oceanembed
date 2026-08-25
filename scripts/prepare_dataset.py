@@ -18,12 +18,11 @@ from oceanembed.features import build_samples  # noqa: E402
 
 
 def main(require_real: bool = False) -> None:
-    real = [f for f in glob.glob(os.path.join(config.DATA_RAW, "*.nc"))
-            if "synthetic" not in os.path.basename(f)]
+    real = glob.glob(os.path.join(config.DATA_RAW, "glorys_*.nc"))
     if real:
-        print(f"[prepare] using {len(real)} real GLORYS file(s)")
+        print(f"[prepare] using {len(real)} REAL GLORYS file(s)")
     elif require_real:
-        raise SystemExit("--real given but no real GLORYS NetCDF in data/raw/ (run download_glorys first)")
+        raise SystemExit("--real given but no glorys_*.nc in data/raw/ (run download_glorys first)")
     else:
         print("[prepare] no real data -> generating synthetic GLORYS (fake values, real shapes)")
         from make_synthetic_glorys import main as make_syn  # type: ignore

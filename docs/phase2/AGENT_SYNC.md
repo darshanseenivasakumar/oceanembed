@@ -53,6 +53,111 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [ARJHUN] F4 built and TESTED, not validated. Your ASK answered. Two blockers back at you.
+
+Branch **`phase2-reliability`** (see naming note below). Full suite **182 passed, 10 skipped**.
+Baseline diff vs `origin/phase2` across `src/oceanembed/`, `app/`, `scripts/`, `pyproject.toml` and
+baseline `tests/test_*.py` is **empty**. Your directories untouched. `main` never checked out.
+
+### >>> ANSWERED — your ASK on subsurface salinity and F5
+
+> "this changes F5. You can now compute real seawater density from T and S instead of assuming a
+> constant."
+
+Agreed, and it matters more than "one fewer caveat". Your own finding shows why:
+
+**Minimum salinity 6.43 psu at 22.50N, 91.25E — the Meghna/Ganges plume.** A constant-density OHC
+would have been *most* wrong precisely in the **northern Bay of Bengal**, which is (a) the cyclone
+genesis region, and (b) the exact cell our observation-priority map already ranks top
+(17.75-19.25N, 85.75-93.75E). We would have shipped our headline product with its largest density
+error sitting under its headline location. That is a Phase-1-shaped failure — plausible values,
+wrong physics — and your extraction removes it before it happened.
+
+Two consequences I will build on, once I can run it:
+- **OHC** uses real rho(S,T,p) rather than an assumed constant. No caveat needed.
+- **Stratification** becomes computable properly: a strong halocline over a warm layer is exactly
+  the barrier-layer structure the northern BoB is known for, and it is invisible to temperature
+  alone. That is a stronger F5 than the audit scoped.
+
+Noted on the salinity floor: any density code must accept near-fresh surface water. Your fix from
+20 psu to 0 is right, and 6.43 psu is a real measurement, not an artifact.
+
+### F4 — what exists now
+`src/phase2/reliability/calibration.py` — per-depth variance (std) scaling,
+`a^2 = mean(residual^2/sigma^2)`, fitted on one split and evaluated on another. ENCE as the metric.
+Per depth, not one global factor: the miscalibration is depth-dependent, so a single factor would
+over-correct the surface while under-correcting 75-150 m. (Levi et al. 2022; Kuleshov et al. ICML
+2018.)
+
+`src/phase2/reliability/ood.py` — Mahalanobis on the surface features (Lee et al. NeurIPS 2018).
+Chosen over per-feature z-scores because SST and SSH co-vary through thermal expansion, so a state
+can sit inside every marginal range while being **jointly** impossible: warm water standing low.
+Threshold is an empirical percentile of training distances, not chi-squared, because FEATURES
+includes bounded cyclic encodings that are not Gaussian.
+
+40 tests, scientific rather than shape-only [VERIFIED]:
+- recovers a known 4x overconfidence factor within 10%
+- resolves depth-**varying** miscalibration
+- **ENCE improves out of sample** — on rows the factors were not fitted on
+- reproduces D-016: sigma 0.30 -> corrected lands on the measured 1.22 degC
+- leaves already-calibrated uncertainty alone (alpha ~ 1)
+- flags an SST/SSH-correlation violation that is marginally unremarkable in both variables
+- OOD false-positive rate matches the chosen percentile: 0.93% measured at p99 on held-out
+
+### Status: TESTED, **not VALIDATED** — and I cannot fix this from here
+`artifacts/argo_error_by_depth.json` **is not on my machine** [VERIFIED: `FileNotFoundError`].
+It is gitignored (`/artifacts/*`), so it exists only where you ran the real Argo evaluation. Every
+number F4 can currently produce comes from synthetic artifacts (`provenance.json -> "synthetic"`).
+The method is exercised; the science is not. I will not mark it VALIDATED on that basis.
+
+`data/processed/subsurface.npz` is absent here for the same reason, so F5 is unblocked *in
+principle* but not *on this machine*.
+
+### >>> ASK DARSHAN (1): whitelist the error file
+```
+!/artifacts/argo_error_by_depth.json
+```
+~15 numbers. It is a **result**, not raw data — results are the evidence, same argument as
+`EXPERIMENT_LOG.md` being tracked. This single line converts F4 from TESTED to genuinely
+measurable.
+
+### >>> ASK DARSHAN (2): persist per-sample residuals
+`argo_error_by_depth.json` stores **aggregate per-depth RMSE**. That supports only moment-matching
+(`a_d = RMSE_d / RMV_d`), which **cannot be held out** — a summary has no per-sample identity to
+split on, so the factors get fitted on exactly the numbers they would be scored against.
+`ratio_after` then returns 1.0 by construction and proves nothing. I have implemented that path but
+hard-wired `is_validated = False` for it.
+
+To unlock the rigorous path, `scripts/eval_satellite_vs_argo.py` would additionally persist, per
+matched profile: `[lat, lon, date, depth_idx, residual, sigma]`. Then F4 reports a real
+out-of-sample ENCE. Your script, your call — **requested, not changed**.
+
+This is the same discipline you applied to the SSH offset: fit on train dates, verify against the
+test period, then believe it.
+
+### Two scaffold notes
+**1. `tests/phase2/__init__.py` deleted — your file, so flagging loudly.** It made pytest import
+test modules as `phase2.test_*`, which **shadowed `src/phase2`** and made `phase2.reliability`
+unimportable. Latent so far only because `test_subsurface.py` imports just `oceanembed` and
+currently skips; it would have hit you the moment a Phase-2 test imported `phase2.data`. Baseline
+`tests/` has no `__init__.py` anywhere, and `main` has no `tests/phase2` directory at all
+[VERIFIED], so the change cannot reach it. Say the word if you want it back and I will find another
+route.
+
+**2. Branch naming — `phase2/reliability` is impossible.** `phase2` already exists as a branch, and
+a git ref cannot be both a branch and a directory:
+`fatal: 'refs/heads/phase2' exists; cannot create 'refs/heads/phase2/reliability'`.
+I am on **`phase2-reliability`**. You will hit the identical wall on `phase2/collocation`. Worth
+settling the convention now — suggest `phase2-<feature>` throughout, and updating the branch column
+in this file.
+
+### Next from me
+F5 physics (thermocline / MLD / OHC) on `phase2-physics`, using your `subsurface.npz` the moment I
+can get a copy. Holding F6 upwelling until your monthly wind-stress download lands, and F7
+persistence stays blocked on monthly cadence — agreed, that one cannot be made honest.
+
+---
+
 ## 2026-08-26 [DARSHAN] Phase-2 data layer unblocked. Two audit findings CORRECTED.
 
 **1. Subsurface salinity was never missing.** The audit said it was a blocker for F5 ocean heat

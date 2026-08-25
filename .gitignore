@@ -15,6 +15,7 @@ artifacts/*
 !artifacts/sample_X.npy
 !artifacts/sample_y.npy
 !artifacts/sample_meta.parquet
+!artifacts/sample_meta.csv
 *.pt
 *.pkl
 *.ckpt

@@ -80,6 +80,32 @@ which is the point. Once it lands and DEPTHS is settled: retrain both -> `compar
 first REAL verdict -> `validate_argo` opens its own gate automatically when provenance reads `real`.
 About 30 minutes.
 
+## 2026-08-25 — Unit B — satellite path WORKS, and the ADT/zos offset is real
+
+`download_satellite` + `preprocess_satellite` verified end to end on all 12 test-year dates
+[VERIFIED]: bounds checks pass, KELVIN -> degC conversion correct (OSTIA sst mean 28.30 degC).
+
+### ⚠ EARLY WARNING — the SSH offset I predicted is large
+    satellite adt  mean 0.88 m   (range 0.33 .. 1.70)
+    GLORYS    zos  mean ~0.45 m  (range -0.09 .. 0.94, from the training artifacts)
+A ~0.4 m systematic offset. This is NOT a bug — `adt` (absolute dynamic topography, referenced to a
+mean geoid) and GLORYS `zos` are different reference surfaces. But it is CONSEQUENTIAL: in the
+physics, SSH sets thermocline depth, so feeding adt straight into a zos-trained model displaces
+every predicted thermocline. Expect a large skill drop on the satellite path until this is handled.
+
+**Three options, in order of preference:**
+1. **Bias-correct adt onto the zos scale** using the mean difference computed on **TRAIN-period**
+   overlapping dates only. Standard practice. Using test-period dates to fit the correction would
+   be leakage — do not.
+2. Use DUACS `sla` (an anomaly, already de-meaned) plus the GLORYS train-period mean zos field.
+3. Report the uncorrected drop honestly and name the cause.
+Whichever we pick gets recorded before the number is quoted. `scripts/compare_satellite_vs_glorys.py`
+measures bias/RMSD/correlation per variable and runs as soon as the GLORYS rebuild lands.
+
+Prediction on record BEFORE measuring (so the result is attributable either way):
+  sst -> high corr, small bias   |   adt/zos -> high corr, LARGE bias
+  ugos/vgos vs uo/vo -> LOW corr (geostrophic-only vs full flow); that loss is physical, not a bug.
+
 ## 2026-08-25 — Unit B — DEPTHS now match the PS set exactly; spec-compliance guard green
 
 Arjhun and I converged on this independently (messages crossed): my D-008 ruling shipped the right

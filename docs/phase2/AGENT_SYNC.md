@@ -53,6 +53,90 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [ARJHUN] HOW TO TEST F4 + F5 ON YOUR MACHINE — 3 minutes
+
+Both branches pushed. **Code complete, neither VALIDATED** — nothing I built has touched real data.
+You have the only machine that can change that.
+
+### Run them
+
+```bash
+git fetch origin
+
+git checkout phase2-reliability     # F4 — calibration + OOD
+pytest tests/phase2/ -q             # expect 40 passed
+
+git checkout phase2-physics         # F5 — MLD / barrier layer / thermocline / OHC
+pytest tests/phase2/ -q             # expect 31 passed
+```
+
+`tests/phase2/__init__.py` is already deleted inside both my branches. If you cut a NEW branch from
+`origin/phase2` you must `rm -f tests/phase2/__init__.py` first, or imports break — see the
+scaffold note in my previous entry.
+
+### F4 against your real Argo error
+```bash
+python -c "from phase2.reliability import calibration as c; m = c.load_measured_error(); print(m['rmse'])"
+```
+Reads `artifacts/argo_error_by_depth.json`. Raises with an actionable message if absent — that is
+ask (1). Then:
+```python
+from phase2.reliability import calibration as c
+m = c.load_measured_error()
+res = c.fit_from_summary(m["rmse"], sigma_by_depth, n_obs_per_depth=m["n_obs"])
+print(res.summary())          # is_validated will be False — by design, see ask (2)
+```
+
+### F5 against your real GLORYS
+```bash
+python -m phase2.data.extract_subsurface
+pytest tests/phase2/test_physics.py -q
+```
+
+### THE FOUR CHECKS THAT ACTUALLY MEAN SOMETHING
+
+Everything above only proves the code runs. These four say whether the science is right — and all
+four **fail or degenerate on my synthetic stand-in**, so they are the real signal:
+
+1. **Your own salinity test should PASS.**
+   `test_salinity_generally_increases_with_depth_in_the_bay_of_bengal` FAILS here
+   (34.60 psu surface vs 34.58 at depth — noise). On real GLORYS it should pass. That single test
+   is the cleanest indicator that real data is in play.
+
+2. **A genuine mixed layer should appear.** On synthetic data the thermocline sits ABOVE the MLD in
+   88% of cells, because `make_synthetic_glorys.py` is `exp(-z/250)` from the surface with no mixed
+   layer at all. On real data the thermocline should sit BELOW the MLD nearly everywhere. If it
+   does not, either the data or my `layers.py` is wrong.
+
+3. **A real barrier layer should show up in the northern Bay of Bengal.** Mine is ~0 m everywhere
+   (synthetic salinity spans 0.28 psu). Yours should be clearly positive around 18-22N / 86-92E,
+   where you measured 6.43 psu. That is the F5 claim, and it is the one I most want measured rather
+   than argued.
+
+4. **The constant-density error should grow well beyond 0.028%.**
+   ```python
+   from phase2.physics import ohc
+   e = ohc.density_assumption_error(salinity, theta, 300.0)
+   print(e["mean_rel_diff"], e["max_rel_diff"])
+   ```
+   This measures what the old constant-rho assumption would have cost. On synthetic data it is
+   negligible because there is no fresh water. On real data it should be largest exactly in the
+   plume — which is also the cell our priority map ranks first.
+
+**If 2, 3 and 4 do not change qualitatively against my synthetic numbers, something is wrong** —
+either the data path or my physics. Please tell me which, rather than working around it.
+
+### Still the same three asks
+1. whitelist `artifacts/argo_error_by_depth.json` — unblocks F4
+2. persist per-profile residuals + sigma — unblocks F4's held-out path
+3. `subsurface.npz` or raw `glorys_*.nc` — unblocks F5
+
+One zip of `data/raw/` + `data/processed/` + `artifacts/` covers all three, and doubles as the
+demo-day copy rehearsal — the presentation laptop needs exactly those directories and they do not
+travel through git.
+
+---
+
 ## 2026-08-26 [ARJHUN] F5 physics built on your subsurface data. Your test caught my synthetic stand-in.
 
 Branch **`phase2-physics`**. 31 tests. Baseline untouched, your directories untouched, `main` never

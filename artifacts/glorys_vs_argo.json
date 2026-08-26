@@ -3,8 +3,193 @@
   "not_to_be_confused_with": "argo_error_by_depth.json rmse_glorys, which is OUR MODEL fed GLORYS inputs -- not the reanalysis itself",
   "max_days_offset": 5,
   "tight_definition": {
-    "max_km": 25.0,
+    "max_km": 10.0,
     "max_days": 3
+  },
+  "why_not_25km": "A 25 km threshold excludes 0 of 2,455 profiles on a 0.25 deg grid, whose worst-case nearest-cell distance is 19.62 km. Any claim that 'tightening to <=25 km changed X' is false -- that filter never bound.",
+  "by_depth_near_only": {
+    "0": {
+      "n": 7,
+      "bias": -0.007,
+      "mean_abs": 0.296,
+      "rmse": 0.326
+    },
+    "5": {
+      "n": 338,
+      "bias": 0.074,
+      "mean_abs": 0.363,
+      "rmse": 0.54
+    },
+    "10": {
+      "n": 372,
+      "bias": -0.014,
+      "mean_abs": 0.398,
+      "rmse": 0.712
+    },
+    "20": {
+      "n": 373,
+      "bias": -0.121,
+      "mean_abs": 0.492,
+      "rmse": 0.839
+    },
+    "30": {
+      "n": 373,
+      "bias": -0.179,
+      "mean_abs": 0.606,
+      "rmse": 0.926
+    },
+    "50": {
+      "n": 371,
+      "bias": -0.349,
+      "mean_abs": 0.629,
+      "rmse": 0.99
+    },
+    "75": {
+      "n": 370,
+      "bias": -0.495,
+      "mean_abs": 0.724,
+      "rmse": 1.072
+    },
+    "100": {
+      "n": 370,
+      "bias": -0.512,
+      "mean_abs": 0.786,
+      "rmse": 1.17
+    },
+    "125": {
+      "n": 366,
+      "bias": -0.412,
+      "mean_abs": 0.777,
+      "rmse": 1.118
+    },
+    "150": {
+      "n": 365,
+      "bias": -0.271,
+      "mean_abs": 0.68,
+      "rmse": 1.039
+    },
+    "200": {
+      "n": 357,
+      "bias": -0.04,
+      "mean_abs": 0.557,
+      "rmse": 0.852
+    },
+    "300": {
+      "n": 350,
+      "bias": 0.028,
+      "mean_abs": 0.435,
+      "rmse": 0.733
+    },
+    "500": {
+      "n": 336,
+      "bias": 0.018,
+      "mean_abs": 0.216,
+      "rmse": 0.317
+    },
+    "700": {
+      "n": 333,
+      "bias": 0.096,
+      "mean_abs": 0.243,
+      "rmse": 0.344
+    },
+    "1000": {
+      "n": 214,
+      "bias": 0.105,
+      "mean_abs": 0.222,
+      "rmse": 0.304
+    }
+  },
+  "by_depth_soon_only": {
+    "0": {
+      "n": 9,
+      "bias": 0.098,
+      "mean_abs": 0.329,
+      "rmse": 0.392
+    },
+    "5": {
+      "n": 501,
+      "bias": 0.07,
+      "mean_abs": 0.354,
+      "rmse": 0.536
+    },
+    "10": {
+      "n": 544,
+      "bias": -0.001,
+      "mean_abs": 0.366,
+      "rmse": 0.616
+    },
+    "20": {
+      "n": 548,
+      "bias": -0.118,
+      "mean_abs": 0.506,
+      "rmse": 0.91
+    },
+    "30": {
+      "n": 547,
+      "bias": -0.203,
+      "mean_abs": 0.619,
+      "rmse": 0.984
+    },
+    "50": {
+      "n": 545,
+      "bias": -0.341,
+      "mean_abs": 0.62,
+      "rmse": 0.949
+    },
+    "75": {
+      "n": 543,
+      "bias": -0.435,
+      "mean_abs": 0.694,
+      "rmse": 1.01
+    },
+    "100": {
+      "n": 543,
+      "bias": -0.468,
+      "mean_abs": 0.761,
+      "rmse": 1.101
+    },
+    "125": {
+      "n": 540,
+      "bias": -0.403,
+      "mean_abs": 0.748,
+      "rmse": 1.001
+    },
+    "150": {
+      "n": 538,
+      "bias": -0.288,
+      "mean_abs": 0.645,
+      "rmse": 0.869
+    },
+    "200": {
+      "n": 536,
+      "bias": -0.123,
+      "mean_abs": 0.521,
+      "rmse": 0.692
+    },
+    "300": {
+      "n": 526,
+      "bias": -0.036,
+      "mean_abs": 0.389,
+      "rmse": 0.549
+    },
+    "500": {
+      "n": 507,
+      "bias": 0.019,
+      "mean_abs": 0.204,
+      "rmse": 0.308
+    },
+    "700": {
+      "n": 503,
+      "bias": 0.091,
+      "mean_abs": 0.238,
+      "rmse": 0.32
+    },
+    "1000": {
+      "n": 331,
+      "bias": 0.097,
+      "mean_abs": 0.199,
+      "rmse": 0.275
+    }
   },
   "n_comparisons": 11761,
   "by_depth_all": {
@@ -101,94 +286,94 @@
   },
   "by_depth_tight": {
     "0": {
-      "n": 9,
-      "bias": 0.098,
-      "mean_abs": 0.329,
-      "rmse": 0.392
+      "n": 5,
+      "bias": -0.017,
+      "mean_abs": 0.298,
+      "rmse": 0.34
     },
     "5": {
-      "n": 501,
-      "bias": 0.07,
-      "mean_abs": 0.354,
-      "rmse": 0.536
+      "n": 202,
+      "bias": 0.082,
+      "mean_abs": 0.377,
+      "rmse": 0.586
     },
     "10": {
-      "n": 544,
-      "bias": -0.001,
-      "mean_abs": 0.366,
-      "rmse": 0.616
+      "n": 223,
+      "bias": -0.011,
+      "mean_abs": 0.411,
+      "rmse": 0.741
     },
     "20": {
-      "n": 548,
-      "bias": -0.118,
-      "mean_abs": 0.506,
-      "rmse": 0.91
+      "n": 224,
+      "bias": -0.113,
+      "mean_abs": 0.518,
+      "rmse": 0.884
     },
     "30": {
-      "n": 547,
-      "bias": -0.203,
-      "mean_abs": 0.619,
-      "rmse": 0.984
+      "n": 224,
+      "bias": -0.181,
+      "mean_abs": 0.628,
+      "rmse": 0.966
     },
     "50": {
-      "n": 545,
-      "bias": -0.341,
-      "mean_abs": 0.62,
-      "rmse": 0.949
+      "n": 223,
+      "bias": -0.319,
+      "mean_abs": 0.586,
+      "rmse": 0.904
     },
     "75": {
-      "n": 543,
-      "bias": -0.435,
-      "mean_abs": 0.694,
-      "rmse": 1.01
+      "n": 222,
+      "bias": -0.461,
+      "mean_abs": 0.677,
+      "rmse": 0.956
     },
     "100": {
-      "n": 543,
-      "bias": -0.468,
-      "mean_abs": 0.761,
-      "rmse": 1.101
+      "n": 222,
+      "bias": -0.502,
+      "mean_abs": 0.726,
+      "rmse": 1.079
     },
     "125": {
-      "n": 540,
-      "bias": -0.403,
-      "mean_abs": 0.748,
-      "rmse": 1.001
+      "n": 219,
+      "bias": -0.395,
+      "mean_abs": 0.722,
+      "rmse": 0.986
     },
     "150": {
-      "n": 538,
-      "bias": -0.288,
-      "mean_abs": 0.645,
-      "rmse": 0.869
+      "n": 218,
+      "bias": -0.25,
+      "mean_abs": 0.621,
+      "rmse": 0.848
     },
     "200": {
-      "n": 536,
-      "bias": -0.123,
-      "mean_abs": 0.521,
-      "rmse": 0.692
+      "n": 218,
+      "bias": -0.031,
+      "mean_abs": 0.518,
+      "rmse": 0.69
     },
     "300": {
-      "n": 526,
-      "bias": -0.036,
-      "mean_abs": 0.389,
-      "rmse": 0.549
+      "n": 212,
+      "bias": 0.018,
+      "mean_abs": 0.397,
+      "rmse": 0.594
     },
     "500": {
-      "n": 507,
-      "bias": 0.019,
-      "mean_abs": 0.204,
-      "rmse": 0.308
+      "n": 203,
+      "bias": 0.03,
+      "mean_abs": 0.197,
+      "rmse": 0.311
     },
     "700": {
-      "n": 503,
-      "bias": 0.091,
-      "mean_abs": 0.238,
-      "rmse": 0.32
+      "n": 201,
+      "bias": 0.1,
+      "mean_abs": 0.246,
+      "rmse": 0.351
     },
     "1000": {
-      "n": 331,
-      "bias": 0.097,
-      "mean_abs": 0.199,
-      "rmse": 0.275
+      "n": 129,
+      "bias": 0.098,
+      "mean_abs": 0.202,
+      "rmse": 0.284
     }
   },
   "model_vs_reanalysis": {

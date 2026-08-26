@@ -16,8 +16,9 @@ Honesty notes baked in
 - Cells are skipped where `valid_mask` says the sea floor is shallower than the level, so we never
   compare against a value under the sea bed.
 - A float is never exactly on a grid cell at exactly the grid time, so SOME disagreement is
-  collocation mismatch rather than reanalysis error. The script reports a TIGHT subset
-  (<= 25 km, <= 3 days) alongside the full set: what survives tightening is the real error.
+  collocation mismatch rather than reanalysis error. The script reports a TIGHT subset alongside
+  the full set, and reports the distance and time halves SEPARATELY: what survives is the real
+  error. Do not lump them -- see the note on TIGHT_KM for why that hid a dead filter.
 - The default filter matches the <= 5-day offset used by argo_error_by_depth.json so the numbers
   are comparable to the model's.
 
@@ -39,7 +40,12 @@ import pandas as pd  # noqa: E402
 
 from oceanembed import config  # noqa: E402
 
-TIGHT_KM, TIGHT_DAYS = 25.0, 3
+# A 0.25 deg grid puts every point within 19.62 km of a cell centre (worst case, at 5N), and the
+# real floats top out at 19.08 km. A 25 km "tight" threshold therefore excluded 0 of 2,455 profiles
+# -- it was a no-op being reported as a filter, so the whole 0.02 C shrink came from the time half.
+# Caught by Arjhun. 10 km actually bites (mean nearest-cell distance is 10.42 km), and the two
+# effects are now reported separately so neither is credited with the other's work.
+TIGHT_KM, TIGHT_DAYS = 10.0, 3
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -106,18 +112,31 @@ def main() -> None:
 
     r = collect(max_days)
     allt = summarise(r)
+    near = summarise(r[r.km <= TIGHT_KM])
+    soon = summarise(r[r.days <= TIGHT_DAYS])
     tight = summarise(r[(r.km <= TIGHT_KM) & (r.days <= TIGHT_DAYS)])
     show(f"ALL matches (n={len(r)})", allt)
-    show(f"TIGHT only <= {TIGHT_KM:.0f} km and <= {TIGHT_DAYS} days", tight)
+    show(f"TIGHT: <= {TIGHT_KM:.0f} km AND <= {TIGHT_DAYS} days", tight)
 
     worst = max(allt, key=lambda d: allt[d]["mean_abs"])
     deep = float(np.mean([allt[d]["mean_abs"] for d in allt if d >= 500]))
     print(f"\nworst disagreement : {allt[worst]['mean_abs']:.2f} C at {worst} m")
     print(f"deep (>=500 m)     : {deep:.2f} C mean absolute")
+
+    # Decompose it. Crediting "collocation" as one lump hid that the distance half was doing
+    # nothing at all, so the time half was silently taking all the credit.
+    base = allt[worst]["mean_abs"]
+    print(f"\nwhat the {worst} m gap is made of, mean absolute:")
+    for label, tbl, n in (("all matches", allt, len(r)),
+                          (f"distance <= {TIGHT_KM:.0f} km", near, int((r.km <= TIGHT_KM).sum())),
+                          (f"time <= {TIGHT_DAYS} days", soon, int((r.days <= TIGHT_DAYS).sum())),
+                          ("both", tight, int(((r.km <= TIGHT_KM) & (r.days <= TIGHT_DAYS)).sum()))):
+        if worst in tbl:
+            v = tbl[worst]["mean_abs"]
+            print(f"  {label:<22} {v:.2f} C   ({v - base:+.2f} vs all, n={n})")
     if worst in tight:
-        shrink = allt[worst]["mean_abs"] - tight[worst]["mean_abs"]
-        print(f"tightening collocation removes only {shrink:.2f} C of the {worst} m gap")
-        print("-> most of it is REANALYSIS ERROR, not collocation mismatch")
+        print(f"-> {tight[worst]['mean_abs']:.2f} C survives the tightest matching, so most of the "
+              f"{base:.2f} C is REANALYSIS ERROR, not collocation mismatch")
 
     print("\n" + "=" * 74)
     print("OUR MODEL (satellite-driven) vs THE REANALYSIS ITSELF, same floats")
@@ -162,6 +181,11 @@ def main() -> None:
                                     "GLORYS inputs -- not the reanalysis itself"),
         "max_days_offset": max_days,
         "tight_definition": {"max_km": TIGHT_KM, "max_days": TIGHT_DAYS},
+        "why_not_25km": ("A 25 km threshold excludes 0 of 2,455 profiles on a 0.25 deg grid, whose "
+                         "worst-case nearest-cell distance is 19.62 km. Any claim that 'tightening "
+                         "to <=25 km changed X' is false -- that filter never bound."),
+        "by_depth_near_only": near,
+        "by_depth_soon_only": soon,
         "n_comparisons": int(len(r)),
         "by_depth_all": allt,
         "by_depth_tight": tight,

@@ -40,6 +40,27 @@ def available_dates():
         return [pd.Timestamp(d).date() for d in z["times"].astype("datetime64[D]")]
 
 
+@st.cache_data
+def _basin_wide():
+    """Basin-wide GLORYS-vs-Argo numbers, so one profile is never read as the headline.
+
+    Returns None if the analysis has not been run -- the page then says how to produce it rather
+    than silently showing only the single-point figure.
+    """
+    p = os.path.join(config.ARTIFACTS, "glorys_vs_argo.json")
+    if not os.path.exists(p):
+        return None
+    import json
+    with open(p) as f:
+        d = json.load(f)
+    by = {int(k): v for k, v in d["by_depth_all"].items()}
+    worst = max(by, key=lambda k: by[k]["mean_abs"])
+    deep = [by[k]["mean_abs"] for k in by if k >= 500]
+    return {"n": d["n_comparisons"], "worst_depth": worst,
+            "worst_val": by[worst]["mean_abs"],
+            "deep": sum(deep) / len(deep) if deep else float("nan")}
+
+
 st.title("F1 — Multi-source collocation")
 st.caption("Phase 2 · one point, every source, with the measured offset of each match. "
            "Separate from the frozen Aug-30 demo.")
@@ -145,22 +166,49 @@ if prof:
         st.caption("Depth increases downward, as an oceanographer would plot it. "
                    "A gap in the Argo line means the float did not sample that level.")
     with b:
-        st.dataframe(df, hide_index=True, width="stretch", height=400)
+        # None renders as the literal word "None", and round(x, 2) turns -0.0009 into a bare "0"
+        # sitting next to "-0.01", which reads as exact agreement and as sloppy formatting. NaN
+        # renders blank, and an explicit format keeps every column at a fixed width.
+        st.dataframe(
+            df.astype({c: "float64" for c in df.columns if c != "depth (m)"}),
+            hide_index=True, width="stretch", height=400,
+            column_config={
+                "depth (m)": st.column_config.NumberColumn(format="%d"),
+                "GLORYS T (°C)": st.column_config.NumberColumn(format="%.3f"),
+                "salinity (psu)": st.column_config.NumberColumn(format="%.3f"),
+                "ARGO T (°C)": st.column_config.NumberColumn(format="%.3f"),
+                "ARGO − GLORYS": st.column_config.NumberColumn(format="%.2f"),
+            })
 
-    # The reanalysis-vs-float gap is worth surfacing: it is not OUR model's error.
+    # The reanalysis-vs-float gap is worth surfacing: it is not OUR model's error. But this is ONE
+    # profile, and a single point is an anecdote -- so show the basin-wide number beside it or a
+    # reader will generalise from a sample of one.
     both = df.dropna(subset=["ARGO T (°C)", "GLORYS T (°C)"])
     if len(both) >= 5:
         worst = both.iloc[both["ARGO − GLORYS"].abs().argmax()]
         deep = both[both["depth (m)"] >= 500]["ARGO − GLORYS"].abs().mean()
-        st.info(
-            f"**GLORYS vs the independent float** — largest gap **{worst['ARGO − GLORYS']:+.2f} °C "
-            f"at {int(worst['depth (m)'])} m**, but only **{deep:.2f} °C** mean below 500 m.\n\n"
-            "This is the *reanalysis* against a real float, not our model. Where they disagree, "
-            "part of the error our model shows at the thermocline is inherited from its training "
-            "data rather than created by it. Some of this gap is also the float being "
-            f"{(argo or {}).get('spatial_offset_km', 0):.0f} km and "
-            f"{(argo or {}).get('temporal_offset_days', 0):+.0f} days away — a real limit of "
-            "matching irregular floats to monthly grids, not a defect.")
+        msg = (f"**GLORYS vs the independent float, at THIS point** — largest gap "
+               f"**{worst['ARGO − GLORYS']:+.2f} °C at {int(worst['depth (m)'])} m**, "
+               f"but only **{deep:.2f} °C** mean below 500 m.")
+
+        basin = _basin_wide()
+        if basin:
+            msg += (f"  \n**Basin-wide, across {basin['n']:,} comparisons:** worst is "
+                    f"**{basin['worst_val']:.2f} °C at {basin['worst_depth']} m**, "
+                    f"**{basin['deep']:.2f} °C** below 500 m. This single profile is on the "
+                    f"{'severe' if abs(worst['ARGO − GLORYS']) > basin['worst_val'] else 'mild'} "
+                    "side — do not quote one point as the headline.")
+        else:
+            msg += ("  \nFor the basin-wide figure run `python scripts/phase2/glorys_vs_argo.py`; "
+                    "one profile on one date is an anecdote, not a result.")
+
+        msg += ("  \n\nThis is the *reanalysis* against a real float, **not our model**. Where they "
+                "disagree, part of the error our model shows at the thermocline is inherited from "
+                "its training data rather than created by it. Some of this gap is also the float "
+                f"being {(argo or {}).get('spatial_offset_km', 0):.0f} km and "
+                f"{(argo or {}).get('temporal_offset_days', 0):+.0f} days away — a real limit of "
+                "matching irregular floats to monthly grids, not a defect.")
+        st.info(msg)
 
 with st.expander("Provenance — where every number came from"):
     st.json(record.provenance)

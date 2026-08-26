@@ -257,7 +257,10 @@ class CollocationEngine:
             sources=sources,
             flags=flags,
             provenance={
-                "engine": "phase2.collocation.CollocationEngine",
+                # Derived from the class, never hardcoded: the literal string here used to say
+                # "phase2.collocation.CollocationEngine", a path that does not import. Provenance
+                # that cannot be followed back to real code is worse than none.
+                "engine": f"{type(self).__module__}.{type(self).__qualname__}",
                 "tolerance_days": self.tolerance_days,
                 "grid": f"{config.N_LAT}x{config.N_LON}x{config.N_DEPTHS}",
                 "depths_m": list(config.DEPTHS),

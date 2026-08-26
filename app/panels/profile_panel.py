@@ -90,6 +90,8 @@ def render(recon_output: dict, argo_df=None) -> None:
     if len(std) > 1 and std[-1] < std[0]:
         st.caption(
             f"⚠️ The ±1σ band narrows with depth ({std[0]:.3f} → {std[-1]:.3f} °C). This is a known "
-            "artefact of MC-dropout on a shared trunk, **not** higher confidence at depth — it is "
-            "measured as overconfident there (DECISIONS.md D-016). Read it as relative, not absolute."
+            "artefact of MC-dropout on a shared trunk, **not** higher confidence at depth. The "
+            "spread is overconfident at **every** depth — measured 1.6× to 3.5× too narrow against "
+            "independent Argo, and **worst in the mixed layer (20–50 m)**, not at depth "
+            "(DECISIONS.md D-016, remeasured 2026-08-26). Read it as relative, not absolute."
         )

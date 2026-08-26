@@ -83,6 +83,7 @@ def render(grid_output: dict, argo_df=None) -> None:
     st.markdown(
         "**What this is not:** this is **not a deployment recommendation**. It carries no cost "
         "model, no float drift physics, and no operational constraints, and its uncertainty term is "
-        "currently known to be overconfident at depth (`docs/DECISIONS.md` D-016). Treat it as a "
+        "currently known to be overconfident at **every** depth, worst in the mixed layer "
+        "(20–50 m) (`docs/DECISIONS.md` D-016, remeasured 2026-08-26). Treat it as a "
         "discussion aid, not a directive."
     )

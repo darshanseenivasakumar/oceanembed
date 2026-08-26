@@ -192,96 +192,175 @@
     }
   },
   "model_vs_reanalysis": {
-    "0": {
-      "ours": 0.389,
-      "glorys_reanalysis": 0.36,
-      "clim": 0.537,
-      "skill_vs_clim": 0.276
-    },
     "5": {
       "ours": 0.581,
       "glorys_reanalysis": 0.573,
+      "glorys_ci95": [
+        0.508,
+        0.644
+      ],
       "clim": 1.155,
-      "skill_vs_clim": 0.497
+      "skill_vs_clim": 0.497,
+      "verdict": "indistinguishable",
+      "n": 808
     },
     "10": {
       "ours": 0.735,
       "glorys_reanalysis": 0.655,
+      "glorys_ci95": [
+        0.576,
+        0.738
+      ],
       "clim": 1.227,
-      "skill_vs_clim": 0.401
+      "skill_vs_clim": 0.401,
+      "verdict": "indistinguishable",
+      "n": 883
     },
     "20": {
       "ours": 1.202,
       "glorys_reanalysis": 0.89,
+      "glorys_ci95": [
+        0.79,
+        0.997
+      ],
       "clim": 1.61,
-      "skill_vs_clim": 0.253
+      "skill_vs_clim": 0.253,
+      "verdict": "we add error",
+      "n": 888
     },
     "30": {
       "ours": 1.323,
       "glorys_reanalysis": 0.995,
+      "glorys_ci95": [
+        0.911,
+        1.079
+      ],
       "clim": 1.905,
-      "skill_vs_clim": 0.306
+      "skill_vs_clim": 0.306,
+      "verdict": "we add error",
+      "n": 887
     },
     "50": {
       "ours": 1.365,
       "glorys_reanalysis": 0.988,
+      "glorys_ci95": [
+        0.902,
+        1.073
+      ],
       "clim": 2.159,
-      "skill_vs_clim": 0.368
+      "skill_vs_clim": 0.368,
+      "verdict": "we add error",
+      "n": 883
     },
     "75": {
       "ours": 1.246,
       "glorys_reanalysis": 1.068,
+      "glorys_ci95": [
+        0.979,
+        1.157
+      ],
       "clim": 2.098,
-      "skill_vs_clim": 0.406
+      "skill_vs_clim": 0.406,
+      "verdict": "we add error",
+      "n": 881
     },
     "100": {
       "ours": 1.162,
       "glorys_reanalysis": 1.139,
+      "glorys_ci95": [
+        1.042,
+        1.235
+      ],
       "clim": 1.993,
-      "skill_vs_clim": 0.417
+      "skill_vs_clim": 0.417,
+      "verdict": "indistinguishable",
+      "n": 880
     },
     "125": {
       "ours": 1.079,
       "glorys_reanalysis": 1.059,
+      "glorys_ci95": [
+        0.978,
+        1.148
+      ],
       "clim": 1.786,
-      "skill_vs_clim": 0.396
+      "skill_vs_clim": 0.396,
+      "verdict": "indistinguishable",
+      "n": 876
     },
     "150": {
       "ours": 0.959,
       "glorys_reanalysis": 0.95,
+      "glorys_ci95": [
+        0.854,
+        1.064
+      ],
       "clim": 1.631,
-      "skill_vs_clim": 0.412
+      "skill_vs_clim": 0.412,
+      "verdict": "indistinguishable",
+      "n": 873
     },
     "200": {
       "ours": 0.853,
       "glorys_reanalysis": 0.774,
+      "glorys_ci95": [
+        0.68,
+        0.891
+      ],
       "clim": 1.61,
-      "skill_vs_clim": 0.47
+      "skill_vs_clim": 0.47,
+      "verdict": "indistinguishable",
+      "n": 863
     },
     "300": {
       "ours": 0.761,
       "glorys_reanalysis": 0.622,
+      "glorys_ci95": [
+        0.524,
+        0.737
+      ],
       "clim": 1.435,
-      "skill_vs_clim": 0.47
+      "skill_vs_clim": 0.47,
+      "verdict": "we add error",
+      "n": 850
     },
     "500": {
       "ours": 0.35,
       "glorys_reanalysis": 0.319,
+      "glorys_ci95": [
+        0.289,
+        0.351
+      ],
       "clim": 0.702,
-      "skill_vs_clim": 0.501
+      "skill_vs_clim": 0.501,
+      "verdict": "indistinguishable",
+      "n": 823
     },
     "700": {
       "ours": 0.3,
       "glorys_reanalysis": 0.324,
+      "glorys_ci95": [
+        0.297,
+        0.352
+      ],
       "clim": 0.505,
-      "skill_vs_clim": 0.406
+      "skill_vs_clim": 0.406,
+      "verdict": "indistinguishable",
+      "n": 813
     },
     "1000": {
       "ours": 0.22,
       "glorys_reanalysis": 0.287,
+      "glorys_ci95": [
+        0.264,
+        0.312
+      ],
       "clim": 0.284,
-      "skill_vs_clim": 0.225
+      "skill_vs_clim": 0.225,
+      "verdict": "we are BETTER",
+      "n": 541
     }
   },
-  "caveat": "A float is never exactly on a grid cell at the grid time, so part of every gap is collocation mismatch. The TIGHT table is the honest lower bound."
+  "caveat": "A float is never exactly on a grid cell at the grid time, so part of every gap is collocation mismatch. The TIGHT table is the honest lower bound.",
+  "caveat_statistical": "The 95% interval is bootstrapped on the REANALYSIS RMSE only; our model's RMSE is treated as a fixed stored number because per-profile model residuals are not saved. A fully paired test would widen the intervals, which would move verdicts TOWARD 'indistinguishable', never away from it. So the large-margin 'we add error' verdicts at 20-75 m are safe, while the marginal ones (300 m) and the 1000 m 'better' verdict are the ones that might not survive a paired test. Say this if asked."
 }

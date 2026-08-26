@@ -122,17 +122,39 @@ def main() -> None:
     print("\n" + "=" * 74)
     print("OUR MODEL (satellite-driven) vs THE REANALYSIS ITSELF, same floats")
     print("=" * 74)
-    print(f"{'depth':>7} {'ours':>7} {'GLORYS':>7} {'clim':>7} {'skill':>7}  note")
+    # A bare threshold on two rounded RMSEs is not a comparison -- at 100 m and 125 m the gap is
+    # identical to the eye, and any fixed cutoff labels them differently for no real reason. So
+    # bootstrap a 95% interval on the reanalysis RMSE and only claim a difference when our number
+    # falls outside it. Anything inside is INDISTINGUISHABLE and must be reported as such.
+    rng = np.random.default_rng(config.SEED)
+    print(f"{'depth':>7} {'ours':>7} {'GLORYS':>7} {'95% CI':>14} {'clim':>6} {'skill':>7}  verdict")
     comp = {}
     for k, dep in enumerate(model["depths"]):
         ours = model["rmse_satellite"][k]
         clim = model["rmse_climatology"][k]
-        g = allt.get(dep, {}).get("rmse", float("nan"))
-        skill = 1 - ours / clim
-        note = "at/below reanalysis" if ours <= g + 0.02 else "we add error here"
-        comp[dep] = {"ours": ours, "glorys_reanalysis": g, "clim": clim,
-                     "skill_vs_clim": round(skill, 3)}
-        print(f"{dep:>7} {ours:>7.2f} {g:>7.2f} {clim:>7.2f} {skill:>+7.3f}  {note}")
+        di = config.DEPTHS.index(dep)
+        d = r.loc[r.depth_idx == di, "diff"].to_numpy()
+        if len(d) < 30:
+            print(f"{dep:>7} {ours:>7.2f} {'n/a':>7} {'too few floats':>14} {clim:>6.2f} "
+                  f"{1 - ours / clim:>+7.3f}  not enough data")
+            continue
+        boot = np.sqrt((rng.choice(d, (2000, len(d)), replace=True) ** 2).mean(axis=1))
+        lo, hi = np.percentile(boot, [2.5, 97.5])
+        g = float(np.sqrt((d ** 2).mean()))
+        verdict = ("we are BETTER" if ours < lo else
+                   "we add error" if ours > hi else "indistinguishable")
+        comp[dep] = {"ours": ours, "glorys_reanalysis": round(g, 3),
+                     "glorys_ci95": [round(float(lo), 3), round(float(hi), 3)],
+                     "clim": clim, "skill_vs_clim": round(1 - ours / clim, 3),
+                     "verdict": verdict, "n": int(len(d))}
+        print(f"{dep:>7} {ours:>7.2f} {g:>7.2f} {f'[{lo:.2f},{hi:.2f}]':>14} {clim:>6.2f} "
+              f"{1 - ours / clim:>+7.3f}  {verdict}")
+
+    n_worse = sum(1 for v in comp.values() if v["verdict"] == "we add error")
+    n_same = sum(1 for v in comp.values() if v["verdict"] == "indistinguishable")
+    n_better = sum(1 for v in comp.values() if v["verdict"] == "we are BETTER")
+    print(f"\nvs the reanalysis: {n_better} depths better, {n_same} indistinguishable, "
+          f"{n_worse} worse (of {len(comp)})")
 
     out = {
         "what_this_is": "GLORYS reanalysis measured against independent Argo floats",
@@ -146,6 +168,13 @@ def main() -> None:
         "model_vs_reanalysis": comp,
         "caveat": ("A float is never exactly on a grid cell at the grid time, so part of every gap "
                    "is collocation mismatch. The TIGHT table is the honest lower bound."),
+        "caveat_statistical": (
+            "The 95% interval is bootstrapped on the REANALYSIS RMSE only; our model's RMSE is "
+            "treated as a fixed stored number because per-profile model residuals are not saved. "
+            "A fully paired test would widen the intervals, which would move verdicts TOWARD "
+            "'indistinguishable', never away from it. So the large-margin 'we add error' verdicts "
+            "at 20-75 m are safe, while the marginal ones (300 m) and the 1000 m 'better' verdict "
+            "are the ones that might not survive a paired test. Say this if asked."),
     }
     p = os.path.join(ROOT, "artifacts", "glorys_vs_argo.json")
     json.dump(out, open(p, "w"), indent=2)

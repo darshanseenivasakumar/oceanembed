@@ -170,6 +170,40 @@ def test_uncertainty_and_anomaly_are_refused_when_absent_rather_than_drawn_as_ze
         volume.to_volume_arrays(_cube(), what="uncertainty")
 
 
+def test_plotly_receives_real_arrays_not_base64_blobs():
+    """REGRESSION. plotly >= 6 serialises a numpy array as {"dtype": "f8", "bdata": "<base64>"},
+    and the plotly.js bundled by Streamlit does not decode it.
+
+    The symptom is vicious: the trace arrives with EMPTY x/y/z/value while scalars like isomin
+    survive, so the page renders an empty box with axes defaulting to -1..1 and a perfectly
+    correct colourbar. It looks like the science is wrong when the transport is. The page must
+    hand plotly plain Python lists.
+    """
+    go = pytest.importorskip("plotly.graph_objects")
+    import json
+
+    v = volume.to_volume_arrays(_cube(), stride=6)
+
+    as_numpy = json.loads(go.Figure(data=go.Volume(x=v["x"], y=v["y"], z=v["z"],
+                                                   value=v["value"])).to_json())
+    assert isinstance(as_numpy["data"][0]["x"], dict), (
+        "plotly no longer binary-encodes numpy arrays -- this guard can be simplified, but "
+        "check the page still renders before removing it"
+    )
+
+    as_lists = json.loads(go.Figure(data=go.Volume(
+        x=v["x"].tolist(), y=v["y"].tolist(),
+        z=v["z"].tolist(), value=v["value"].tolist())).to_json())
+    x = as_lists["data"][0]["x"]
+    assert isinstance(x, list) and len(x) == v["n_points"], \
+        "lists must survive serialisation as real arrays"
+
+    # and the page must actually use the list form
+    page = os.path.join(os.path.dirname(__file__), "..", "..", "app", "phase2", "cube_page.py")
+    src = open(page, encoding="utf-8").read()
+    assert 'x=vol["x"].tolist()' in src, "cube_page must hand plotly lists, not numpy arrays"
+
+
 @pytest.mark.skipif(not os.path.exists(GRIDS), reason="grids.npz absent (gitignored)")
 def test_a_real_volume_is_mostly_sea_floor_and_land():
     """[VERIFIED] on the real grid roughly half the domain is land and a quarter of the ocean

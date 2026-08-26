@@ -64,7 +64,16 @@ def _fig_3d(vol: dict, mode: str, z_exag: float, colorscale: str):
     import plotly.graph_objects as go
 
     aspect = volume.aspect_ratio(z_exag)
-    common = dict(x=vol["x"], y=vol["y"], z=vol["z"], value=vol["value"],
+
+    # .tolist() IS THE FIX, not a style choice. plotly >= 6 serialises a numpy array as
+    # {"dtype": "f8", "bdata": "<base64>"}, and the plotly.js bundled by Streamlit does not
+    # decode it -- the trace arrives in the browser with EMPTY x/y/z/value while the scalar
+    # fields (isomin, isomax) survive. The result is an empty box with axes defaulting to
+    # -1..1 and a correct-looking colourbar, which is the worst kind of failure: it renders,
+    # so it looks like the data is wrong rather than the transport. Plain lists serialise as
+    # plain JSON. Covered by test_plotly_receives_real_arrays_not_base64_blobs.
+    common = dict(x=vol["x"].tolist(), y=vol["y"].tolist(), z=vol["z"].tolist(),
+                  value=vol["value"].tolist(),
                   colorscale=colorscale,
                   colorbar=dict(title=vol["units"] or vol["what"]))
     lo, hi = vol["value_range"]

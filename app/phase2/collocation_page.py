@@ -114,7 +114,16 @@ with left:
         g_, s_ = gl.get(k), (sat or {}).get(k)
         rows.append({"variable": f"{k.upper()} ({unit})", "GLORYS": g_, "satellite": s_,
                      "difference": None if (g_ is None or s_ is None) else round(s_ - g_, 3)})
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    # Same trap as the profile table below, and it bites hardest on land: every value is None, so
+    # all three columns come out OBJECT dtype and Streamlit prints the word "None" fifteen times.
+    # On a rejected point that is the whole table, which reads like a crash rather than "there is
+    # no ocean here". Coerce to float64 so they become NaN, then let the Styler mark them.
+    sdf = pd.DataFrame(rows)
+    st.dataframe(
+        sdf.astype({c: "float64" for c in ("GLORYS", "satellite", "difference")})
+           .style.format({"GLORYS": "{:.4f}", "satellite": "{:.4f}", "difference": "{:.3f}"},
+                         na_rep="—"),
+        hide_index=True, width="stretch")
     if sat is None:
         st.info("No satellite within tolerance. **Normal** — satellite covers 24 of our 48 dates.")
 

@@ -16,7 +16,7 @@ documented physical expectation.
 | 5 | Physics (thermocline/MLD/OHC) | Arjhun | `phase2-physics` | **VALIDATED** | ☑ | ☐ | ☑ 31 | ☑ | **Re-run on the real bundle by BOTH units independently.** All four checks pass here: BoB salinity +4.78 psu with depth, thermocline below MLD in 87.8% of 526k cell-dates, barrier layer BoB 9.5 m vs Arabian 7.1 m (8/12 months), constant-density error max 0.293% (9× the synthetic 0.028%). Two numbers differ from Unit B's — see AGENT_SYNC, box definitions |
 | 6 | Event detection | Arjhun | `phase2-events` | **TESTED** | ☑ | ☐ | ☑ 24 | ◐ | **Eddies + upwelling scientifically validated; FRONTS ARE NOT.** Great Whirl reproduced (85 km Jan → 243 km Aug at 7.5N 53E); Somali/Oman upwelling SW-monsoon dominated with a working BoB control. Fronts have no independent reference checked. Monthly → detection only, never tracking |
 | 7 | Subsurface heatwave | Arjhun | phase2/events | **BLOCKED** | ☐ | ☐ | ☐ | ☐ | **monthly sampling -> persistence uncomputable** |
-| 8 | Validation Lab | Darshan | phase2/validation | NOT STARTED | ☐ | ☐ | ☐ | ☐ | Argo is 2022 only |
+| 8 | Validation Lab | **Arjhun** (from Darshan) | `phase2-validation` | **TESTED** | ☑ | ☑ | ☑ 16 | ☑ | **Measured the reanalysis itself vs Argo — new, nothing had done it.** Thermocline error is INHERITED (100-150 m within 0.023 C of GLORYS' own error); mixed layer 20-50 m is genuinely ours (+0.31 to +0.38 C). LightGBM baseline REFUSED: provenance unverifiable, stated on the panel |
 | 9 | Ocean Sentinel | Arjhun | phase2/sentinel | NOT STARTED | ☐ | ☐ | ☐ | ☐ | thresholds must be configurable |
 | 10 | Observation Priority v2 | Darshan | phase2/observation-priority | NOT STARTED | ☐ | ☐ | ☐ | ☐ | v1 heuristic already exists; not novel (JTECH 2023) |
 

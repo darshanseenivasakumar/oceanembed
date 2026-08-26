@@ -53,6 +53,99 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [ARJHUN] F8 Validation Lab done. I measured GLORYS vs Argo myself — your numbers all reproduce.
+
+Branch **`phase2-validation`** (cut from `phase2-events`, per your instruction, so F5/F6 stay in
+lineage). **222 tests pass repo-wide.** Baseline untouched, `main` byte-identical to `origin/main`.
+
+### >>> HOW YOU TEST THIS — one command
+```bash
+git checkout phase2-validation && git pull origin phase2-validation
+python scripts/phase2/accept.py
+```
+`accept.py` did not exist, so I wrote it rather than extended it. It runs SAFETY (not on main, main
+unmodified) -> FULL SUITE -> `verify_data_bundle.py` -> a science check per feature on the branch.
+It already has checks for **F5, F6 and F8**. You should see `ACCEPTED` and these lines:
+```
+F5  thermocline below MLD in 87.8% of 526066 cell-dates
+F6  largest Somali anticyclone: Aug 243 km vs Jan 86 km
+F8  thermocline (100-150 m) is AT THE CEILING of the training truth -- inherited error
+    mixed layer (20-50 m) is MODEL-LIMITED -- genuinely ours to fix
+    LightGBM baseline correctly REFUSED (provenance unverifiable)
+```
+Page: `streamlit run app/phase2/validation_page.py --server.port 8503`. I ran it and read the
+rendered DOM; all four sections and both charts render.
+
+### Your glorys_vs_argo numbers were right — every one
+`scripts/phase2/glorys_vs_argo.py` and its JSON are on **no branch in this repo**, so I wrote the
+measurement independently. It reproduces you almost exactly:
+
+| your claim | my measurement |
+|---|---|
+| worst at 100 m, 0.79 C MAE | **0.785** |
+| ~0.22 C below 500 m | 0.219 / 0.236 / 0.209 |
+| ~-0.5 C bias at 75-125 m | -0.448 / -0.489 / -0.413 |
+| tightening removes 0.02 C | **-0.023** |
+| ours 1.16 vs reanalysis 1.14 @100 m | 1.162 vs **1.139** |
+| weak link 20-50 m: 1.20-1.36 vs 0.89-0.99 | 1.202-1.365 vs 0.890-0.988 |
+| 11,761 depth comparisons | **11761 exactly** |
+
+**One correction to the framing.** "<=25 km and <=3 days removes only 0.02 C" is true, but the
+**25 km half does nothing** — nearest-cell distance on a 0.25 deg grid maxes at **18.7 km**, so
+every match is already inside it and n stays 888. All 0.023 comes from the time filter. A test pins
+this. Worth fixing in the PPT if that phrasing is in it, because a judge who knows the grid spacing
+will spot it.
+
+I also added a caveat you should carry: `temp` is GLORYS *after* regridding to our grid and depths,
+so this is an **upper bound** on the native product's error, not a verdict on GLORYS.
+
+### The new result I would put on a slide
+Subtracting the reanalysis' own RMSE from ours, per depth, gives a clean split:
+- **at the ceiling** (inherited): 0, 5, **100, 125, 150**, 500, 700 m
+- **model-limited** (ours to fix): 10, **20, 30, 50**, 75, 200, 300 m
+- **we beat the reanalysis**: 1000 m
+
+So "our thermocline error is inherited" is now a measured per-depth claim, not an argument. Note it
+also flags **200 m and 300 m** as model-limited, which your spec did not mention.
+
+### >>> I DID NOT BUILD ONE THING YOU ASKED FOR, AND I AM NOT HIDING IT
+**The LightGBM baseline is not on the panel.** It cannot be shown honestly here:
+- `argo_error_by_depth.json` has no LightGBM column — it was never scored against Argo
+- `lgbm_model.pkl` was excluded from your bundle as regenerable, so the local file predates it
+- local `X_train.npy` has **143514** rows vs `provenance.json` `n_train = 323028`
+- the checkpoint is a bare list of boosters (D-012) with **no provenance stamp**, so I cannot read
+  its training source back from the file
+
+Rather than drop the column silently, the page **states the refusal and why**, and a test asserts
+it stays refused until the provenance checks out. Unblock with
+`scripts/prepare_dataset.py --real && python -m oceanembed.train.train_lgbm`, then score vs Argo.
+Your call whether that is worth it before the 30th — I would say no.
+
+### Also worth knowing
+**The page ImportError'd on plotly.** plotly is in `requirements.txt` but is not installed in this
+venv. `app/panels/_viz.py` had already written down why that happens and what to do — *"a panel
+that ImportErrors on demo day is worse than a plainer chart"* — so I rewrote the charts in altair.
+**I checked the frozen demo first: it does not import plotly, so the Aug-30 build was never at
+risk.** Four days out, that seemed worth confirming rather than assuming.
+
+**Five things your prompt referenced do not exist on any branch:** `scripts/phase2/glorys_vs_argo.py`,
+`artifacts/glorys_vs_argo.json`, `scripts/phase2/accept.py`, `artifacts/satellite_bias.json`, and
+`app/phase2/collocation_page.py` (`app/phase2/` did not exist at all until this branch). Also
+`main1` is not a branch here, and `phase2-collocation` head is `35149bf`, not `c2bffd9`. Not
+complaints — flagging in case they exist on your machine and never got pushed, which is exactly
+what happened with the glorys_vs_argo script.
+
+**+0.387 is correct and I was wrong.** My own `docs/phase2/START_HERE.md` said +0.393. Fixed on
+this branch. `overall.satellite.skill_vs_clim` = 0.3871, and skill is `1 - rmse/rmse_clim`.
+
+### Where I am against the Aug-30 stop-line
+F8 is done — the one you said to finish if I could only finish one. **F2a OceanCube is next and I
+have not started it.** F10 priority v2 I am not building, per your own read that it is the weakest
+for a judge; say if you disagree. If PPT or rehearsal time is tight, stop me after F2a or now —
+F8 standing alone is a complete, defensible feature.
+
+---
+
 ## 2026-08-26 [ARJHUN] Bundle installed and verified. F5 VALIDATED here too. F6 built and it found the Great Whirl.
 
 Branch **`phase2-events`** (cut from `phase2-physics`, because `upwelling.py` imports your-unblocked

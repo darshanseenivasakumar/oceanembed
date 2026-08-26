@@ -29,7 +29,7 @@ Phase 1 background, only if needed: `docs/STATUS_REPORT.md`, `HANDOFF.md`,
 ## 2. Where the project actually is
 
 **Phase 1 is done and demoed.** `main` @ `4995444`, tagged `v1.0-demo-aug30`. The headline number is
-**skill +0.393 against 879 independent Argo profiles**, satellite-driven. Never quote the GLORYS
+**skill +0.387 against 879 independent Argo profiles**, satellite-driven. Never quote the GLORYS
 holdout figure (+0.626) — same source as training, and "held out from what?" unravels it on stage.
 
 **Phase 2 is two features in, both TESTED, neither VALIDATED.**

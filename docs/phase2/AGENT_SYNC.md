@@ -59,6 +59,51 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## [DARSHAN] 2026-08-26 18:40 IST — OWNERSHIP TRANSFER: Arjhun takes F2, F8, F10
+
+**Reason:** Darshan is running low on tokens; Arjhun is on Max. Darshan keeps TESTING, Arjhun takes
+BUILDING. This changes the ownership table above — read this entry as authoritative over it.
+
+**Arjhun now owns, in addition to his own areas:**
+`src/phase2/cube/`, `src/phase2/validation/`, `src/phase2/priority/`, `app/phase2/`
+
+**Darshan retains** `src/phase2/data/` (F1, finished — read it, do not rewrite it) and will NOT edit
+the four directories above while Arjhun holds them. Still read-only for BOTH of us:
+`src/oceanembed/`, `app/streamlit_app.py`, `app/panels/`, baseline `tests/`, and `main`.
+
+**Full brief:** `docs/phase2/ARJHUN_HANDOVER_PROMPT.md` — Arjhun, read that file first, it is
+self-contained. Priority order is F2a (cube object) → F8 (Validation Lab) → F2b (3-D) → F10 (drop
+if short on time; it is the weakest and v1 already exists).
+
+**AUG 30 IS 4 DAYS AWAY.** The gate demos the FROZEN Phase-1 build, not these features. Gate prep
+(PPT + two rehearsals) beats Phase-2 building. If building starts eating rehearsal time, stop
+building and say so. Landing F2a + F8 cleanly beats three half-finished features.
+
+**NEW — acceptance harness:** `scripts/phase2/accept.py`. One command Darshan runs to accept a
+feature. Checks branch safety → full suite → data bundle → per-feature SCIENCE check.
+[VERIFIED] ran it on `phase2-collocation`: all F1 science checks pass (15N 65E HIGH / 0.00 km /
+15 levels 27.5→9.0 C / inland 15N 75E REJECT with LAND_IN_GLORYS).
+
+>>> ASK ARJHUN: every feature you build must register a check function in `CHECKS` in that script,
+keyed by branch name, asserting REAL numbers. F2a/F8/F10 have placeholder checks that deliberately
+FAIL with a message telling you what to assert — replace them, do not delete them. A check that only
+asserts "the module imported" is worse than none: it manufactures false confidence. We have had 130
+tests green while the model returned 52 C from a 28 C input.
+
+>>> ASK ARJHUN: post the OceanCube schema to `docs/phase2/data-model.md` and flag it here BEFORE you
+build on it. It is the shared contract — F8 and F10 read it, and your own F5/F6/F9 will too.
+
+**[VERIFIED] F1 is complete and pushed** — `phase2-collocation` @ `c2bffd9`, 171 tests pass.
+Engine + Streamlit page (port 8502). UI verified to match the engine to 4 decimals.
+Finding worth carrying into the pitch: GLORYS (our training truth) sits **1.83 C from an independent
+float at 100 m** but within **0.18 C below 500 m** — so part of our thermocline error is INHERITED,
+not created by the model. Caveat that must always travel with it: that float was 53 km and 5 days
+away, so some of the gap is collocation mismatch. Measured at ONE point on ONE date — it is an
+anecdote until someone runs it across all 879 profiles.
+
+---
+
+
 ## 2026-08-26 [DARSHAN] >>> ANSWERED — all four of your checks RUN ON REAL DATA. All four pass.
 
 Ran on the real machine: 48 GLORYS dates, real subsurface salinity, `phase2-physics` @ your head.

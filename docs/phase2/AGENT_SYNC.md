@@ -53,6 +53,69 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [ARJHUN] F2a OceanCube done. SCHEMA POSTED -- read this before F10 touches a cube.
+
+Branch **`phase2-ocean-cube`** (from `phase2-validation`, so F5/F6/F8 stay in lineage).
+22 new tests, **249 repo-wide**. `python scripts/phase2/accept.py` now has an F2a check too.
+
+### >>> THE SCHEMA IS IN `docs/phase2/data-model.md` -- shared file, change it there first
+```python
+from phase2.cube import OceanCube, BelowSeafloorError
+cube = OceanCube.reconstruct("2022-07-15", source="satellite")
+cube.profile(15.0, 88.0)         # one column, sea floor STATED
+cube.depth_slice(100)            # one level, coverage reported
+cube.section(lat=18.0)           # vertical section
+cube.value_at(26.0, 52.5, 1000)  # RAISES -- the Persian Gulf is 30 m there
+```
+Fields: `temperature/valid_mask/uncertainty/anomaly (100,240,15)`, `land_mask (100,240)`,
+`date`, `provenance`. Grid and depths imported from `config`; a wrong shape is refused, not
+reshaped. Arrays are handed out read-only -- it is a contract object and an in-place write would
+corrupt it for every other consumer silently.
+
+**It WRAPS `predict.reconstruct_grid`, it does not reimplement it.** Two reconstruction paths that
+could disagree is the D-014 failure (two loaders, one z-scored, silent 20x error). What it adds:
+
+**The sea floor is a REFUSAL, not a NaN.** `reconstruct_grid` already NaNs below the sea bed, but a
+NaN is easy to nanmean over -- which is exactly how Phase 1 shipped 1000 m temperatures for the
+~20 m Persian Gulf. `value_at` now raises with the cell and its real depth. `profile` returns
+`seafloor_depth_m`. `depth_slice` returns coverage, because a 1000 m map covers 76% of the basin
+and one that does not say so implies a complete field. A cube **cannot be built** without
+bathymetry -- an all-True fallback is the bug, so it raises.
+
+### >>> YOUR 464 COASTLINE CELLS SHOWED UP IN MY COVERAGE NUMBERS, AND I NEARLY CALLED IT A BUG
+Surface coverage came out **98.47%**, not 100%. Cause [VERIFIED]: `land_mask` comes from the ACTIVE
+SOURCE, bathymetry ALWAYS from GLORYS (`predict._valid_mask` says so -- the satellite file has no
+subsurface truth to derive a sea floor from). The two draw the coastline differently.
+
+I measured it independently and got **your exact numbers**: 464 cells disagree, **179 ocean in
+satellite only**, 285 in GLORYS only. Same cells your F1 emits as COASTLINE_DISAGREEMENT.
+
+So with `source="satellite"` there are 179 cells with a surface temperature and **no water at any
+depth**. Not a defect -- but a reader seeing 98.47% with no explanation would reasonably suspect
+the cube. `coverage()` now returns BOTH denominators and `coastline_disagreement()` reports the
+cells. A `source="glorys"` cube has zero disagreement, and a test asserts that so the two files
+cannot drift apart unnoticed.
+
+### Also worth a line
+**Depth ties resolve SHALLOWER.** `config.DEPTHS` is irregular, so 400 m is exactly 100 m from both
+300 and 500. It snaps to 300. Arbitrary but fixed, documented and tested; every slice reports
+`snapped_by_m` so a 400 m request that became 300 m is visible.
+
+**Do not present `cube.uncertainty` as confidence** -- it is raw MC-dropout, measured 1.8x-8.5x
+too narrow at every depth (D-016 UPDATE). Use the measured per-depth error from F8 instead.
+
+Cost: 6.6 s with uncertainty, 0.1 s without. Cache the cube, not the slices.
+
+### Where I am on the Aug-30 line
+F2a done. **F2b (the 3-D Plotly page) is NOT started** -- and note plotly is in requirements.txt
+but is NOT installed here; my F8 page ImportError'd on it and I moved to altair, same reason
+`app/panels/_viz.py` gives. F10 I am still not building unless you say otherwise.
+
+That is F8 and F2a both landed. **My recommendation stands: stop building and do the PPT and the
+two rehearsals.** Nothing left in Phase 2 changes what a judge sees on the 30th.
+
+---
+
 ## 2026-08-26 [ARJHUN] F8 Validation Lab done. I measured GLORYS vs Argo myself — your numbers all reproduce.
 
 Branch **`phase2-validation`** (cut from `phase2-events`, per your instruction, so F5/F6 stay in

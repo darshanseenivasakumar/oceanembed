@@ -201,7 +201,48 @@ def check_f8() -> tuple[bool, list[str]]:
     return all(c for c, _ in checks), lines
 
 
+def check_f2a() -> tuple[bool, list[str]]:
+    """OceanCube: the sea floor must be a refusal, and a real profile must look like an ocean."""
+    import numpy as np
+    from oceanembed import config
+    from phase2.cube import BelowSeafloorError, OceanCube
+
+    cube = OceanCube.reconstruct("2022-07-15", source="satellite", with_uncertainty=False)
+
+    # 1. the Persian Gulf cell Phase 1 painted 1000 m temperatures into
+    floor = cube.seafloor_depth_m(26.0, 52.5)
+    refused = False
+    try:
+        cube.value_at(26.0, 52.5, 1000)
+    except BelowSeafloorError:
+        refused = True
+
+    # 2. a real deep profile must actually behave like the ocean
+    p = cube.profile(15.0, 88.0)
+    v = p["values"]
+    monotonic = bool(np.all(np.diff(v) < 2.0))
+    surface_ok = bool(20.0 < v[0] < 33.0)
+    deep_ok = bool(v[-1] < v[0] - 10.0)
+
+    cov = cube.coverage()
+    dis = cube.coastline_disagreement()
+
+    checks = [
+        (floor == 30.0, f"Persian Gulf 26.00N 52.50E sea floor read as {floor:.0f} m (expect 30)"),
+        (refused, "1000 m there is REFUSED, not returned as NaN"),
+        (surface_ok and deep_ok and monotonic,
+         f"BoB 15N 88E profile {v[0]:.1f} -> {v[-1]:.1f} degC, no upward jumps"),
+        (abs(cov["coverage_fraction"][-1] - 0.758) < 0.015,
+         f"1000 m coverage {100*cov['coverage_fraction'][-1]:.1f}% (expect ~75.8%)"),
+        (dis["n_cells"] == 179,
+         f"coastline disagreement {dis['n_cells']} cells (expect 179; Unit B's F1 sees the same)"),
+    ]
+    lines = [("     " + ("ok   " if c else "FAIL ") + m) for c, m in checks]
+    return all(c for c, _ in checks), lines
+
+
 CHECKS = [
+    ("F2a OceanCube", "phase2.cube.ocean_cube", check_f2a),
     ("F5 physics", "phase2.physics.layers", check_f5),
     ("F6 events", "phase2.events.eddy", check_f6),
     ("F8 validation", "phase2.validation.lab", check_f8),

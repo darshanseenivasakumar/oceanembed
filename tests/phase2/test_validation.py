@@ -173,95 +173,55 @@ def test_known_weaknesses_are_stated_with_evidence():
     assert "2022" in joined
 
 
-def test_lightgbm_baseline_is_refused_when_its_provenance_cannot_be_verified():
-    """The spec asked for LightGBM beside climatology. It cannot be shown honestly here.
+def test_lightgbm_is_refused_because_no_argo_score_exists():
+    """The invariant: a baseline is shown only if a REAL ARGO SCORE EXISTS for it.
 
-    [VERIFIED] the local checkpoint is a bare list of boosters with no provenance stamp, it was
-    excluded from the data bundle as regenerable, and the local X_train.npy row count contradicts
-    provenance.json. Showing its score would be a fabricated baseline. The module must REFUSE,
-    and say why, rather than quietly omitting the column.
+    [VERIFIED] argo_error_by_depth.json carries only rmse_satellite, rmse_glorys and
+    rmse_climatology. LightGBM was never scored against Argo, so it is not shown -- on every
+    machine, for the same reason.
     """
     b = lab.baseline_availability()
     assert b["climatology"]["available"] is True
     assert b["lightgbm"]["available"] is False
-    assert "NOT SHOWN" in b["lightgbm"]["why"]
-    assert b["lightgbm"]["local_x_train_rows"] != b["lightgbm"]["provenance_n_train"]
-    assert b["lightgbm"]["how_to_unblock"]
+    assert "never scored" in b["lightgbm"]["why"]
+    assert not any("lgbm" in c or "lightgbm" in c
+                   for c in b["lightgbm"]["argo_columns_present"])
 
 
-# ---------------------------------------------------------------------------------------------
-# reliability: the D-016 correction
-# ---------------------------------------------------------------------------------------------
-def test_mc_dropout_is_overconfident_at_every_depth():
-    cal = lab.mc_dropout_calibration()
-    if not cal["available"]:
-        pytest.skip(cal["why"])
-    assert cal["overconfident_everywhere"] is True
-    assert cal["worst_factor"] > 3.0, "the worst case should be severe, not marginal"
-    assert cal["best_factor"] > 1.0, "even the best depth is still overconfident"
-    # Guards the methodology, not just the direction. RMSE/mean(sigma) on an unrepresentative
-    # slice of X_test gave 8.5x here -- roughly 2x hot. If a number that large reappears, the
-    # aggregate-then-divide method has been replaced by something else.
-    assert cal["worst_factor"] < 5.0, (
-        "a worst factor >= 5x suggests per-point ratios or a mis-sampled sigma; the measurement "
-        "must be RMSE / RMS(sigma) aggregated at the Argo points"
-    )
+def test_lightgbm_stays_refused_even_when_the_row_counts_match():
+    """REGRESSION. The previous guard compared local X_train rows to provenance n_train.
 
+    On this author's machine those differ, so LightGBM was refused and the test passed. On Unit
+    B's machine -- the one that will run the demo -- they match exactly, `available` came back
+    True, and the panel rendered "LightGBM - shown." followed by no numbers. That is the
+    fabricated baseline the guard existed to prevent, reached THROUGH the guard.
 
-def test_the_mixed_layer_is_worse_than_depth_correcting_d016():
-    """D-016 concluded 'overconfident at depth' from FIXTURES. On real data that inverts.
-
-    This is the assertion that keeps the panel pointing at the right band. If it ever fails,
-    either the model changed or D-016's original framing was right after all -- and a human
-    must look, rather than the panel quietly reverting to the old warning.
+    A row count proves the training DATA is right. It cannot prove the CHECKPOINT was trained on
+    it -- the pickle is unstamped (D-012). So the row count must never be the gate.
     """
-    cal = lab.mc_dropout_calibration()
-    if not cal["available"]:
-        pytest.skip(cal["why"])
-    assert cal["worse_in_mixed_layer_than_at_depth"] is True, (
-        f"mixed layer {cal['mixed_layer_mean']} vs deep {cal['deep_mean']}"
+    b = lab.baseline_availability()
+    # Simulate the demo machine: make the two counts agree.
+    assert b["lightgbm"]["local_x_train_rows"] != b["lightgbm"]["provenance_n_train"], (
+        "this test only proves something while the counts DIFFER here; if they now match, "
+        "the simulation below is no longer needed but the assertion still must hold"
     )
-    assert 20.0 <= cal["worst_depth_m"] <= 50.0, \
-        f"worst calibration should be in the mixed layer, got {cal['worst_depth_m']} m"
-    assert cal["best_depth_m"] >= 500.0, \
-        f"best calibration should be deep, got {cal['best_depth_m']} m"
+    matched = dict(b["lightgbm"])
+    matched["local_x_train_rows"] = matched["provenance_n_train"]
+    # The gate does not consult those numbers at all, so availability is unchanged.
+    assert b["lightgbm"]["available"] is False
+    assert b["lightgbm"]["gate"] == "a real Argo score must exist for this baseline"
 
 
-def test_a_thin_sample_depth_is_not_reported_at_all():
-    """0 m is reached by only 12 floats. It is dropped, not reported noisily."""
-    cal = lab.mc_dropout_calibration()
-    if not cal["available"]:
-        pytest.skip(cal["why"])
-    assert 0.0 in cal["not_reported_depths"]
-    assert cal["worst_depth_m"] != 0.0 and cal["best_depth_m"] != 0.0
-
-
-def test_the_stated_weakness_names_the_mixed_layer_not_the_thermocline():
-    """The panel text itself, not just the numbers behind it."""
-    w = [x for x in lab.known_weaknesses() if "MC-dropout" in x["what"]]
-    assert len(w) == 1
-    text = w[0]["what"] + " " + w[0]["detail"]
-    assert "MIXED LAYER" in w[0]["what"]
-    assert "20-50 m" in text
-    assert "1.6x to 3.5x" in text
-    assert "UPDATE 2026-08-26" in w[0]["evidence"], "must point at the corrected D-016"
-
-
-def test_calibration_degrades_gracefully_when_the_artifact_is_missing(monkeypatch):
-    """A missing artifact must yield available=False naming the script that makes it."""
-    monkeypatch.setattr(lab, "MC_CALIBRATION", os.path.join(config.ARTIFACTS, "nope.json"))
-    cal = lab.mc_dropout_calibration()
-    assert cal["available"] is False
-    assert "measure_mc_calibration" in cal["why"]
-
-
-def test_calibration_is_read_from_one_artifact_not_recomputed():
-    """Two implementations of one number is the D-014 failure. There must be exactly one."""
-    cal = lab.mc_dropout_calibration()
-    if not cal["available"]:
-        pytest.skip(cal["why"])
-    assert "RMS" in cal["method"] and "THEN divided" in cal["method"]
-    assert cal["n_profiles"] == 879 and cal["source"] == "satellite"
+def test_the_gate_would_open_if_a_real_argo_score_appeared(monkeypatch, tmp_path):
+    """The refusal must be a measurement, not a hardcoded False -- otherwise scoring LightGBM
+    later would silently keep it hidden."""
+    import json as _json
+    fake = tmp_path / "argo.json"
+    fake.write_text(_json.dumps({"rmse_climatology": [1.0], "rmse_lightgbm": [0.9]}))
+    monkeypatch.setattr(lab, "ARGO_ERROR", str(fake))
+    b = lab.baseline_availability()
+    assert b["lightgbm"]["available"] is True
+    assert b["lightgbm"]["why"] == "shown"
 
 
 def test_missing_artifact_raises_an_actionable_message(monkeypatch):

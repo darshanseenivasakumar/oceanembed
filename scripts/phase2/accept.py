@@ -7,9 +7,10 @@ work out how to test a feature -- this is the whole interface.
 
 It runs, in order, stopping at the first hard failure:
 
-    0. SAFETY    -- you are not on main; main is unmodified; the working tree is reported
+    0. SAFETY    -- nothing here has added commits to main; the working tree is reported
     1. SUITE     -- the FULL pytest run, not just the feature's own tests
     2. DATA      -- scripts/phase2/verify_data_bundle.py (FILES / CONTRACT / SCIENCE)
+    2b. DERIVED  -- regenerate any measurement artifact that is missing, rather than failing
     3. FEATURE   -- a science check for each feature detected on this branch
 
 A feature check asserts REAL SCIENCE, not that a module imported. Importing proves nothing --
@@ -17,6 +18,12 @@ we once had 130 tests green while the model returned 52 degC from a 28 degC inpu
 
 TO ADD A FEATURE: write check_fN(), returning (ok: bool, lines: list[str]), and register it in
 CHECKS with the import path that indicates the feature is present on this branch.
+
+WHY IMPORT PATH AND NOT BRANCH NAME
+Unit B wrote an independent version of this file keyed by BRANCH NAME. Merged, that would run
+exactly ONE check on a branch carrying five features. Detecting by import path runs every feature
+actually present, which is what a branch that accumulates work needs. His F1 check is ported in
+below; the rest of his file is superseded by this one. One script, not two -- D-014.
 """
 from __future__ import annotations
 
@@ -124,6 +131,52 @@ def data_bundle() -> bool:
 
 
 # =================================================================================================
+# 2b. DERIVED ARTIFACTS -- regenerate rather than fail
+# =================================================================================================
+#: artifact -> the script that produces it. These are DERIVED (measurements, not raw data), so
+#: regenerating is always safe and always cheap relative to a failed acceptance run.
+DERIVED = {
+    "glorys_vs_argo.json": "glorys_vs_argo.py",
+    "mc_calibration.json": "measure_mc_calibration.py",
+}
+
+
+def derived_artifacts() -> bool:
+    """Make sure the measurements F8 reads exist, generating any that do not.
+
+    Unit B hit this: `artifacts/` is gitignored, so switching branches removed a file he had
+    generated and F8 failed with MissingArtifactError before he regenerated it by hand. Whoever
+    runs this should not have to know which script produces which artifact.
+    """
+    print("\n" + "=" * 74)
+    print("2b. DERIVED ARTIFACTS")
+    print("=" * 74)
+    from oceanembed import config
+
+    env_py = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
+    py = env_py if os.path.exists(env_py) else PY
+    ok = True
+    for artifact, script in DERIVED.items():
+        path = os.path.join(config.ARTIFACTS, artifact)
+        if os.path.exists(path):
+            print(f"{OK} {artifact} present")
+            continue
+        gen = os.path.join(ROOT, "scripts", "phase2", script)
+        if not os.path.exists(gen):
+            print(f"{SKIP} {artifact} absent and {script} is not on this branch")
+            continue
+        print(f"       {artifact} absent -- regenerating via {script} ...")
+        code, out = _run([py, gen])
+        if code == 0 and os.path.exists(path):
+            print(f"{OK} {artifact} regenerated")
+        else:
+            print(f"{BAD} could not regenerate {artifact} (exit {code})")
+            print("\n".join(out.strip().splitlines()[-8:]))
+            ok = False
+    return ok
+
+
+# =================================================================================================
 # 3. FEATURE CHECKS -- real science, per feature
 # =================================================================================================
 def check_f5() -> tuple[bool, list[str]]:
@@ -203,10 +256,38 @@ def check_f8() -> tuple[bool, list[str]]:
          "thermocline (100-150 m) is AT THE CEILING of the training truth -- inherited error"),
         (all(z in iv["model_limited_depths"] for z in (20.0, 30.0, 50.0)),
          "mixed layer (20-50 m) is MODEL-LIMITED -- genuinely ours to fix"),
-        (not ba["lightgbm"]["available"],
-         "LightGBM baseline correctly REFUSED (provenance unverifiable), not silently omitted"),
+        (not ba["lightgbm"]["available"] and "never scored" in ba["lightgbm"]["why"],
+         "LightGBM baseline REFUSED for the right reason -- no Argo score exists for it "
+         "(the gate is the score, NOT a row count, which matched on Unit B's machine)"),
     ]
     lines = [("     " + ("ok   " if c else "FAIL ") + msg) for c, msg in checks]
+    return all(c for c, _ in checks), lines
+
+
+def check_f1() -> tuple[bool, list[str]]:
+    """F1: the engine must report MEASURED offsets and refuse land, not silently return zeros.
+
+    Ported from Unit B's own accept.py during the merge -- his F1 check, kept verbatim in intent.
+    """
+    import datetime as dt
+    from phase2.data.collocation import CollocationEngine
+
+    eng = CollocationEngine(tolerance_days=10.0)
+    ocean = eng.collocate(15.0, 65.0, dt.date(2022, 12, 15))
+    prof = (ocean.sources.get("glorys") or {}).get("temperature_profile") or []
+    land = eng.collocate(15.0, 75.0, dt.date(2022, 12, 15))
+
+    checks = [
+        (ocean.quality == "HIGH", f"open ocean 15N 65E accepted (quality={ocean.quality})"),
+        (ocean.offsets["spatial_km"] < 1.0,
+         f"exact grid hit reports ~0 km offset ({ocean.offsets['spatial_km']:.2f} km)"),
+        (len(prof) == 15 and prof[0] > prof[-1] + 10,
+         f"profile has 15 levels and cools with depth "
+         f"({prof[0]:.1f} -> {prof[-1]:.1f} C)" if prof else "no profile returned"),
+        (land.quality == "REJECT", f"inland 15N 75E rejected (quality={land.quality})"),
+        (bool(land.flags), f"rejection explains itself: {' '.join(land.flags[:2])}"),
+    ]
+    lines = [("     " + ("ok   " if c else "FAIL ") + m) for c, m in checks]
     return all(c for c, _ in checks), lines
 
 
@@ -251,6 +332,7 @@ def check_f2a() -> tuple[bool, list[str]]:
 
 
 CHECKS = [
+    ("F1 collocation", "phase2.data.collocation", check_f1),
     ("F2a OceanCube", "phase2.cube.ocean_cube", check_f2a),
     ("F5 physics", "phase2.physics.layers", check_f5),
     ("F6 events", "phase2.events.eddy", check_f6),
@@ -287,7 +369,8 @@ def features() -> bool:
 
 def main() -> None:
     results = [("safety", safety()), ("suite", full_suite()),
-               ("data", data_bundle()), ("features", features())]
+               ("data", data_bundle()), ("derived artifacts", derived_artifacts()),
+               ("features", features())]
     print("\n" + "=" * 74)
     failed = [n for n, ok in results if not ok]
     if failed:

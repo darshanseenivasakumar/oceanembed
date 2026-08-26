@@ -1,0 +1,106 @@
+{
+  "what": "MC-dropout spread vs actual error against independent Argo floats",
+  "method": "ratio = RMSE(pred - argo) / RMS(mc_sigma), aggregated per depth THEN divided. Averaging per-point ratios inflates the shallow end roughly 2x because sigma is in the denominator; do not quote numbers produced that way.",
+  "reading": "ratio > 1 means the spread is too NARROW (model more wrong than it admits)",
+  "source": "satellite",
+  "max_days_offset": 5,
+  "n_profiles": 879,
+  "seed": 0,
+  "overconfident_at_every_depth": true,
+  "worst": {
+    "depth_m": 20,
+    "ratio": 3.54
+  },
+  "best": {
+    "depth_m": 1000,
+    "ratio": 1.56
+  },
+  "mixed_layer_20_50m_mean": 3.25,
+  "deep_500m_plus_mean": 1.63,
+  "by_depth": {
+    "5": {
+      "n": 800,
+      "rmse": 0.581,
+      "mc_sigma": 0.3218,
+      "overconfidence": 1.805
+    },
+    "10": {
+      "n": 874,
+      "rmse": 0.7346,
+      "mc_sigma": 0.3132,
+      "overconfidence": 2.345
+    },
+    "20": {
+      "n": 879,
+      "rmse": 1.2021,
+      "mc_sigma": 0.3395,
+      "overconfidence": 3.541
+    },
+    "30": {
+      "n": 878,
+      "rmse": 1.3227,
+      "mc_sigma": 0.4075,
+      "overconfidence": 3.246
+    },
+    "50": {
+      "n": 874,
+      "rmse": 1.3652,
+      "mc_sigma": 0.4625,
+      "overconfidence": 2.952
+    },
+    "75": {
+      "n": 872,
+      "rmse": 1.2463,
+      "mc_sigma": 0.4443,
+      "overconfidence": 2.805
+    },
+    "100": {
+      "n": 871,
+      "rmse": 1.1618,
+      "mc_sigma": 0.4046,
+      "overconfidence": 2.872
+    },
+    "125": {
+      "n": 871,
+      "rmse": 1.0793,
+      "mc_sigma": 0.3788,
+      "overconfidence": 2.849
+    },
+    "150": {
+      "n": 868,
+      "rmse": 0.9594,
+      "mc_sigma": 0.3778,
+      "overconfidence": 2.54
+    },
+    "200": {
+      "n": 858,
+      "rmse": 0.853,
+      "mc_sigma": 0.3908,
+      "overconfidence": 2.183
+    },
+    "300": {
+      "n": 845,
+      "rmse": 0.7608,
+      "mc_sigma": 0.3454,
+      "overconfidence": 2.203
+    },
+    "500": {
+      "n": 818,
+      "rmse": 0.3498,
+      "mc_sigma": 0.2016,
+      "overconfidence": 1.735
+    },
+    "700": {
+      "n": 808,
+      "rmse": 0.3001,
+      "mc_sigma": 0.1887,
+      "overconfidence": 1.591
+    },
+    "1000": {
+      "n": 536,
+      "rmse": 0.2201,
+      "mc_sigma": 0.1408,
+      "overconfidence": 1.563
+    }
+  }
+}

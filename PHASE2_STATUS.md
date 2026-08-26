@@ -9,7 +9,7 @@ documented physical expectation.
 | # | Feature | Owner | Branch | Status | Backend | Frontend | Tests | Sci. validation | Known limitation |
 |---|---|---|---|---|---|---|---|---|---|
 | 0 | Repository audit | Darshan | phase2 | **IMPLEMENTED** | n/a | n/a | n/a | n/a | — |
-| 1 | Collocation engine | Darshan | phase2/collocation | NOT STARTED | ☐ | ☐ | ☐ | ☐ | satellite covers 24 of 48 dates |
+| 1 | Collocation engine | Darshan | phase2-collocation | **VALIDATED** | ☑ | ☑ | ☑ 29 | ☑ | satellite covers 24 of 48 dates; monthly grids force a 7-day median Argo offset |
 | 2 | OceanCube 3-D | Darshan | phase2/ocean-cube | NOT STARTED | ☐ | ☐ | ☐ | ☐ | 24% of cells < 1000 m deep |
 | 3 | Spatial CNN | Arjhun | phase2/spatial-ai | NOT STARTED | ☐ | ☐ | ☐ | ☐ | only 48 timesteps to train on |
 | 4 | Calibrated uncertainty + OOD | Arjhun | phase2/reliability | NOT STARTED | ☐ | ☐ | ☐ | ☐ | D-016: MC-dropout overconfident |
@@ -135,6 +135,23 @@ Suggest the verifier fail when a file's row count contradicts `provenance.json`.
 `tests/phase2/__init__.py` had to be deleted again on this branch — it came back with
 `origin/phase2` and broke `phase2.physics` imports exactly as it broke `phase2.reliability`. That is
 two independent reproductions. It will hit your next branch too.
+
+## F1 validation evidence
+
+Marked VALIDATED on 2026-08-26. What justifies it, so nobody has to take the tick on trust:
+
+- **Physical expectations** checked by `python scripts/phase2/accept.py` on real data: an exact grid
+  hit reports 0.00 km offset; the profile returns 15 levels and cools 27.5 -> 9.0 C with depth;
+  inland 15N 75E is REJECTED and says why (`LAND_IN_GLORYS`).
+- **Against an independent source**: the same collocation logic drove
+  `scripts/phase2/glorys_vs_argo.py` across 2,455 real Argo profiles, reproducing the known
+  physical structure of the basin (reanalysis error peaking at the thermocline, near-zero in the
+  deep ocean) rather than noise. Argo is never used in training.
+- **UI matches the engine** to four decimals (SST 27.4946/26.9589, SSS 36.8145/36.1656, Argo
+  53 km / +5 d / 14 levels), so the page is not recomputing or reformatting anything.
+
+Not claimed: F1 has not been validated for satellite-driven queries on the 24 dates lacking
+satellite coverage, and the 7-day median Argo offset is a limit of monthly grids, not a bug.
 
 ## Baseline protection
 `main` @ `v1.0-demo-aug30` is frozen. 142 tests pass. No Phase-2 change may touch it.

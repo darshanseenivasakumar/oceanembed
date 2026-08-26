@@ -265,50 +265,60 @@ def mc_dropout_calibration() -> dict:
 def baseline_availability() -> dict:
     """Which baselines can be shown against Argo HONESTLY, and which cannot.
 
-    Climatology can: its per-depth RMSE against the same 879 profiles is in
-    `argo_error_by_depth.json`, measured by the Phase-1 evaluation.
+    THE INVARIANT: a baseline may be shown only if a REAL ARGO SCORE EXISTS FOR IT.
+    Nothing else. Not "the training data looks right", not "the checkpoint is present".
 
-    **LightGBM cannot, on this machine.** [VERIFIED 2026-08-26]
-      - `argo_error_by_depth.json` contains no LightGBM column; it was never scored against Argo.
-      - `artifacts/lgbm_model.pkl` was DELIBERATELY EXCLUDED from Unit B's data bundle as
-        regenerable, so the local file is whatever predated the bundle.
-      - The local `X_train.npy` has 143514 rows while `provenance.json` records
-        `n_train = 323028`, i.e. the local training inputs are NOT the real-data ones.
-      - The checkpoint is a bare list of boosters (D-012) with no provenance stamp, so its
-        training source cannot be read back from the file.
+    Climatology qualifies: `argo_error_by_depth.json` carries `rmse_climatology`, measured against
+    the same 879 profiles.
 
-    Conclusion: quoting this checkpoint would either report a synthetic-trained model as a
-    baseline, or claim provenance that cannot be verified. Both are forbidden here. The panel
-    states the omission instead of hiding it.
+    **LightGBM does not, on any machine.** [VERIFIED] that artifact contains only
+    `rmse_satellite`, `rmse_glorys` and `rmse_climatology` -- LightGBM was never scored against
+    Argo at all. So the answer is "not shown", everywhere, for the right reason.
+
+    WHY THIS CHECK WAS REWRITTEN -- the previous one was a bug, caught by Unit B on the machine
+    that will run the demo. It gated on `local X_train rows == provenance n_train`. On the author's
+    machine those differed, so LightGBM was refused and the test passed. On Unit B's they match
+    exactly, so `available` came back True and the panel rendered the literal line
+    "LightGBM - shown." followed by no numbers -- the fabricated baseline the guard existed to
+    prevent, reached THROUGH the guard rather than around it.
+
+    A row count proves the training DATA is right. It cannot prove the CHECKPOINT was trained on
+    it: the pickle is a bare list of boosters (D-012) with no provenance stamp, so that is
+    unknowable from the file. The row count is kept below as supporting detail, never as the gate.
     """
+    d = _load(ARGO_ERROR, "It ships in Unit B's data bundle (artifacts/).")         if os.path.exists(ARGO_ERROR) else {}
+    lgbm_keys = [k for k in d if "lgbm" in k.lower() or "lightgbm" in k.lower()]
+
+    # supporting detail only -- NOT the gate
     x_train = os.path.join(config.ARTIFACTS, "X_train.npy")
-    n_rows = None
-    if os.path.exists(x_train):
-        n_rows = int(np.load(x_train, mmap_mode="r").shape[0])
-    n_expected = None
+    n_rows = int(np.load(x_train, mmap_mode="r").shape[0]) if os.path.exists(x_train) else None
     prov = os.path.join(config.ARTIFACTS, "provenance.json")
+    n_expected = None
     if os.path.exists(prov):
         with open(prov) as f:
             n_expected = json.load(f).get("n_train")
 
-    lgbm_ok = n_rows is not None and n_expected is not None and n_rows == n_expected
     return {
         "climatology": {
-            "available": os.path.exists(ARGO_ERROR),
+            "available": bool(d.get("rmse_climatology")),
             "why": "per-depth RMSE against the same 879 Argo profiles is in "
                    "argo_error_by_depth.json",
         },
         "lightgbm": {
-            "available": bool(lgbm_ok),
-            "why": ("shown" if lgbm_ok else
-                    f"NOT SHOWN: local X_train.npy has {n_rows} rows but provenance.json records "
-                    f"n_train={n_expected}, so the local LightGBM checkpoint was not trained on "
-                    "the real data. It carries no provenance stamp, and it was excluded from the "
-                    "data bundle as regenerable. Quoting it would be a fabricated baseline."),
-            "how_to_unblock": "python scripts/prepare_dataset.py --real && "
-                              "python -m oceanembed.train.train_lgbm, then score it against Argo",
-            "local_x_train_rows": n_rows,
-            "provenance_n_train": n_expected,
+            "available": bool(lgbm_keys),
+            "why": ("shown" if lgbm_keys else
+                    "NOT SHOWN: no LightGBM score against Argo exists. argo_error_by_depth.json "
+                    "carries only rmse_satellite, rmse_glorys and rmse_climatology, so there is "
+                    "nothing measured to display. The checkpoint is also unstamped (D-012) and was "
+                    "excluded from the data bundle as regenerable, so its training source cannot "
+                    "be read back from the file -- but the reason it is not shown is simply that "
+                    "it was never scored."),
+            "how_to_unblock": "score the LightGBM baseline against the same 879 Argo profiles and "
+                              "add an rmse_lightgbm column to argo_error_by_depth.json",
+            "gate": "a real Argo score must exist for this baseline",
+            "argo_columns_present": sorted(k for k in d if k.startswith("rmse_")),
+            "local_x_train_rows": n_rows,          # context only, not the gate
+            "provenance_n_train": n_expected,      # context only, not the gate
         },
     }
 

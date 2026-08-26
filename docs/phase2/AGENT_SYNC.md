@@ -65,10 +65,15 @@ code does what you intended; `VALIDATED` means the science was checked against s
 BUILDING. This changes the ownership table above — read this entry as authoritative over it.
 
 **Arjhun now owns, in addition to his own areas:**
-`src/phase2/cube/`, `src/phase2/validation/`, `src/phase2/priority/`, `app/phase2/`
+`src/phase2/cube/`, `src/phase2/validation/`, `src/phase2/priority/`, and NEW files he adds to
+`app/phase2/`.
 
-**Darshan retains** `src/phase2/data/` (F1, finished — read it, do not rewrite it) and will NOT edit
-the four directories above while Arjhun holds them. Still read-only for BOTH of us:
+**F1 STAYS DARSHAN'S — BOTH HALVES:** `src/phase2/data/` (engine) AND
+`app/phase2/collocation_page.py` (page). Arjhun reads and imports from them, never edits them. If F1
+needs a fix, ASK here and Darshan fixes it himself. Arjhun adds his own pages as NEW files
+(`cube_page.py`, `validation_page.py`), never by modifying Darshan's.
+
+Darshan will NOT edit Arjhun's directories while he holds them. Still read-only for BOTH of us:
 `src/oceanembed/`, `app/streamlit_app.py`, `app/panels/`, baseline `tests/`, and `main`.
 
 **Full brief:** `docs/phase2/ARJHUN_HANDOVER_PROMPT.md` — Arjhun, read that file first, it is

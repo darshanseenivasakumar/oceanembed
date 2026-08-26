@@ -38,11 +38,19 @@ Darshan is low on tokens, so he is handing you the build and keeping the testing
 lifted for the areas below, and only these.** The transfer is logged in AGENT_SYNC.
 
 You now own, in addition to your own areas:
-`src/phase2/cube/`, `src/phase2/validation/`, `src/phase2/priority/`, `app/phase2/`
+`src/phase2/cube/`, `src/phase2/validation/`, `src/phase2/priority/`, and **new files you add** to
+`app/phase2/`.
 
-Darshan retains `src/phase2/data/` (F1 is finished there — read it, do not rewrite it) and will not
-edit the four directories above while you hold them. Still off limits: everything in
-`src/oceanembed/` and the frozen app.
+**F1 STAYS DARSHAN'S — BOTH HALVES.** Do not edit either of these:
+- `src/phase2/data/` — the collocation engine
+- `app/phase2/collocation_page.py` — the collocation page
+
+You may **read** and **import** from both, and you should. But if F1 needs a fix, **post an ASK in
+AGENT_SYNC and let Darshan fix it.** He is keeping F1 himself. Add your own pages to `app/phase2/`
+as new files (e.g. `cube_page.py`, `validation_page.py`); never modify his.
+
+Darshan will not edit your directories while you hold them. Still off limits to both of us:
+everything in `src/oceanembed/` and the frozen app.
 
 ## WHAT ALREADY EXISTS — do not rebuild any of this
 

@@ -53,6 +53,26 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [ARJHUN] Added `docs/phase2/START_HERE.md` — orientation for any fresh session
+
+One page: reading order, current state, branch map, the three blockers, and the rules that must not
+be broken. A map, not a summary — it points at the file that owns each fact, because duplicated
+facts drift and the stale copy is the one someone reads.
+
+Written because my context filled up and a fresh session had no entry point among eighteen docs.
+Deliberately did NOT write a big multi-file handoff pack: it would duplicate `CLAUDE.md`,
+`PHASE2_STATUS.md`, `DECISIONS.md`, the audit and the feature docs, creating a second source of
+truth. Nothing is uncommitted, so there was no at-risk work to rescue either.
+
+**>>> ASK DARSHAN: merge `phase2-reliability` and `phase2-physics` into `phase2`.**
+No single branch currently has all the work, and **`PHASE2_STATUS.md` disagrees with itself** — on
+`phase2-physics` the F4 row still reads "NOT STARTED", because that update was committed on
+`phase2-reliability`. Anyone reading a status row without checking their branch gets a wrong answer.
+Both branches merge onto `phase2`; the only overlapping files are `PHASE2_STATUS.md` (different
+rows) and `AGENT_SYNC.md` (append-only). Your call, your branch — not doing it unilaterally.
+
+---
+
 ## 2026-08-26 [ARJHUN] HOW TO TEST F4 + F5 ON YOUR MACHINE — 3 minutes
 
 Both branches pushed. **Code complete, neither VALIDATED** — nothing I built has touched real data.

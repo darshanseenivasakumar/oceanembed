@@ -44,16 +44,24 @@ FIELDS = {"temperature": "Temperature (°C)",
           "uncertainty": "Model spread (°C, 1σ — NOT calibrated)",
           "anomaly": "Anomaly vs climatology (°C)"}
 
-#: Purple-blue family, for the fields that run one way (cold -> warm, small -> large).
-SEQUENTIAL_SCALES = ["BuPu", "PuBu", "Purples", "Blues", "PuBuGn", "Turbo"]
+#: Temperature and model spread run one way, so they keep a sequential scale. Unchanged.
+SEQUENTIAL_SCALES = ["Turbo", "Viridis", "Thermal", "Blues"]
 
-#: Anomaly is a DIVERGING field -- it has a meaningful zero and runs both ways. It needs a
-#: two-ended scale whose midpoint is 0, or a reader cannot tell warm from cold at a glance.
-#: A one-way purple ramp on an anomaly would hide the sign, which is the only thing that
-#: matters about it. PuOr keeps the purple family AND stays diverging: purple = colder than
-#: normal, orange = warmer. PRGn and RdBu_r are offered for anyone who prefers the convention
-#: they already know.
-DIVERGING_SCALES = ["PuOr_r", "PRGn", "RdBu_r"]
+#: Blue -> pale -> purple, for the ANOMALY only.
+#:
+#: Anomaly is a DIVERGING field: it has a meaningful zero and runs both ways, so the scale must
+#: be two-ended and the PALE MIDPOINT MUST SIT ON ZERO. Blue is colder than normal, purple is
+#: warmer. Purple takes the warm end because it sits nearer red than blue does, so the picture
+#: still reads the way an ocean audience expects even in an unfamiliar palette.
+BLUE_PURPLE_DIVERGING = [
+    [0.00, "rgb(8,48,107)"],      # much colder than normal
+    [0.25, "rgb(66,146,198)"],
+    [0.50, "rgb(247,247,247)"],   # ZERO anomaly -- pinned there by cmid=0, see _fig_3d
+    [0.75, "rgb(140,107,177)"],
+    [1.00, "rgb(74,20,134)"],     # much warmer than normal
+]
+DIVERGING_SCALES = {"Blue → purple": BLUE_PURPLE_DIVERGING,
+                    "PuOr": "PuOr_r", "RdBu": "RdBu_r"}
 
 
 @st.cache_data(show_spinner="Reconstructing the volume …")
@@ -71,7 +79,7 @@ def plotly_available() -> bool:
         return False
 
 
-def _fig_3d(vol: dict, mode: str, z_exag: float, colorscale: str):
+def _fig_3d(vol: dict, mode: str, z_exag: float, colorscale, diverging: bool = False):
     import plotly.graph_objects as go
 
     aspect = volume.aspect_ratio(z_exag)
@@ -88,6 +96,13 @@ def _fig_3d(vol: dict, mode: str, z_exag: float, colorscale: str):
                   colorscale=colorscale,
                   colorbar=dict(title=vol["units"] or vol["what"]))
     lo, hi = vol["value_range"]
+
+    # A diverging scale is only honest if its pale midpoint sits on ZERO. Left to autoscale,
+    # plotly centres the colours on the midpoint of the DATA range -- measured here as -2.40 degC
+    # for one real anomaly field, so "neutral" would have marked a 2.4 degC cold anomaly and the
+    # sign would have been unreadable. cmid=0 pins it.
+    if diverging:
+        common["cmid"] = 0.0
 
     if mode == "isosurface":
         levels = volume.isosurface_levels(vol, n=4)
@@ -126,8 +141,12 @@ def _fig_2d_fallback(cube, depth_m: float, what: str):
         x=alt.X("lon:O", title="longitude (°E)", axis=alt.Axis(values=list(range(45, 106, 10)))),
         y=alt.Y("lat:O", title="latitude (°N)", sort="descending",
                 axis=alt.Axis(values=list(range(5, 31, 5)))),
-        color=alt.Color("value:Q", title=sl["what"],
-                        scale=alt.Scale(scheme="bluepurple" if what != "anomaly" else "purpleorange")),
+        color=alt.Color(
+            "value:Q", title=sl["what"],
+            # same rule in the fallback: diverging fields get a zero-centred blue->purple ramp
+            scale=(alt.Scale(range=["rgb(8,48,107)", "rgb(247,247,247)", "rgb(74,20,134)"],
+                             domainMid=0, type="linear")
+                   if what == "anomaly" else alt.Scale(scheme="turbo"))),
         tooltip=["lat", "lon", alt.Tooltip("value:Q", format=".2f")],
     ).properties(height=520)
     return chart, sl
@@ -153,12 +172,13 @@ def main() -> None:
                            help="A VIEWING choice. 1000 m over 60° of longitude is a film of "
                                 "water; drawn to scale you would see nothing.")
         diverging = what == "anomaly"
-        scale = st.selectbox(
-            "Colour scale", DIVERGING_SCALES if diverging else SEQUENTIAL_SCALES,
-            help=("Anomaly has a meaningful zero, so it needs a DIVERGING scale — a one-way "
-                  "purple ramp would hide whether a cell is warmer or colder than normal."
-                  if diverging else
-                  "Purple-blue family: dark = high, pale = low."))
+        if diverging:
+            scale_name = st.selectbox("Colour scale", list(DIVERGING_SCALES),
+                                      help="Blue = colder than normal, purple = warmer. "
+                                           "The pale midpoint is pinned to zero.")
+            scale = DIVERGING_SCALES[scale_name]
+        else:
+            scale = st.selectbox("Colour scale", SEQUENTIAL_SCALES)
         st.divider()
         force_2d = st.checkbox("Force the 2-D fallback view", value=False)
         fb_depth = st.select_slider("Fallback depth (m)", options=list(config.DEPTHS), value=100)
@@ -182,7 +202,7 @@ def main() -> None:
                 reason = (f"{vol['n_points']:,} points is beyond the {volume.POINT_BUDGET:,} "
                           f"budget — raise 'Detail' to coarsen it")
             else:
-                fig = _fig_3d(vol, mode, z_exag, scale)
+                fig = _fig_3d(vol, mode, z_exag, scale, diverging=diverging)
         except Exception as e:                    # a render failure must not blank the page
             reason = f"the 3-D build raised {type(e).__name__}: {e}"
 

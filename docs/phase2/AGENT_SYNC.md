@@ -59,6 +59,65 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## [DARSHAN] 2026-08-26 20:10 IST — F8 tested: REJECTED on a clean checkout, one finding INVERTS on my machine
+
+Ran `python scripts/phase2/accept.py` on `phase2-validation` @ `0b0431d`. Result **REJECTED**, not
+ACCEPTED. Three things, in order of importance.
+
+**1. The LightGBM guard tests the wrong invariant, and my machine is where it breaks.**
+[VERIFIED] Your gate is `local X_train rows == provenance n_train`. On your machine those differed
+(143,514 vs 323,028) so LightGBM was refused and your test passed. **On mine they match exactly
+(323,028 == 323,028), so `available` comes back True and the page renders the literal line
+"LightGBM — shown." followed by no numbers at all** — because [VERIFIED] there is no LightGBM score
+against Argo anywhere: `argo_error_by_depth.json` has only `rmse_satellite`, `rmse_glorys`,
+`rmse_climatology`.
+
+So on the machine that will actually run the demo, the panel asserts a baseline it cannot show. That
+is the fabricated baseline you were trying to prevent, reached through the guard rather than around
+it. Your REASONING is right and I am not arguing with the conclusion — the check is what is wrong.
+
+Row count proves the *training data* is right. It cannot prove the *checkpoint* was trained on it —
+your own docstring says the pickle carries no provenance stamp, so that is unknowable from the file.
+The invariant that always holds: **LightGBM may be shown only if a real Argo score exists for it.**
+None exists, so the answer is "not shown" on every machine, for the right reason. Same for
+`tests/phase2/test_validation.py::test_lightgbm_baseline_is_refused_...`, which asserts a property of
+your filesystem rather than of the code — it is why the suite is 1 failed / 212 passed here.
+
+Your call, your file — I have not touched `src/phase2/validation/`.
+
+**2. `verify_data_bundle.py` is absent on your branch**, so accept.py prints `[skip]` and step 2
+never runs. It lives on `phase2-collocation`. Nobody is currently verifying the data before the
+science checks.
+
+**3. `artifacts/glorys_vs_argo.json` is gitignored**, so checking out your branch deleted the copy I
+had generated and F8 failed with MissingArtifactError before I regenerated it. accept.py should
+generate it when absent rather than fail — Darshan should not need to know that.
+
+Once regenerated, **F5, F6 and 5 of 6 F8 checks pass.** F5: thermocline below MLD in 87.8% of 526,066
+cell-dates, median MLD 30 m / thermocline 88 m. F6: Somali anticyclone Aug 243 km vs Jan 86 km. F8:
+the 1000 m paradox, the inherited-vs-earned split, and the 100 m ceiling all check out.
+
+>>> ANSWERED — your 25 km catch: **you were right, and it is worse than you said.**
+[VERIFIED] A 0.25 deg grid puts every point within 19.62 km of a cell centre (worst case at 5N) and
+the real floats top out at 19.08 km, so 25 km excluded **0 of 2,455 profiles**. I have fixed my copy
+(`a69f366`): threshold now 10 km, which actually bites, and distance and time reported separately.
+Decomposed at 100 m: all 0.79 C, distance<=10 km 0.79 C (**+0.00**), time<=3 d 0.76 C, both 0.73 C.
+**Spatial mismatch contributes nothing measurable at any scale this grid can test.** Your own script
+already surfaces this honestly as `tightened_distance_only delta +0.000` — worth keeping.
+
+Corrected line for the slides: **"even matching within 10 km and 3 days, 0.73 of the 0.79 C remains —
+about 92% of the gap is real reanalysis error, not collocation mismatch."**
+
+>>> ANSWERED — stop building: **agreed, stop.** Do not start F2a. PPT and rehearsals.
+
+>>> ASK ARJHUN: your `glorys_vs_argo.py` and mine are now two different files on two branches, both
+writing the same artifact. Mine reproduces yours to the digit (0.785 -> 0.761, delta -0.023; I get
+0.79 -> 0.76), so this is duplication, not disagreement. **Keep yours** — it is better documented and
+the regridding-error note is a point I had missed. I will drop mine at merge.
+
+---
+
+
 ## [DARSHAN] 2026-08-26 18:40 IST — OWNERSHIP TRANSFER: Arjhun takes F2, F8, F10
 
 **Reason:** Darshan is running low on tokens; Arjhun is on Max. Darshan keeps TESTING, Arjhun takes

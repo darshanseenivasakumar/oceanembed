@@ -6,13 +6,27 @@ WHY
 D-016 recorded that MC-dropout is "overconfident at depth". This re-measures it on the real Argo
 table, because two user-facing captions point a judge at the deep ocean on the strength of it.
 
-METHOD, stated because it is where two independent measurements disagreed
+METHOD, stated because two independent measurements of this disagreed by 2x
     ratio(depth) = RMSE(prediction - argo)  /  RMS(MC-dropout sigma)
 
-Both terms are AGGREGATED FIRST, then divided. Do NOT average per-point ratios: sigma appears in the
-denominator, small sigma blows individual ratios up, and E[a/b] >> E[a]/E[b] when b is small. That
-choice roughly doubles the headline number at the shallow end, which is exactly the band the caption
-would point at. Aggregate-then-divide is the defensible one.
+Both terms are aggregated first, then divided, and CRUCIALLY sigma is evaluated at the Argo points
+themselves.
+
+The first measurement of this came out 8.5x at the worst depth against 3.5x here, and was withdrawn.
+I guessed the cause was averaging per-point ratios. **That guess was wrong** -- Arjhun measured the
+real causes, and the dominant one is far more dangerous:
+
+  1. sigma was taken from a SLICE, X_test[:4000], instead of the Argo points        -> 2.0x
+  2. mean(sigma) instead of RMS(sigma)                                              -> ~10%
+  3. sigma not masked to the depths Argo actually sampled                           -> bites at 1000 m
+
+Cause 1 dominates and is worth understanding, because it looks harmless. X_test is ORDERED, so its
+first rows are not a random sample of the basin. [VERIFIED here] over 107,676 rows: mean u is
+-0.1528 in the first 4,000 against +0.0309 overall -- 0.67 standard deviations out -- and mean SSS is
+0.5 psu low. Any statistic computed from a leading slice of an ordered array inherits that bias.
+Fixing only cause 2 still leaves the answer ~1.8x hot.
+
+Evaluate sigma where you evaluate error. Never on a convenience slice.
 
 ratio > 1 means the spread is too NARROW -- the model is more wrong than it admits.
 

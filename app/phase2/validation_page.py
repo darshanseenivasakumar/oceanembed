@@ -96,11 +96,11 @@ def _chart_calibration(cal):
     """Overconfidence factor per depth. A reference line at 1.0 = honest error bars."""
     df = pd.DataFrame({
         "depth": [int(z) for z in cal["depths"]],
-        "factor": cal["factor"],
+        "factor": cal["ratio"],
         "band": ["mixed layer (20-50 m)" if 20 <= z <= 50 else
                  "deep (500-1000 m)" if z >= 500 else "other"
                  for z in cal["depths"]],
-    })
+    }).dropna(subset=["factor"])
     bars = alt.Chart(df).mark_bar().encode(
         x=alt.X("factor:Q", title="how many times too confident (1.0 = honest)"),
         y=alt.Y("depth:O", title="depth (m)", sort=[int(z) for z in cal["depths"]]),
@@ -231,10 +231,11 @@ def main() -> None:
         st.warning(f"Calibration could not be measured here: {cal['why']}")
     else:
         st.error(
-            f"**Not at all, and worst in the mixed layer.** Measured against real Argo error at "
-            f"every depth, MC-dropout under-states its own error by "
-            f"**{cal['best_factor']:.1f}× to {cal['worst_factor']:.1f}×** — overconfident at all "
-            f"{config.N_DEPTHS} depths, with no exception."
+            f"**Not at all, and worst in the mixed layer.** Measured against real Argo error, "
+            f"MC-dropout under-states its own error by "
+            f"**{cal['best_factor']:.1f}× to {cal['worst_factor']:.1f}×** — overconfident at "
+            f"every one of the {config.N_DEPTHS - len(cal['not_reported_depths'])} reportable "
+            f"depths, with no exception."
         )
         k1, k2 = st.columns(2)
         k1.metric(f"worst — {cal['worst_depth_m']:.0f} m (mixed layer)",
@@ -245,19 +246,20 @@ def main() -> None:
         st.info(
             f"**This corrects our own earlier decision, D-016.** That was measured on fixture data "
             f"and concluded the failure was *\"at depth\"*, worst at 500 m. On real data the "
-            f"pattern **inverts**: the mixed layer (20–50 m) runs "
-            f"{cal['mixed_layer_range'][0]:.1f}–{cal['mixed_layer_range'][1]:.1f}×, while "
-            f"500–1000 m — the depths D-016 warned about — are the *best* calibrated at "
-            f"{cal['deep_range'][0]:.1f}–{cal['deep_range'][1]:.1f}×. "
+            f"pattern **inverts**: the mixed layer (20–50 m) averages "
+            f"{cal['mixed_layer_mean']:.1f}×, while 500–1000 m — the depths D-016 warned "
+            f"about — are the *best* calibrated at {cal['deep_mean']:.1f}×. "
             f"A panel warning about deep water while staying quiet about 30 m would point you "
             f"away from the actual problem."
         )
         st.caption(
-            f"Measured live, not quoted: MC-dropout run on {cal['n_rows']} rows of the real test "
-            f"set (torch seed {cal['seed']}, stable to ±0.05 across seeds), divided into the "
-            f"measured Argo RMSE. **Use the measured per-depth error above as the uncertainty, "
-            f"never this spread.** Depth 0 rests on only {cal['n_obs'][0]} profiles and is "
-            f"excluded from the headline."
+            f"Method: `ratio = RMSE(pred − argo) / RMS(σ)`, aggregated per depth over the "
+            f"{cal['n_profiles']} independent Argo profiles **then** divided — never an average "
+            f"of per-point ratios, and σ is evaluated at the Argo points themselves. Source "
+            f"`{cal['source']}`, torch seed {cal['seed']}, reproducible via "
+            f"`scripts/phase2/measure_mc_calibration.py`. 0 m is not reported — only 12 floats "
+            f"reach it. **Use the measured per-depth error above as the uncertainty, never this "
+            f"spread.**"
         )
 
     st.divider()

@@ -193,12 +193,19 @@ def test_lightgbm_baseline_is_refused_when_its_provenance_cannot_be_verified():
 # reliability: the D-016 correction
 # ---------------------------------------------------------------------------------------------
 def test_mc_dropout_is_overconfident_at_every_depth():
-    cal = lab.mc_dropout_calibration(n_rows=2000)
+    cal = lab.mc_dropout_calibration()
     if not cal["available"]:
         pytest.skip(cal["why"])
     assert cal["overconfident_everywhere"] is True
-    assert cal["worst_factor"] > 5.0, "the worst case should be severe, not marginal"
+    assert cal["worst_factor"] > 3.0, "the worst case should be severe, not marginal"
     assert cal["best_factor"] > 1.0, "even the best depth is still overconfident"
+    # Guards the methodology, not just the direction. RMSE/mean(sigma) on an unrepresentative
+    # slice of X_test gave 8.5x here -- roughly 2x hot. If a number that large reappears, the
+    # aggregate-then-divide method has been replaced by something else.
+    assert cal["worst_factor"] < 5.0, (
+        "a worst factor >= 5x suggests per-point ratios or a mis-sampled sigma; the measurement "
+        "must be RMSE / RMS(sigma) aggregated at the Argo points"
+    )
 
 
 def test_the_mixed_layer_is_worse_than_depth_correcting_d016():
@@ -208,11 +215,11 @@ def test_the_mixed_layer_is_worse_than_depth_correcting_d016():
     either the model changed or D-016's original framing was right after all -- and a human
     must look, rather than the panel quietly reverting to the old warning.
     """
-    cal = lab.mc_dropout_calibration(n_rows=2000)
+    cal = lab.mc_dropout_calibration()
     if not cal["available"]:
         pytest.skip(cal["why"])
     assert cal["worse_in_mixed_layer_than_at_depth"] is True, (
-        f"mixed layer {cal['mixed_layer_range']} vs deep {cal['deep_range']}"
+        f"mixed layer {cal['mixed_layer_mean']} vs deep {cal['deep_mean']}"
     )
     assert 20.0 <= cal["worst_depth_m"] <= 50.0, \
         f"worst calibration should be in the mixed layer, got {cal['worst_depth_m']} m"
@@ -220,12 +227,12 @@ def test_the_mixed_layer_is_worse_than_depth_correcting_d016():
         f"best calibration should be deep, got {cal['best_depth_m']} m"
 
 
-def test_a_thin_sample_depth_cannot_set_the_headline():
-    """Depth 0 rests on 12 Argo profiles. It must not be reported as the worst depth."""
-    cal = lab.mc_dropout_calibration(n_rows=2000)
+def test_a_thin_sample_depth_is_not_reported_at_all():
+    """0 m is reached by only 12 floats. It is dropped, not reported noisily."""
+    cal = lab.mc_dropout_calibration()
     if not cal["available"]:
         pytest.skip(cal["why"])
-    assert cal["n_obs"][0] < lab.MIN_OBS_FOR_HEADLINE
+    assert 0.0 in cal["not_reported_depths"]
     assert cal["worst_depth_m"] != 0.0 and cal["best_depth_m"] != 0.0
 
 
@@ -236,15 +243,25 @@ def test_the_stated_weakness_names_the_mixed_layer_not_the_thermocline():
     text = w[0]["what"] + " " + w[0]["detail"]
     assert "MIXED LAYER" in w[0]["what"]
     assert "20-50 m" in text
-    assert "1.8x to 8.5x" in text
+    assert "1.6x to 3.5x" in text
     assert "UPDATE 2026-08-26" in w[0]["evidence"], "must point at the corrected D-016"
 
 
-def test_calibration_degrades_gracefully_when_the_model_is_missing(monkeypatch):
-    """A missing checkpoint must yield available=False with a reason, never a traceback."""
-    monkeypatch.setattr(lab, "ARGO_ERROR", os.path.join(config.ARTIFACTS, "nope.json"))
-    cal = lab.mc_dropout_calibration(n_rows=50)
-    assert cal["available"] is False and cal["why"]
+def test_calibration_degrades_gracefully_when_the_artifact_is_missing(monkeypatch):
+    """A missing artifact must yield available=False naming the script that makes it."""
+    monkeypatch.setattr(lab, "MC_CALIBRATION", os.path.join(config.ARTIFACTS, "nope.json"))
+    cal = lab.mc_dropout_calibration()
+    assert cal["available"] is False
+    assert "measure_mc_calibration" in cal["why"]
+
+
+def test_calibration_is_read_from_one_artifact_not_recomputed():
+    """Two implementations of one number is the D-014 failure. There must be exactly one."""
+    cal = lab.mc_dropout_calibration()
+    if not cal["available"]:
+        pytest.skip(cal["why"])
+    assert "RMS" in cal["method"] and "THEN divided" in cal["method"]
+    assert cal["n_profiles"] == 879 and cal["source"] == "satellite"
 
 
 def test_missing_artifact_raises_an_actionable_message(monkeypatch):

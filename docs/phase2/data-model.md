@@ -130,7 +130,9 @@ does.
 `uncertainty` is the raw MC-dropout spread and it is **not calibrated**.
 
 [VERIFIED 2026-08-26, `docs/DECISIONS.md` D-016 UPDATE] it under-states the real error at **every**
-depth by **1.8× to 8.5×**, worst in the **mixed layer (20–50 m)**, best at 500–1000 m.
+reportable depth by **1.6× to 3.5×**, worst in the **mixed layer (20–50 m)**, best at 500–1000 m.
+Measured by `scripts/phase2/measure_mc_calibration.py` as `RMSE / RMS(σ)`, aggregated per depth
+over the 879 Argo profiles then divided.
 
 Quote the measured per-depth error from `artifacts/argo_error_by_depth.json` (surfaced by F8,
 `phase2.validation.lab`) as the uncertainty. Use `cube.uncertainty` for *relative* shading only,

@@ -44,6 +44,17 @@ FIELDS = {"temperature": "Temperature (°C)",
           "uncertainty": "Model spread (°C, 1σ — NOT calibrated)",
           "anomaly": "Anomaly vs climatology (°C)"}
 
+#: Purple-blue family, for the fields that run one way (cold -> warm, small -> large).
+SEQUENTIAL_SCALES = ["BuPu", "PuBu", "Purples", "Blues", "PuBuGn", "Turbo"]
+
+#: Anomaly is a DIVERGING field -- it has a meaningful zero and runs both ways. It needs a
+#: two-ended scale whose midpoint is 0, or a reader cannot tell warm from cold at a glance.
+#: A one-way purple ramp on an anomaly would hide the sign, which is the only thing that
+#: matters about it. PuOr keeps the purple family AND stays diverging: purple = colder than
+#: normal, orange = warmer. PRGn and RdBu_r are offered for anyone who prefers the convention
+#: they already know.
+DIVERGING_SCALES = ["PuOr_r", "PRGn", "RdBu_r"]
+
 
 @st.cache_data(show_spinner="Reconstructing the volume …")
 def build_cube(date_str: str, source: str, with_uncertainty: bool):
@@ -115,7 +126,8 @@ def _fig_2d_fallback(cube, depth_m: float, what: str):
         x=alt.X("lon:O", title="longitude (°E)", axis=alt.Axis(values=list(range(45, 106, 10)))),
         y=alt.Y("lat:O", title="latitude (°N)", sort="descending",
                 axis=alt.Axis(values=list(range(5, 31, 5)))),
-        color=alt.Color("value:Q", title=sl["what"], scale=alt.Scale(scheme="turbo")),
+        color=alt.Color("value:Q", title=sl["what"],
+                        scale=alt.Scale(scheme="bluepurple" if what != "anomaly" else "purpleorange")),
         tooltip=["lat", "lon", alt.Tooltip("value:Q", format=".2f")],
     ).properties(height=520)
     return chart, sl
@@ -140,6 +152,13 @@ def main() -> None:
         z_exag = st.slider("Vertical exaggeration", 0.5, 6.0, 2.5, 0.5,
                            help="A VIEWING choice. 1000 m over 60° of longitude is a film of "
                                 "water; drawn to scale you would see nothing.")
+        diverging = what == "anomaly"
+        scale = st.selectbox(
+            "Colour scale", DIVERGING_SCALES if diverging else SEQUENTIAL_SCALES,
+            help=("Anomaly has a meaningful zero, so it needs a DIVERGING scale — a one-way "
+                  "purple ramp would hide whether a cell is warmer or colder than normal."
+                  if diverging else
+                  "Purple-blue family: dark = high, pale = low."))
         st.divider()
         force_2d = st.checkbox("Force the 2-D fallback view", value=False)
         fb_depth = st.select_slider("Fallback depth (m)", options=list(config.DEPTHS), value=100)
@@ -163,7 +182,7 @@ def main() -> None:
                 reason = (f"{vol['n_points']:,} points is beyond the {volume.POINT_BUDGET:,} "
                           f"budget — raise 'Detail' to coarsen it")
             else:
-                fig = _fig_3d(vol, mode, z_exag, "turbo" if what != "anomaly" else "RdBu_r")
+                fig = _fig_3d(vol, mode, z_exag, scale)
         except Exception as e:                    # a render failure must not blank the page
             reason = f"the 3-D build raised {type(e).__name__}: {e}"
 

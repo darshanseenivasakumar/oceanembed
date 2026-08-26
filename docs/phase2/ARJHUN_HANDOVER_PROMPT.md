@@ -123,15 +123,29 @@ reads artifacts that already exist. It shows, honestly, where the model is good 
 
 Must show:
 
-- **Per-depth RMSE and skill vs climatology** from `argo_error_by_depth.json`. The real shape of
-  this result matters: skill is **worst at the thermocline (+0.507 at 100 m)** and better in the
-  deep ocean (+0.705 at 700 m, +0.612 at 1000 m), and is positive at all 15 depths. Do not present
-  it as "accuracy falls with depth" — that is the intuitive story and it is wrong here.
-- **The GLORYS-vs-Argo gap.** Our training truth itself disagrees with real floats — at 15N 65E it
-  is 1.83 C off at 100 m but within 0.18 C below 500 m. Part of our thermocline error is inherited
-  from the training data rather than created by the model. **Always state the caveat next to it:**
-  that float was 53 km and 5 days away, so some of the gap is collocation mismatch, not GLORYS
-  error. One point is an anecdote — if you compute it across all 879 profiles, say how many.
+- **Per-depth RMSE and skill vs climatology** from `argo_error_by_depth.json`. [VERIFIED] Skill is
+  **positive at all 15 depths**, from **+0.225 (1000 m)** to **+0.501 (500 m)**; 100 m is **+0.417**.
+  **Read `rmse_glorys` in that file correctly: it is OUR MODEL FED GLORYS INPUTS, not the GLORYS
+  reanalysis.** Mislabelling it in the UI would be a serious error.
+  **The counter-intuitive bit you must explain, not hide:** skill is *lowest* at 1000 m, and that is
+  not a weakness. Climatology RMSE at 1000 m is only 0.28 C because the deep ocean barely varies, so
+  there is almost nothing to beat. Our absolute RMSE there is **0.22 C — our best number at any
+  depth.** Low skill, excellent prediction. Show absolute RMSE next to skill or the panel misleads.
+- **The GLORYS-vs-Argo gap — now measured properly, use these numbers.**
+  Run `python scripts/phase2/glorys_vs_argo.py`; it writes `artifacts/glorys_vs_argo.json`. This
+  measures the **reanalysis itself** against independent floats, which nothing else in the repo did.
+  [VERIFIED] across 2,455 profiles / 11,761 depth comparisons at the same <=5-day filter:
+  - GLORYS is worst at **100 m: 0.79 C** mean absolute, and only **0.22 C below 500 m**.
+  - It carries a systematic **warm bias of about -0.5 C at 75-125 m** (floats are colder than the
+    reanalysis). Consistent, not noise.
+  - Tightening collocation to <=25 km and <=3 days removes only **0.02 C** of that 100 m gap, so it
+    is **real reanalysis error, not collocation mismatch.** That is the finding.
+  - So our thermocline error is largely **inherited**: at 100 m we are at 1.16 C against the
+    reanalysis's own 1.14 C. We have hit the ceiling of our training truth.
+  - **Where we genuinely are the weak link is 20-50 m** (ours 1.20-1.36 vs reanalysis 0.89-0.99) —
+    the mixed layer. Say so. At 125-150 m, 700 m and 1000 m we match or beat it.
+  Do NOT quote the old single-point "1.83 C at 15N 65E" figure. That was one profile on one date and
+  the basin-wide number is 0.79 C.
 - **Model vs baselines** — climatology and LightGBM, on the same held-out set.
 - **The known weaknesses, stated plainly.** MC-dropout is roughly 4x overconfident at the
   thermocline (decision D-016). Satellite covers 24 of our 48 dates. Argo is 2022 only.

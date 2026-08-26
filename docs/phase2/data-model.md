@@ -5,7 +5,7 @@
 
 **Owner of the implementation:** Unit A (Arjhun), transferred from Unit B 2026-08-26.
 **Implementation:** `src/phase2/cube/ocean_cube.py` · **Branch:** `phase2-ocean-cube`
-**Status:** F2a implemented, 22 tests. F2b (3-D rendering) not started.
+**Status:** F2a implemented (22 tests) · F2b 3-D rendering implemented (16 tests).
 
 ---
 
@@ -159,7 +159,19 @@ and pins the first result forever.
 API — monthly sampling cannot support tracking or persistence (F6 tracking and F7 are closed for
 the same reason).
 
-F2b (Plotly volume / isosurface page) is not started. When built it must degrade to a 2-D
-depth-slice view rather than showing a broken page — and note that **plotly is not installed in
-this environment** even though it is in `requirements.txt`; `app/panels/_viz.py` records why the
-frozen app deliberately uses altair instead.
+F2b IS built: `src/phase2/cube/volume.py` (pure numpy) + `app/phase2/cube_page.py` (port 8504).
+
+Two things the volume layer exists to get right:
+- **Depth is emitted NEGATIVE** so the ocean is not rendered upside down — plotly's z increases
+  upward. A test asserts z spans 0 → −1000 m.
+- **`meshgrid(..., indexing="ij")`** so every value keeps its own coordinate. With the default
+  `"xy"` the lat/lon axes swap, shapes stay valid, and every point silently moves — correct array,
+  wrong data.
+
+Subsampling: `stride` in lat/lon only, never depth (15 levels is already coarse and the
+thermocline is the point). Default stride 3 → ~40,800 points, inside plotly's own working range.
+
+**Graceful degradation is real, not decorative.** `volume.py` imports no plotting library at all —
+a test asserts that — so when plotly is missing the 2-D altair depth-slice fallback still works.
+plotly is in `requirements.txt` but is not guaranteed on any machine; `app/panels/_viz.py` records
+why, and the F8 page ImportError'd on it earlier the same day.

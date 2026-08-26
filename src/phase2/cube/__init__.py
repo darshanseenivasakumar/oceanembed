@@ -10,6 +10,7 @@ Schema: `docs/phase2/data-model.md` -- SHARED, change it there first.
     cube.profile(18.0, 88.0)       # one column, sea floor stated
     cube.value_at(26.0, 52.5, 1000)  # raises BelowSeafloorError -- the Persian Gulf is 30 m here
 """
+from . import volume  # noqa: F401
 from .ocean_cube import BelowSeafloorError, CubeShapeError, OceanCube  # noqa: F401
 
-__all__ = ["OceanCube", "BelowSeafloorError", "CubeShapeError"]
+__all__ = ["OceanCube", "BelowSeafloorError", "CubeShapeError", "volume"]

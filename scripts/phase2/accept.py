@@ -331,8 +331,43 @@ def check_f2a() -> tuple[bool, list[str]]:
     return all(c for c, _ in checks), lines
 
 
+def check_f2b() -> tuple[bool, list[str]]:
+    """F2b: the volume must point DOWN, pair values with their own depths, and survive no plotly."""
+    import numpy as np
+    from oceanembed import config
+    from phase2.cube import OceanCube, volume
+
+    cube = OceanCube.reconstruct("2022-07-15", source="satellite", with_uncertainty=False)
+    v = volume.to_volume_arrays(cube)
+
+    lo, hi = v["value_range"]
+    # The fallback must not depend on the renderer -- that is the whole requirement.
+    src_clean = all(b not in __import__("inspect").getsource(volume)
+                    for b in ("import plotly", "import streamlit", "import altair"))
+    fallback = cube.depth_slice(100)
+
+    checks = [
+        ((v["z"] <= 0).all() and v["z"].min() == -float(config.DEPTHS[-1]),
+         f"depth points DOWN: z spans {v['z'].min():.0f} .. {v['z'].max():.0f} m"),
+        (not v["over_budget"],
+         f"{v['n_points']:,} points, within the {volume.POINT_BUDGET:,} render budget"),
+        (v["n_below_seafloor"] > v["n_with_water"],
+         f"{v['n_below_seafloor']:,} of {v['n_points']:,} points are land or below the sea floor "
+         f"-- gaps in the render are bathymetry, not missing data"),
+        (0.0 < lo < 15.0 and 20.0 < hi < 36.0,
+         f"temperature spans {lo:.1f} .. {hi:.1f} degC"),
+        (src_clean, "the volume layer imports NO plotting library, so the 2-D fallback survives "
+                    "plotly being absent"),
+        (np.isfinite(fallback["coverage_fraction"]),
+         f"2-D fallback at 100 m renders, coverage {100*fallback['coverage_fraction']:.1f}%"),
+    ]
+    lines = [("     " + ("ok   " if c else "FAIL ") + m) for c, m in checks]
+    return all(c for c, _ in checks), lines
+
+
 CHECKS = [
     ("F1 collocation", "phase2.data.collocation", check_f1),
+    ("F2b volume", "phase2.cube.volume", check_f2b),
     ("F2a OceanCube", "phase2.cube.ocean_cube", check_f2a),
     ("F5 physics", "phase2.physics.layers", check_f5),
     ("F6 events", "phase2.events.eddy", check_f6),

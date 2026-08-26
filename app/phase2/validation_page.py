@@ -216,7 +216,9 @@ def main() -> None:
     if ba["lightgbm"]["available"]:
         st.markdown("**LightGBM** — shown.")
     else:
-        st.error(
+        # st.info, NOT st.error: this is a deliberate, correct decision, not a failure. A red box
+        # reads as "the page crashed" -- it did, to a reader looking at it for the first time.
+        st.info(
             "**LightGBM is deliberately NOT shown, and this is the honest choice.**\n\n"
             f"{ba['lightgbm']['why']}\n\n"
             f"To unblock: `{ba['lightgbm']['how_to_unblock']}`"
@@ -230,7 +232,7 @@ def main() -> None:
     if not cal["available"]:
         st.warning(f"Calibration could not be measured here: {cal['why']}")
     else:
-        st.error(
+        st.warning(
             f"**Not at all, and worst in the mixed layer.** Measured against real Argo error, "
             f"MC-dropout under-states its own error by "
             f"**{cal['best_factor']:.1f}× to {cal['worst_factor']:.1f}×** — overconfident at "

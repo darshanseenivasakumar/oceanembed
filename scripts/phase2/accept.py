@@ -132,10 +132,21 @@ def main() -> None:
     print(f"{INFO} branch: {branch}")
     check(branch not in ("main", "main1"),
           "not sitting on a protected branch", f"on {branch}")
+    # What matters is that NOTHING HERE added commits to main -- not that main sits on one
+    # specific hash. Pinning 4995444 meant the legitimate v1.0.1/v1.0.2 caption pushes made this
+    # scream "main touched!" on every run. A check that cries wolf gets ignored, and then it is
+    # not there for the real thing. Compare against the remote instead.
     main_head = git("log", "-1", "--format=%h %s", "main")
+    local, remote = git("rev-parse", "main"), git("rev-parse", "origin/main")
     print(f"{INFO} main is at: {main_head}")
-    check(main_head.startswith("4995444"),
-          "main is untouched at the frozen Aug-30 demo", main_head[:9])
+    if local and remote and local != remote:
+        import subprocess as _sp
+        behind = _sp.run(["git", "merge-base", "--is-ancestor", "main", "origin/main"],
+                         cwd=ROOT, capture_output=True).returncode == 0
+        check(behind, "main has no local commits of its own",
+              "behind origin/main, which is fine" if behind else "LOCAL COMMITS ON MAIN")
+    else:
+        check(bool(local), "main matches origin/main", main_head[:9])
     dirty = git("status", "--short")
     check(not dirty, "working tree is clean",
           f"{len(dirty.splitlines())} uncommitted file(s)" if dirty else "")

@@ -119,28 +119,51 @@ The "DECISION REQUIRED" above is now answered. Unit B's data bundle landed, so
 `artifacts/argo_error_by_depth.json` (real per-depth error against 879 independent Argo profiles)
 is present and the measurement could finally be made against something real instead of fixtures.
 
-**Method.** MC-dropout sigma from the real checkpoint on the real test set (`artifacts/X_test.npy`,
-first 4000 rows), compared per depth against the MEASURED Argo RMSE.
-[VERIFIED, reproducible: stable to +-0.05 across `torch.manual_seed` 0/1/2.]
+**Method.** `ratio = RMSE(prediction - argo) / RMS(MC-dropout sigma)`, aggregated per depth over
+the 879 independent Argo profiles and THEN divided, with sigma evaluated at the Argo points
+themselves. [VERIFIED, reproducible: `python scripts/phase2/measure_mc_calibration.py`, seeded,
+writes `artifacts/mc_calibration.json`.] 0 m is not reported -- only 12 floats reach it.
 
-    overconfidence factor = measured Argo RMSE / MC-dropout sigma      (1.0 == calibrated)
+    overconfidence factor = measured Argo RMSE / RMS(sigma)      (1.0 == calibrated)
 
       depth   factor            depth   factor            depth   factor
-        0 m    2.46  (n=12)      75 m    3.92             500 m    2.97
-        5 m    3.71             100 m    2.78             700 m    2.29
-       10 m    4.74             125 m    2.54            1000 m    1.81   <- BEST calibrated
-       20 m    7.90             150 m    2.56
-       30 m    8.46  <- WORST   200 m    3.51
-       50 m    6.92             300 m    5.67
+        5 m    1.81              75 m    2.81             500 m    1.73
+       10 m    2.35             100 m    2.87             700 m    1.59
+       20 m    3.54  <- WORST   125 m    2.85            1000 m    1.56   <- BEST calibrated
+       30 m    3.25             150 m    2.54
+       50 m    2.95             200 m    2.18
+                                300 m    2.20
 
-**1. The headline is CONFIRMED and is worse than the fixtures suggested.** MC-dropout is
-overconfident at EVERY ONE of the 15 depths, by 1.8x to 8.5x. The fixture estimate was a ~4x drift;
-the real worst case is more than double that. Nothing here rehabilitates MC-dropout.
+**CORRECTION 2026-08-26 (second pass).** An earlier version of this update quoted **1.8x-8.5x**,
+worst 8.46x at 30 m. Those magnitudes were WRONG and are withdrawn. The direction and the
+conclusion were right; the numbers were roughly 2x hot at the shallow end. Three compounding
+causes, measured:
+
+1. **sigma came from the wrong sample -- the dominant cause.** It was taken from
+   `X_test.npy[:4000]` rather than from the Argo collocation points, so an Argo-derived RMSE was
+   divided by an unrelated subset's sigma. That slice is not representative: mean `u` is -0.153
+   against +0.031 for the full set, mean `sss` 34.18 against 34.68. At 20 m this alone moved sigma
+   0.152 -> 0.306, a factor of 2.0.
+2. **mean(sigma) instead of RMS(sigma).** Correct for a variance-scaling factor is
+   `RMSE / RMS(sigma)`, since RMSE^2 = a^2 * mean(sigma^2). Worth ~10% at 20 m (3.93 -> 3.54).
+3. **sigma was not masked to the depths Argo actually sampled.** Matters most at 1000 m, where
+   only 536 of 879 profiles reach.
+
+Unit B raised this and attributed it to averaging per-point ratios (`E[a/b] >> E[a]/E[b]`). That
+mechanism is real and would inflate the shallow end similarly, but it is **not** what happened
+here -- no per-point ratio was ever averaged. Recorded precisely because a future reader who fixes
+only the mean-vs-RMS step would still be ~1.8x hot; the sampling is the part that matters.
+
+Source makes almost no difference: satellite 3.54x at 20 m vs glorys 3.46x.
+
+**1. The headline is CONFIRMED.** MC-dropout is overconfident at EVERY reportable depth, by
+1.6x to 3.5x. The fixture estimate was a ~4x drift, so the real spread is of the same order but
+the fixture table put it in the wrong place. Nothing here rehabilitates MC-dropout.
 
 **2. The DEPTH PATTERN INVERTED, and this entry's original title was wrong.** The fixture table
-said the failure was "at depth", worst at 500 m (0.31 ratio, 4.0x). On real data 500 m is 2.97x and
-1000 m is 1.81x - the two BEST-calibrated depths in the column. **The worst is the MIXED LAYER at
-20-50 m (6.9x - 8.5x).**
+said the failure was "at depth", worst at 500 m (0.31 ratio, 4.0x). On real data 500 m is 1.73x and
+1000 m is 1.56x - the two BEST-calibrated depths in the column. **The worst is the MIXED LAYER at
+20-50 m, averaging 3.25x.**
 
 **3. The fixture-based prediction was falsified, and the reasoning behind it is worth keeping.**
 This entry predicted: *"EXPECT THIS TO GET WORSE ON REAL GLORYS... actual error will GROW with depth

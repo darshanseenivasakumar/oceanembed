@@ -204,6 +204,36 @@ def main() -> None:
         },
     }
 
+    # ---- COMPATIBILITY: Unit B's F1 page reads this same file --------------------------
+    # `app/phase2/collocation_page.py` consumes `by_depth_all` (keyed by depth, with `mean_abs`)
+    # and `n_comparisons`. Unit B wrote an independent version of this script with that schema;
+    # at merge we agreed to keep THIS one, and regenerating the artifact promptly broke his page
+    # with KeyError: 'by_depth_all'.
+    #
+    # His page is his file and I do not edit it, so the fix belongs here: emit BOTH shapes from
+    # the ONE measurement. Same numbers, two spellings -- which is the point. Two files computing
+    # one number is the D-014 failure; one file serving two consumers is not.
+    out["by_depth_all"] = {
+        str(z): {"n": base["n"][k],
+                 "bias": base["bias"][k],
+                 "mean_abs": base["mae"][k],
+                 "rmse": base["rmse"][k]}
+        for k, z in enumerate(config.DEPTHS)
+        if base["mae"][k] is not None
+    }
+    out["n_comparisons"] = base["n_comparisons"]
+    tight_stats = out["tightened"]["stats"]
+    if tight_stats is not None:
+        out["by_depth_tight"] = {
+            str(z): {"n": tight_stats["n"][k],
+                     "bias": tight_stats["bias"][k],
+                     "mean_abs": tight_stats["mae"][k],
+                     "rmse": tight_stats["rmse"][k]}
+            for k, z in enumerate(config.DEPTHS)
+            if tight_stats["mae"][k] is not None
+        }
+    out["tight_definition"] = {"max_km": TIGHT_KM, "max_days": TIGHT_DAYS}
+
     os.makedirs(config.ARTIFACTS, exist_ok=True)
     with open(OUT, "w") as f:
         json.dump(out, f, indent=1)

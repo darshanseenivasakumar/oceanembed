@@ -178,10 +178,19 @@ if prof:
         # pandas turns the engine's None into NaN on construction, and Streamlit prints NaN as the
         # literal word "None" -- so a level the float simply did not sample reads like a failure.
         # A Styler is the only way to set the missing marker; "--" is the conventional one.
+        # Two separate traps here, and the second only appears when there is NO Argo at all.
+        # 1. Streamlit prints NaN as the literal word "None", so a level the float did not sample
+        #    reads like a failure. A Styler with na_rep is the only way to set the marker.
+        # 2. If EVERY value in a column is None, pandas keeps that column as OBJECT dtype, and
+        #    Streamlit renders object columns straight through -- na_rep never gets a look in, so
+        #    "None" comes back. Coercing to float64 first turns them into real NaN, which the
+        #    Styler then formats. This is the common case: most of the basin has no float nearby.
+        num = [c for c in df.columns if c != "depth (m)"]
+        shown = df.astype({c: "float64" for c in num})
         st.dataframe(
-            df.style.format({"depth (m)": "{:.0f}", "GLORYS T (°C)": "{:.3f}",
-                             "salinity (psu)": "{:.3f}", "ARGO T (°C)": "{:.3f}",
-                             "ARGO − GLORYS": "{:+.2f}"}, na_rep="—"),
+            shown.style.format({"depth (m)": "{:.0f}", "GLORYS T (°C)": "{:.3f}",
+                                "salinity (psu)": "{:.3f}", "ARGO T (°C)": "{:.3f}",
+                                "ARGO − GLORYS": "{:.2f}"}, na_rep="—"),
             hide_index=True, width="stretch", height=400)
 
     # The reanalysis-vs-float gap is worth surfacing: it is not OUR model's error. But this is ONE

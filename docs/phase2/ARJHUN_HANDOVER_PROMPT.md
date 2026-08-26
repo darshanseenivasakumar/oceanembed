@@ -142,8 +142,15 @@ Must show:
     is **real reanalysis error, not collocation mismatch.** That is the finding.
   - So our thermocline error is largely **inherited**: at 100 m we are at 1.16 C against the
     reanalysis's own 1.14 C. We have hit the ceiling of our training truth.
-  - **Where we genuinely are the weak link is 20-50 m** (ours 1.20-1.36 vs reanalysis 0.89-0.99) —
-    the mixed layer. Say so. At 125-150 m, 700 m and 1000 m we match or beat it.
+  - **With bootstrapped 95% intervals** (the script does this; do not compare bare RMSEs, a 0.02 C
+    gap over a few hundred floats is noise): of 14 testable depths our satellite-driven model is
+    **indistinguishable from the reanalysis at 8**, **better at 1 (1000 m)**, and **worse at 5**.
+    The 5 are **20, 30, 50, 75 and 300 m** — the mixed layer and upper thermocline. **That is our
+    genuine weak spot, and the panel must say so.** The 0 m level has too few floats to compare;
+    report it as such rather than comparing on 32 samples.
+  - The interval is bootstrapped on the reanalysis only (per-profile model residuals are not saved).
+    A paired test would widen it and move verdicts TOWARD "indistinguishable", so the 20-75 m
+    verdicts are safe while the 300 m and 1000 m ones are the marginal ones. State this if asked.
   Do NOT quote the old single-point "1.83 C at 15N 65E" figure. That was one profile on one date and
   the basin-wide number is 0.79 C.
 - **Model vs baselines** — climatology and LightGBM, on the same held-out set.

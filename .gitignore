@@ -44,3 +44,7 @@ Thumbs.db
 
 # --- Local memory (keep private) ---
 .remember/
+
+# shared data bundle (built by hand, never committed)
+oceanembed_phase2_data.zip
+PHASE2_DATA_MANIFEST.json

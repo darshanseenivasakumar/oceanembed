@@ -58,15 +58,24 @@ def safety() -> bool:
     else:
         print(f"{OK} on feature branch '{branch}'")
 
-    # main must be byte-identical to its remote: proves nothing here has touched it.
+    # What must be true: nothing HERE has added commits to main. That is not the same as
+    # "main equals origin/main" -- Unit B legitimately pushes to main (v1.0.1 did), which leaves
+    # a local ref behind through no fault of ours. An earlier version of this check called that
+    # DIVERGED and failed the run. A safety check that cries wolf gets ignored, and then it is
+    # not there for the real thing.
     local, remote = _git("rev-parse", "main"), _git("rev-parse", "origin/main")
-    if local and remote and local == remote:
-        print(f"{OK} main unmodified ({local[:8]} == origin/main)")
-    elif local and remote:
-        print(f"{BAD} main has diverged from origin/main ({local[:8]} vs {remote[:8]})")
-        ok = False
-    else:
+    if not (local and remote):
         print(f"{SKIP} could not compare main to origin/main")
+    elif local == remote:
+        print(f"{OK} main unmodified ({local[:8]} == origin/main)")
+    elif _run(["git", "merge-base", "--is-ancestor", "main", "origin/main"])[0] == 0:
+        # local main is an ancestor: behind, with no local commits of its own. Safe.
+        print(f"{OK} main has no local commits ({local[:8]} is an ancestor of origin/main "
+              f"{remote[:8]} -- behind, not diverged; `git fetch` to catch up)")
+    else:
+        print(f"{BAD} main has LOCAL COMMITS not in origin/main ({local[:8]} vs {remote[:8]}) "
+              f"-- something wrote to main")
+        ok = False
 
     dirty = _git("status", "--porcelain")
     tracked = [l for l in dirty.splitlines() if not l.startswith("??")]

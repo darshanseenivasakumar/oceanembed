@@ -189,6 +189,64 @@ def test_lightgbm_baseline_is_refused_when_its_provenance_cannot_be_verified():
     assert b["lightgbm"]["how_to_unblock"]
 
 
+# ---------------------------------------------------------------------------------------------
+# reliability: the D-016 correction
+# ---------------------------------------------------------------------------------------------
+def test_mc_dropout_is_overconfident_at_every_depth():
+    cal = lab.mc_dropout_calibration(n_rows=2000)
+    if not cal["available"]:
+        pytest.skip(cal["why"])
+    assert cal["overconfident_everywhere"] is True
+    assert cal["worst_factor"] > 5.0, "the worst case should be severe, not marginal"
+    assert cal["best_factor"] > 1.0, "even the best depth is still overconfident"
+
+
+def test_the_mixed_layer_is_worse_than_depth_correcting_d016():
+    """D-016 concluded 'overconfident at depth' from FIXTURES. On real data that inverts.
+
+    This is the assertion that keeps the panel pointing at the right band. If it ever fails,
+    either the model changed or D-016's original framing was right after all -- and a human
+    must look, rather than the panel quietly reverting to the old warning.
+    """
+    cal = lab.mc_dropout_calibration(n_rows=2000)
+    if not cal["available"]:
+        pytest.skip(cal["why"])
+    assert cal["worse_in_mixed_layer_than_at_depth"] is True, (
+        f"mixed layer {cal['mixed_layer_range']} vs deep {cal['deep_range']}"
+    )
+    assert 20.0 <= cal["worst_depth_m"] <= 50.0, \
+        f"worst calibration should be in the mixed layer, got {cal['worst_depth_m']} m"
+    assert cal["best_depth_m"] >= 500.0, \
+        f"best calibration should be deep, got {cal['best_depth_m']} m"
+
+
+def test_a_thin_sample_depth_cannot_set_the_headline():
+    """Depth 0 rests on 12 Argo profiles. It must not be reported as the worst depth."""
+    cal = lab.mc_dropout_calibration(n_rows=2000)
+    if not cal["available"]:
+        pytest.skip(cal["why"])
+    assert cal["n_obs"][0] < lab.MIN_OBS_FOR_HEADLINE
+    assert cal["worst_depth_m"] != 0.0 and cal["best_depth_m"] != 0.0
+
+
+def test_the_stated_weakness_names_the_mixed_layer_not_the_thermocline():
+    """The panel text itself, not just the numbers behind it."""
+    w = [x for x in lab.known_weaknesses() if "MC-dropout" in x["what"]]
+    assert len(w) == 1
+    text = w[0]["what"] + " " + w[0]["detail"]
+    assert "MIXED LAYER" in w[0]["what"]
+    assert "20-50 m" in text
+    assert "1.8x to 8.5x" in text
+    assert "UPDATE 2026-08-26" in w[0]["evidence"], "must point at the corrected D-016"
+
+
+def test_calibration_degrades_gracefully_when_the_model_is_missing(monkeypatch):
+    """A missing checkpoint must yield available=False with a reason, never a traceback."""
+    monkeypatch.setattr(lab, "ARGO_ERROR", os.path.join(config.ARTIFACTS, "nope.json"))
+    cal = lab.mc_dropout_calibration(n_rows=50)
+    assert cal["available"] is False and cal["why"]
+
+
 def test_missing_artifact_raises_an_actionable_message(monkeypatch):
     monkeypatch.setattr(lab, "REANALYSIS_GAP", os.path.join(config.ARTIFACTS, "nope.json"))
     with pytest.raises(lab.MissingArtifactError, match="glorys_vs_argo"):
@@ -199,6 +257,7 @@ def test_summary_assembles_without_the_ui():
     _need(lab.ARGO_ERROR, "bundle"); _need(lab.REANALYSIS_GAP, "run glorys_vs_argo.py")
     s = lab.summary()
     assert set(s) == {"per_depth", "reanalysis_gap", "inherited_vs_earned",
-                      "baseline_availability", "known_weaknesses", "headline"}
+                      "baseline_availability", "mc_dropout_calibration",
+                      "known_weaknesses", "headline"}
     assert s["headline"]["skill"] == pytest.approx(0.3871, abs=1e-3)
     assert "GLORYS-holdout" in s["headline"]["do_not_quote"]

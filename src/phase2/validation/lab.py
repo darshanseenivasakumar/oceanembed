@@ -43,6 +43,9 @@ REANALYSIS_GAP = os.path.join(config.ARTIFACTS, "glorys_vs_argo.json")
 #: it is exposed so a reviewer can move it.
 CEILING_TOLERANCE_C = 0.05
 
+#: A depth resting on too few Argo profiles must not set a headline. Depth 0 has only 12.
+MIN_OBS_FOR_HEADLINE = 100
+
 
 class MissingArtifactError(FileNotFoundError):
     """Raised with an actionable message rather than a bare path."""
@@ -189,6 +192,87 @@ def inherited_vs_earned(tolerance_c: float = CEILING_TOLERANCE_C) -> dict:
     }
 
 
+#: Rows of the real test set used for the MC-dropout calibration measurement. 4000 is enough for
+#: the per-depth mean to be stable (measured: +-0.05 across torch seeds 0/1/2) without making the
+#: page slow.
+CALIBRATION_SAMPLE_ROWS = 4000
+CALIBRATION_SEED = 0
+
+
+def mc_dropout_calibration(n_rows: int = CALIBRATION_SAMPLE_ROWS, seed: int = CALIBRATION_SEED) -> dict:
+    """How badly does the model UNDER-state its own error, per depth?
+
+        factor = measured Argo RMSE / MC-dropout sigma        (1.0 == calibrated)
+
+    Both terms are measured: the numerator from `argo_error_by_depth.json`, the denominator by
+    actually running MC-dropout on the real test set. Nothing is quoted from a doc.
+
+    **This corrects D-016.** That decision was measured on FIXTURES and concluded the failure was
+    "at depth", worst at 500 m. On real data the pattern INVERTS: 500-1000 m are the best-calibrated
+    depths in the column and the worst is the MIXED LAYER at 20-50 m. A panel that warns about deep
+    water while staying quiet about 30 m points a reader away from the actual problem.
+
+    Returns `available=False` with a reason rather than raising, so the page degrades to the
+    recorded summary instead of showing a traceback.
+    """
+    try:
+        import torch
+        from oceanembed.inference import predict as P
+        from oceanembed.inference.uncertainty import mc_dropout_predict
+    except Exception as e:  # torch missing, or the baseline moved
+        return {"available": False, "why": f"cannot import the model stack: {type(e).__name__}: {e}"}
+
+    x_test = os.path.join(config.ARTIFACTS, "X_test.npy")
+    if not os.path.exists(x_test) or not os.path.exists(ARGO_ERROR):
+        return {"available": False, "why": "X_test.npy or argo_error_by_depth.json is absent "
+                                           "(both are gitignored and ship in the data bundle)"}
+    try:
+        torch.manual_seed(seed)   # MC-dropout is stochastic; seeded so the panel is reproducible
+        X = np.load(x_test, mmap_mode="r")[:n_rows]
+        _, std = mc_dropout_predict(P._model(), np.asarray(X))
+        sigma = np.nanmean(np.asarray(std, dtype="float64"), axis=0)
+    except Exception as e:
+        return {"available": False, "why": f"MC-dropout run failed: {type(e).__name__}: {e}"}
+
+    d = _load(ARGO_ERROR, "It ships in the data bundle.")
+    rmse = np.asarray(d["rmse_satellite"], dtype="float64")
+    n_obs = np.asarray(d["n_obs_per_depth"], dtype="int64")
+    depths = np.asarray(d["depths"], dtype="float64")
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        factor = np.where(sigma > 0, rmse / sigma, np.nan)
+
+    # Depth 0 rests on 12 profiles; excluded from "worst" so a thin sample cannot set the headline.
+    trustworthy = n_obs >= MIN_OBS_FOR_HEADLINE
+    ranked = np.where(trustworthy, factor, np.nan)
+    worst = int(np.nanargmax(ranked))
+    best = int(np.nanargmin(ranked))
+
+    mixed_layer = (depths >= 20) & (depths <= 50)
+    deep = depths >= 500
+    return {
+        "available": True,
+        "depths": depths,
+        "sigma": sigma,
+        "rmse": rmse,
+        "factor": factor,
+        "n_obs": n_obs,
+        "seed": int(seed),
+        "n_rows": int(n_rows),
+        "worst_depth_m": float(depths[worst]),
+        "worst_factor": float(factor[worst]),
+        "best_depth_m": float(depths[best]),
+        "best_factor": float(factor[best]),
+        "mixed_layer_range": (float(np.nanmin(factor[mixed_layer])),
+                              float(np.nanmax(factor[mixed_layer]))),
+        "deep_range": (float(np.nanmin(factor[deep])), float(np.nanmax(factor[deep]))),
+        "overconfident_everywhere": bool(np.all(factor[trustworthy] > 1.0)),
+        # The claim D-016 originally made, now testable rather than quoted.
+        "worse_in_mixed_layer_than_at_depth": bool(
+            np.nanmin(factor[mixed_layer]) > np.nanmax(factor[deep])),
+    }
+
+
 def baseline_availability() -> dict:
     """Which baselines can be shown against Argo HONESTLY, and which cannot.
 
@@ -244,11 +328,15 @@ def known_weaknesses() -> list[dict]:
     """The limitations that must appear on the panel. Stating them is the point of the feature."""
     return [
         {
-            "what": "MC-dropout uncertainty is overconfident at the thermocline",
-            "detail": "Roughly 4x too narrow where the vertical gradient is steepest. Quote the "
-                      "MEASURED per-depth error from argo_error_by_depth.json instead of the "
-                      "model's own spread.",
-            "evidence": "docs/DECISIONS.md D-016",
+            "what": "MC-dropout uncertainty is overconfident EVERYWHERE, worst in the MIXED LAYER",
+            "detail": "Measured against real Argo error at every depth: the model under-states its "
+                      "own error by 1.8x to 8.5x. The worst is 20-50 m (the mixed layer); the "
+                      "BEST-calibrated depths are 500-1000 m. D-016 originally concluded the "
+                      "opposite -- 'overconfident at depth' -- from fixture data; the real-data "
+                      "re-measurement inverted the pattern. Quote the MEASURED per-depth error "
+                      "from argo_error_by_depth.json, never the model's own spread.",
+            "evidence": "docs/DECISIONS.md D-016 (UPDATE 2026-08-26); reproduced live by "
+                        "lab.mc_dropout_calibration()",
         },
         {
             "what": "Satellite covers 24 of 48 dates",
@@ -279,6 +367,7 @@ def summary() -> dict:
         "reanalysis_gap": reanalysis_gap(),
         "inherited_vs_earned": inherited_vs_earned(),
         "baseline_availability": baseline_availability(),
+        "mc_dropout_calibration": mc_dropout_calibration(),
         "known_weaknesses": known_weaknesses(),
         "headline": {
             "rmse": d["overall"]["satellite"]["rmse"],

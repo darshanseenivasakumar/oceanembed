@@ -2,7 +2,15 @@
 
 **Owner:** Unit A (Arjhun) · **Branch:** `phase2-events` (cut from `phase2-physics`, see §8)
 **Status:** DESIGN — nothing implemented at time of writing
-**Written:** 2026-08-26
+**Written:** 2026-08-26 · **Revised:** 2026-08-26 after the real data bundle landed
+
+> **Revision note.** This spec was written while the only data here was a synthetic stand-in and no
+> wind existed. Unit B's 133 MB bundle has since landed and verified. Three things changed:
+> wind is real and present, so `ekman_pumping` is runnable rather than aspirational (§4.3);
+> `subsurface.npz` is now genuinely real, so the §3 honesty gate flips from *tripwire* to
+> *precondition*; and a **new** alignment hazard was found in the wind grid (§2.1) that did not
+> exist before. Sections below are the revised text; the original reasoning is preserved where it
+> still holds.
 
 Spec lives here rather than `docs/superpowers/specs/` because this repo already has one place for
 Phase-2 feature docs (`docs/phase2/f5-physics.md`), and a second doc tree is a second source of
@@ -41,29 +49,56 @@ From `data/processed/subsurface.npz`: `salinity`, `u`, `v` at (T, 100, 240, 15).
 Grid, depths and region are **imported from `oceanembed.config`**, never restated:
 `REGION = 5-30N, 45-105E, step 0.25`; `DEPTHS` = 15 levels to 1000 m.
 
-**Locally T = 8 and the data is synthetic.** Unit B's machine has T = 48 real GLORYS. Every number
-F6 produces here is a code check, not a scientific result.
+**T = 48, real GLORYS, 2019-01-15 to 2022-12-15** [VERIFIED 2026-08-26 by
+`scripts/phase2/verify_data_bundle.py`, all three levels pass, plus an independent re-run of the
+four F5 checks]. `grids.npz` stamps `source = real-glorys`.
 
-**No wind.** `src/phase2/data/download_wind.py` exists (Unit B) but no wind file has landed here.
+**Wind is present:** `data/raw/wind/wind_YYYYMM.nc`, 48 monthly files, each carrying
+`eastward_wind`, `northward_wind`, **`eastward_stress`, `northward_stress`** (N/m2),
+`wind_speed`, `wind_stress_magnitude` on a (1, 100, 240) grid. Stress is provided directly, so
+`ekman_pumping` needs no drag coefficient.
+
+### 2.1 The wind grid is offset half a cell — regrid, never assign [VERIFIED]
+
+```
+wind latitude :  5.125  5.375  5.625  ...  29.875
+base latitude :  5.000  5.250  5.500  ...  29.750
+offset = +0.125 deg in BOTH lat and lon, constant, and the shape is identically (100, 240)
+```
+
+The wind product is on **cell centres**; the baseline grid is on **cell edges**. Same shape, same
+spacing, same count — so `np.shape` agrees, a bounds check on values agrees, and every wind value
+still lands ~14 km southwest of where it belongs.
+
+This is the project's recurring failure mode (`START_HERE` §5.7): *correct array, plausible values,
+wrong data*. It matters more here than almost anywhere else, because Ekman pumping is a **curl** —
+a spatial derivative — and the upwelling we want to detect is **coastal**, exactly where a half-cell
+shift moves water on and off the land mask.
+
+**Requirement:** `upwelling.py` loads wind through a loader that interpolates onto `config.LAT` /
+`config.LON` and **asserts** the resulting coordinates match the baseline to within 1e-6. Assigning
+the raw array is forbidden and a test enforces it (§6.12).
+
+One cosmetic note: the wind files' global attributes read `time_coverage_start: 2024-06-01` while
+the `time` coordinate and filename both say the correct month. The attributes are stale CMEMS
+product boilerplate; the coordinate is authoritative, and the seasonal check (SW monsoon 5.64 m/s
+vs NE 3.99 m/s) confirms the months are labelled correctly. **Read `time`, never the attributes.**
 
 ---
 
 ## 3. The provenance finding, and the gate it forces
 
-[VERIFIED] `data/processed/subsurface.npz` on this machine is stamped
-`source = "real-glorys-subsurface"` and contains synthetic data:
+**The file is now real, and the code bug that mislabelled it is not fixed.** Both halves matter.
 
-```
-BoB 18N/88E salinity, surface vs 500 m : 34.6029  vs  34.5846
-global salinity minimum                : 34.09 psu
-```
+Before the bundle, `data/processed/subsurface.npz` here was stamped `source =
+"real-glorys-subsurface"` while holding synthetic data — BoB salinity 34.6029 at the surface vs
+34.5846 at 500 m (inverted), domain minimum 34.09 psu. After the bundle it reads 30.26 -> 35.03 psu
+and a 1.29 psu river minimum. Same filename, same stamp, opposite contents.
 
-The real domain minimum measured by Unit B is **6.43 psu** at the Meghna/Ganges mouth, and the real
-Bay of Bengal has a fresh cap over saltier water — the opposite of the profile above.
-`src/phase2/data/extract_subsurface.py:112` writes that string unconditionally, whatever file it
-read. This is `D-018`'s failure mode: the synthetic banner switching itself off.
-
-That file is Unit B's, so this is an **ASK, not an edit** (§9).
+`src/phase2/data/extract_subsurface.py:112` still writes that string unconditionally, whatever file
+it read. The stamp was *accidentally* correct this time. This is `D-018`'s failure mode — the
+synthetic banner switching itself off — and it is Unit B's file, so it is an **ASK, not an edit**
+(§9).
 
 **Consequence for F6, and it is a design requirement, not a caveat:** no F6 code may decide
 "is this real data" by reading the `source` string. `_realdata.py` (§4.4) answers that question
@@ -164,8 +199,20 @@ def ekman_pumping(eastward_stress, northward_stress) -> np.ndarray
 ```
 Wind-stress curl divided by `rho * f` — vertical Ekman velocity, positive upward. **Raises
 `MissingWindError` if called with `None`.** There is no default, no "assume a drag coefficient",
-no silent fallback. When Unit B's monthly product lands it carries `eastward_stress` /
-`northward_stress` in N/m2 directly, which is why this takes stress rather than wind speed.
+no silent fallback. The monthly product carries `eastward_stress` / `northward_stress` in N/m2
+directly, which is why this takes stress rather than wind speed.
+
+**This is now runnable** — 48 months of real stress are present. A third function loads them, and
+it is the only sanctioned path in, because of §2.1:
+
+```python
+def load_wind_stress(month) -> dict   # {"eastward_stress", "northward_stress", "time"}
+```
+It reads `data/raw/wind/wind_YYYYMM.nc`, interpolates onto `config.LAT`/`config.LON`, and asserts
+coordinate agreement to 1e-6 before returning. `upwelling_signature` gains an optional
+`ekman = None` argument: when supplied, the result reports `wind_attributed = True` and the
+signature is intersected with `ekman > 0` (upward pumping). When absent, behaviour is exactly as
+before. The caveat is still carried as data, and now it can also be *lifted* by data.
 
 Near the equator `f -> 0` and Ekman pumping is undefined; the function returns NaN equatorward of
 5 deg. Our domain starts at 5N, so this is a guard at the boundary, not a hole in the middle.
@@ -240,14 +287,18 @@ was this shape.
 10. **`structure_report` on a hand-built *real-shaped* profile passes all three checks, and on a
     hand-built *flat* profile fails all three.** This is the detector's own correctness test and it
     uses fixtures, not the data file, so it is stable.
-11. **Tripwire: `looks_like_real_ocean(subsurface.npz)` is False today.** Skips if the file is
-    absent, as Unit B's salinity test does. It asserts the §3 finding — the file claims real
-    provenance and has no ocean structure. **When real data lands this test FAILS**, and that
-    failure is the signal: it forces a human to look, invert it, and re-run every F6 number.
-    The assertion reads the structure check, never the `source` string.
+11. **Precondition: `looks_like_real_ocean(subsurface.npz)` is True.** Skips if the file is absent,
+    as Unit B's salinity test does. **This assertion is inverted from the original spec** — it was
+    written as a tripwire asserting *False* while the local file was synthetic, and the bundle
+    flipped it. That flip is the evidence the data changed, and it is recorded rather than quietly
+    edited. The assertion reads the structure check, never the `source` string.
+12. **Wind alignment** — `load_wind_stress` returns coordinates equal to `config.LAT`/`config.LON`
+    within 1e-6, and the raw file's coordinates do **not** (they are offset 0.125 deg). Both halves
+    are asserted, so the test fails if someone deletes the regrid *or* if the product silently
+    changes grid. This is §2.1 pinned down.
 
-Tests 8 and 9 cannot be meaningfully evaluated on synthetic currents and will be marked
-`xfail(strict=False)` with the reason recorded, not silently skipped.
+Tests 8 and 9 run against the real 48-month record and are expected to pass; a failure there is a
+scientific finding, not a flaky test.
 
 ---
 
@@ -256,8 +307,11 @@ Tests 8 and 9 cannot be meaningfully evaluated on synthetic currents and will be
 - **Monthly cadence.** Detection only. No tracking, no lifetime, no propagation speed.
 - **0.25 deg resolution.** Sub-mesoscale fronts and eddies below ~100 km are unresolved. We report
   what the grid can carry.
-- **No wind.** No upwelling attribution, no Ekman transport, no curl-driven claim. F7 persistence
-  stays blocked and is not attempted.
+- **Wind is monthly means.** Ekman pumping from a monthly-mean stress is not the monthly mean of
+  Ekman pumping — the curl of an average smooths out the short-lived, strong-curl events that drive
+  much of the real pumping. Our numbers are therefore a **lower bound on episodic upwelling** and a
+  reasonable estimate of the seasonal pattern. This is a limitation of the product, not of the code,
+  and it must travel with any number we quote. F7 persistence stays blocked and is not attempted.
 - **Surface currents are GLORYS reanalysis, not observed.** Eddies detected are eddies *in the
   reanalysis*. That is a statement about the product, and it belongs next to any count we quote.
 - **Nothing here is VALIDATED** until it runs on real GLORYS and the checks in §6.8-6.10 are
@@ -294,9 +348,22 @@ unconditionally.** On this machine that string sits on synthetic data (§3). Sug
 from the input filename, or asserting the salinity range looks like the real domain before writing
 it. Your file, your call — I have not touched it, and F6 does not trust the field.
 
-Asks 1-3 are unchanged and still open: whitelist `artifacts/argo_error_by_depth.json`; persist
-per-profile residuals + sigma; a copy of real `subsurface.npz` or the raw `glorys_*.nc`.
-The monthly wind download unblocks `ekman_pumping`, which is written but cannot be run.
+**Asks 1 and 3 are ANSWERED** by the 133 MB bundle — `argo_error_by_depth.json` and real
+`subsurface.npz` both landed and verified. Ask 2 (per-profile residuals + sigma, for F4's *held-out*
+calibration path) is the only original ask still open.
+
+**>>> ASK DARSHAN (5): the wind grid is offset +0.125 deg from `config.LAT`/`config.LON` (§2.1).**
+Same shape, so nothing catches it but a coordinate comparison. F6 regrids on load. Flagging it
+because F10 priority or any panel that overlays wind will hit the same thing, and it is invisible.
+
+**>>> ASK DARSHAN (6): the bundle leaves stale synthetic artifacts next to real ones.**
+`artifacts/provenance.json` now reads `n_train = 323028`, but the local `X_train.npy` is the old
+synthetic file with **143514** rows, and `lgbm_model.pkl` / `lgbm_quantiles.pkl` are still
+synthetic-trained. They were excluded from the bundle deliberately (regenerable), which is
+reasonable — but the result is a directory where provenance describes data that is not all there.
+Anything that loads `X_train` or the LightGBM baseline gets synthetic input while `provenance.json`
+says `real-glorys`. Suggest the verifier also fail when a file's row count contradicts
+`provenance.json`, so this cannot be discovered by a wrong metric.
 
 ---
 

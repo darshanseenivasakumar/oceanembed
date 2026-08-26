@@ -4,7 +4,7 @@ Every Claude session on this repo reads this file **first**, then `docs/HANDOFF.
 Keep this file short; deep detail lives in `docs/`.
 
 ## What this project is
-Reconstruct subsurface ocean **temperature** at 11 depths (0–500 m) from surface variables (SST, SSS, SSH, u, v) at
+Reconstruct subsurface ocean **temperature** at 15 depths (0–1000 m) from surface variables (SST, SSS, SSH, u, v) at
 **0.25°** over the **North Indian Ocean (5–30°N, 45–105°E)**, plus uncertainty + anomaly + observation-priority.
 Full scope: `docs/MASTER_SPEC.md`. Team + ownership: `TEAM_PLAN/`.
 

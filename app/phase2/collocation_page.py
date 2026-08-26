@@ -159,26 +159,30 @@ if prof:
                                  scale=alt.Scale(zero=False)),
                          y=alt.Y("depth (m):Q", title="depth (m)",
                                  scale=alt.Scale(reverse=True)),
-                         color=alt.Color("source:N", legend=alt.Legend(orient="bottom", title=None)),
+                         # Two shades of blue made the reanalysis and the real float nearly
+                         # impossible to tell apart, which hides the whole point of the plot.
+                         # Model in blue, OBSERVATION in amber -- the contrast that matters.
+                         color=alt.Color("source:N",
+                                         scale=alt.Scale(domain=["GLORYS T (°C)", "ARGO T (°C)"],
+                                                         range=["#4c8dff", "#f5a524"]),
+                                         legend=alt.Legend(orient="bottom", title=None)),
                          tooltip=["depth (m)", "source", "temperature"])
                  .properties(height=360))
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
         st.caption("Depth increases downward, as an oceanographer would plot it. "
                    "A gap in the Argo line means the float did not sample that level.")
     with b:
         # None renders as the literal word "None", and round(x, 2) turns -0.0009 into a bare "0"
         # sitting next to "-0.01", which reads as exact agreement and as sloppy formatting. NaN
         # renders blank, and an explicit format keeps every column at a fixed width.
+        # pandas turns the engine's None into NaN on construction, and Streamlit prints NaN as the
+        # literal word "None" -- so a level the float simply did not sample reads like a failure.
+        # A Styler is the only way to set the missing marker; "--" is the conventional one.
         st.dataframe(
-            df.astype({c: "float64" for c in df.columns if c != "depth (m)"}),
-            hide_index=True, width="stretch", height=400,
-            column_config={
-                "depth (m)": st.column_config.NumberColumn(format="%d"),
-                "GLORYS T (°C)": st.column_config.NumberColumn(format="%.3f"),
-                "salinity (psu)": st.column_config.NumberColumn(format="%.3f"),
-                "ARGO T (°C)": st.column_config.NumberColumn(format="%.3f"),
-                "ARGO − GLORYS": st.column_config.NumberColumn(format="%.2f"),
-            })
+            df.style.format({"depth (m)": "{:.0f}", "GLORYS T (°C)": "{:.3f}",
+                             "salinity (psu)": "{:.3f}", "ARGO T (°C)": "{:.3f}",
+                             "ARGO − GLORYS": "{:+.2f}"}, na_rep="—"),
+            hide_index=True, width="stretch", height=400)
 
     # The reanalysis-vs-float gap is worth surfacing: it is not OUR model's error. But this is ONE
     # profile, and a single point is an anecdote -- so show the basin-wide number beside it or a

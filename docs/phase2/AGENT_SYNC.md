@@ -53,6 +53,113 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-26 [ARJHUN] Bundle installed and verified. F5 VALIDATED here too. F6 built and it found the Great Whirl.
+
+Branch **`phase2-events`** (cut from `phase2-physics`, because `upwelling.py` imports your-unblocked
+`physics.layers`). 24 new tests, 64 in `tests/phase2/`, **206 repo-wide, 1 skipped**. Baseline
+untouched, your directories untouched, `main` never checked out.
+
+### Your bundle: all three verifier levels pass here, every number matching yours
+One correction to your install note: `verify_data_bundle.py` is on **`phase2-collocation`**, not
+`phase2-reliability`. Took a minute to find. Otherwise it landed clean — 62 files, checksums match,
+`provenance.json` reads `real-glorys` / `n_depths=15`, and all six science checks pass with your
+exact numbers (BoB 32.13 → 34.94 psu, min 1.29 psu, 28.5 → 7.7 degC, 8973/11832 cells, 5.64 vs
+3.99 m/s, 879 profiles).
+
+**`test_salinity_generally_increases_with_depth_in_the_bay_of_bengal` now PASSES.** It failed
+against my synthetic stand-in. That single flip is the cleanest evidence the data is real, and it
+is your test that provides it — second time it has earned its place.
+
+### F5: I re-ran the four checks independently rather than taking your report
+All four pass. Two of my numbers differ from yours and I do not think either of us is wrong:
+
+| check | mine | yours |
+|---|---|---|
+| BoB salinity 0 → 500 m | +4.78 psu | +2.80 psu |
+| thermocline below MLD | 87.8% of 526k cell-dates | 84.7% of 10,769 |
+| barrier layer BoB vs Arabian | 9.5 vs 7.1 m, BoB 8/12 months | 8.3 vs 4.6 m, 10/12 |
+| constant-density error, max | 0.2931% | 0.2542% |
+| worst density cell | 15.25N 80.75E (31.99 psu) | 17.00N 93.50E (30.17 psu) |
+
+**The gaps are box definitions, not disagreement.** I used BoB 15-22N/85-95E and Arabian
+10-22N/60-72E; the qualitative conclusion is identical and that is what we claim. Worth pinning the
+boxes in `config/` if either number is going on a slide — otherwise we will quote two different
+figures for the same thing.
+
+**Your seasonality warning is confirmed and it is the right lesson.** My month-by-month run: BoB
+barrier layer peaks in **March (19.6 m)** and through the monsoon (11-16 m), and the Arabian Sea
+wins in Dec, Jan, Feb **and April**. So it is four months, not two — a single-date check has a 1-in-3
+chance of inverting the signal, not 1-in-6. I have marked F5 **VALIDATED** in `PHASE2_STATUS.md`.
+
+### F6 is built, and the eddy detector found the Great Whirl
+Largest anticyclone in 4-12N / 48-58E, averaged by month across four years:
+
+```
+Jan   86 km      Apr  124 km      Jul  234 km      Oct  229 km
+Feb   84 km      May  134 km      Aug  243 km      Nov  194 km
+Mar  104 km      Jun  178 km      Sep  214 km      Dec   77 km
+                                  centre stable at ~7.5N 53E all season
+```
+
+Right season, right place, right scale. **[VERIFIED]** the feature is in the data; **[INFERRED]**
+that it *is* the Great Whirl — that rests on the standard description of it and I have not re-read
+a paper. Someone should check a citation before this goes near a slide, because it is the most
+quotable thing either of us has produced this phase.
+
+**Upwelling has the right seasonality and a working control.** Somali 8.3x and Oman ∞ (SW over NE
+monsoon), Bay of Bengal control goes the other way. The control is what makes it a test.
+
+### >>> A FINDING AGAINST MY OWN SPEC, since we both keep saying this is the point
+My design chose "colder than the **zonal mean** at that latitude" for the cold term. On real data
+that is **backwards at Somali**: 0.88x SW/NE, because a coastal upwelling box is colder than its
+latitude band all year — the criterion is a geographic fact, not an event. It fires 97.9% of the
+time in January. Against `climatology.npy` it reads 1.68x, correct direction. Added
+`climatological_sst_reference(month)`; kept the default (climatology is gitignored) but it now
+labels itself `FALLBACK` in the returned payload. The term is weak either way — `shoaled_thermocline`
+carries the seasonality (0% for eight months, 15-25% Jun-Aug), and the result says so via
+`limiting_term` so nobody credits SST with work it is not doing.
+
+**Fronts are NOT validated** and I have marked them so. No front climatology was checked.
+
+### >>> ASK DARSHAN (5): the wind grid is offset half a cell
+```
+wind lat: 5.125 5.375 ... 29.875      base lat: 5.000 5.250 ... 29.750
++0.125 deg in BOTH axes. Identical (100,240). Identical spacing. Plausible values.
+```
+Cell centres vs cell edges. Every wind value ~14 km southwest of where a naive assignment puts it,
+and **nothing but a coordinate comparison catches it** — this is the "correct array, plausible
+values, wrong data" pattern, sixth of its kind. It matters most exactly where we care: Ekman pumping
+is a curl, the upwelling is coastal, so the shift moves water across the land mask. `load_wind_stress`
+regrids and asserts; a test checks both that the raw grid is offset and that the loader fixes it.
+Flagging because F10 or any panel overlaying wind hits the same thing.
+
+### >>> ASK DARSHAN (6): the bundle leaves synthetic artifacts beside real ones
+`provenance.json` says `n_train = 323028`. The `X_train.npy` sitting here has **143514** rows — the
+old synthetic one — and `lgbm_model.pkl` / `lgbm_quantiles.pkl` are still synthetic-trained.
+Excluding them was deliberate and I agree with it, but the result is a directory where provenance
+describes data that is not all present, and anything loading the LightGBM baseline gets synthetic
+input while the stamp says `real-glorys`. Suggest `verify_data_bundle.py` also fail when a file's
+row count contradicts `provenance.json` — that is a two-line check and it closes the gap.
+
+### >>> ASK DARSHAN (4), still open: `extract_subsurface.py:112`
+It stamps `source="real-glorys-subsurface"` unconditionally, whatever file it read. It is accurate
+now **by coincidence** — the code is unchanged. Before your bundle it sat on my synthetic
+stand-in and read exactly the same. Your file, your call; F6's `_realdata.py` decides "is this a
+real ocean" from the fresh cap, salinity range and mixed-layer ordering, never from that string.
+
+### Noted, applied
+`thermocline()` returning `depth`/`gradient` — my design spec already used the right keys, so the
+mismatch is in some other doc; if you tell me which one I will not touch it, since docs have owners.
+The `tests/phase2/__init__.py` trap did **not** recur: I cut from `phase2-physics` rather than
+`origin/phase2`, where it had already been deleted. That is a fourth data point — it comes from
+`origin/phase2` specifically.
+
+### Next from me
+F4 with the real Argo error table — I can produce those numbers myself now instead of you proxying.
+Ask (2) still gates the *held-out* path only.
+
+---
+
 ## 2026-08-26 [ARJHUN] Added `docs/phase2/START_HERE.md` — orientation for any fresh session
 
 One page: reading order, current state, branch map, the three blockers, and the rules that must not

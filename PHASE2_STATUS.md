@@ -13,8 +13,8 @@ documented physical expectation.
 | 2 | OceanCube 3-D | Darshan | phase2/ocean-cube | NOT STARTED | ☐ | ☐ | ☐ | ☐ | 24% of cells < 1000 m deep |
 | 3 | Spatial CNN | Arjhun | phase2/spatial-ai | NOT STARTED | ☐ | ☐ | ☐ | ☐ | only 48 timesteps to train on |
 | 4 | Calibrated uncertainty + OOD | Arjhun | phase2/reliability | NOT STARTED | ☐ | ☐ | ☐ | ☐ | D-016: MC-dropout overconfident |
-| 5 | Physics (thermocline/MLD/OHC) | Arjhun | `phase2-physics` | **TESTED** | ☑ | ☐ | ☑ 31 | ☐ | **UNBLOCKED by Unit B's subsurface extraction — real rho(S,T), no density assumption. Science unverified: subsurface.npz absent here, ran on synthetic** |
-| 6 | Event detection | Arjhun | phase2/events | **BLOCKED** | ☐ | ☐ | ☐ | ☐ | **no wind data -> no upwelling attribution; monthly -> no eddy tracking** |
+| 5 | Physics (thermocline/MLD/OHC) | Arjhun | `phase2-physics` | **VALIDATED** | ☑ | ☐ | ☑ 31 | ☑ | **Re-run on the real bundle by BOTH units independently.** All four checks pass here: BoB salinity +4.78 psu with depth, thermocline below MLD in 87.8% of 526k cell-dates, barrier layer BoB 9.5 m vs Arabian 7.1 m (8/12 months), constant-density error max 0.293% (9× the synthetic 0.028%). Two numbers differ from Unit B's — see AGENT_SYNC, box definitions |
+| 6 | Event detection | Arjhun | `phase2-events` | **TESTED** | ☑ | ☐ | ☑ 24 | ◐ | **Eddies + upwelling scientifically validated; FRONTS ARE NOT.** Great Whirl reproduced (85 km Jan → 243 km Aug at 7.5N 53E); Somali/Oman upwelling SW-monsoon dominated with a working BoB control. Fronts have no independent reference checked. Monthly → detection only, never tracking |
 | 7 | Subsurface heatwave | Arjhun | phase2/events | **BLOCKED** | ☐ | ☐ | ☐ | ☐ | **monthly sampling -> persistence uncomputable** |
 | 8 | Validation Lab | Darshan | phase2/validation | NOT STARTED | ☐ | ☐ | ☐ | ☐ | Argo is 2022 only |
 | 9 | Ocean Sentinel | Arjhun | phase2/sentinel | NOT STARTED | ☐ | ☐ | ☐ | ☐ | thresholds must be configurable |
@@ -45,8 +45,23 @@ systematically TOO DEEP in exactly the region our priority map ranks first (17.7
 barrier layers are a recognised control on. A test measures that error at >= 50 m on a realistic
 plume profile.
 
-**NOT VALIDATED.** `subsurface.npz` is gitignored and absent here, so it was regenerated from
-`synthetic_glorys.nc`; provenance reads `synthetic`.
+**NOW VALIDATED (2026-08-26).** Unit B's 133 MB bundle landed and all three verifier levels pass.
+The four checks were run **twice, independently** — by Unit B on his machine and by me here — and
+all four pass. `test_salinity_generally_increases_with_depth_in_the_bay_of_bengal`, which FAILED
+against the synthetic stand-in, now PASSES. My numbers:
+
+| check | synthetic | real (mine) | real (Unit B) |
+|---|---|---|---|
+| BoB salinity 0 → 500 m | +0.02 psu | **+4.78** | +2.80 |
+| thermocline below MLD | 11.6% | **87.8%** of 526k cell-dates | 84.7% |
+| barrier layer BoB vs Arabian | ~0 m | **9.5 vs 7.1 m, BoB thicker 8/12 months** | 8.3 vs 4.6 m, 10/12 |
+| constant-density error (max) | 0.028% | **0.2931%** | 0.2542% |
+
+The two units' numbers differ in the last two rows because we used **different box definitions**,
+not because either run is wrong — the qualitative conclusion is identical and it is the conclusion
+that is claimed. Unit B's seasonality warning is confirmed: BoB barrier layer peaks in March
+(19.6 m) and through the monsoon, and the Arabian Sea wins in Dec/Jan/Feb/Apr. **A single-date
+check inverts this signal.** Measure across months.
 
 One grid-run number looked like a failure and was not — worth recording because the checking is the
 point. "Thermocline below MLD in only 11.6% of cells" is a property of the SYNTHETIC data:
@@ -64,10 +79,57 @@ failure mode, caught by a scientific test rather than a shape test. It fails onl
 (the file is gitignored and his test skips when absent). **No code was changed in response —
 adjusting a sanity test to accommodate synthetic data would be exactly backwards.**
 
-### >>> ASK DARSHAN (3): a copy of `data/processed/subsurface.npz`
-Or the raw `glorys_*.nc`. Then F5 produces real numbers and the barrier-layer claim above becomes
-measured rather than argued. Same shape as asks (1) and (2): the code is ready, the data is on
-your machine only.
+### >>> ASK DARSHAN (3): ANSWERED by the data bundle, 2026-08-26.
+Real `subsurface.npz` landed and verified. Ask (1) `argo_error_by_depth.json` also answered.
+Ask (2) — per-profile residuals + sigma, for F4's *held-out* path — remains the only one open.
+
+## F6 — detail (Arjhun, `phase2-events`)
+
+Full write-up: `docs/phase2/f6-events.md`. Built entirely on the real bundle, so unlike F4 and F5
+it never ran on a synthetic stand-in.
+
+**Built.** `src/phase2/events/` — `_metric.py` (spherical derivatives), `eddy.py` (Okubo-Weiss),
+`fronts.py` (SST gradient), `upwelling.py` (signature + Ekman pumping + wind loader),
+`_realdata.py` (structural real-data gate). 24 tests; 64 in `tests/phase2/`; 206 repo-wide.
+
+**The eddy detector reproduces the Great Whirl.** The largest anticyclone in 4-12N / 48-58E grows
+from ~85 km in Jan-Feb to **243 km in August**, holds station at ~7.5N 53E, and collapses to 77 km
+in December. Right season, right place, right scale. **[VERIFIED]** that the
+feature is in the data; **[INFERRED]** that it is the Great Whirl — that rests on the standard
+description, and no paper was re-read. Check a citation before it reaches a slide.
+
+**Upwelling has the right seasonality AND a working control.** Somali 8.3x and Oman ∞ (SW monsoon
+over NE), while the Bay of Bengal control goes the *other* way — which is what makes it a test
+rather than a detector that fires wherever the ocean is cold.
+
+**A finding against my own spec.** The spec's default "cold" reference — the zonal mean at that
+latitude — is **backwards at Somali**: ratio 0.88x, because a coastal upwelling box is colder than
+its latitude band all year, so the criterion is a geographic fact rather than an event. Against the
+monthly climatology it reads 1.68x, the right direction. Added
+`climatological_sst_reference(month)`; the default is kept (climatology is gitignored) but now
+labels itself `FALLBACK` in the returned payload. `cold` is the weak term either way — the
+seasonality is carried by `shoaled_thermocline` (0% for eight months, 15-25% Jun-Aug), and the
+result says so via `limiting_term`.
+
+**FRONTS ARE NOT VALIDATED.** The detector runs and the strongest July gradient (11.4 degC/100 km
+at 11.4N 51.5E) sits in the Somali upwelling front region, which is encouraging and is not
+evidence. No front climatology or published census was checked. Also: a percentile threshold
+*always* returns the sharpest gradients present, so it can never report "no fronts" — `threshold`
+and `mean_gradient` are returned so a flat field is visible as one.
+
+### >>> ASK DARSHAN (5): the wind grid is offset +0.125 deg from `config.LAT`/`config.LON`
+Cell centres vs cell edges. Identical `(100,240)` shape, identical spacing, plausible values, every
+value ~14 km southwest of where a naive assignment puts it. Nothing but a coordinate comparison
+catches it. F6 regrids on load and a test asserts both halves. Flagging because F10 priority or any
+panel overlaying wind will hit the same thing, and it is invisible.
+
+### >>> ASK DARSHAN (6): the bundle leaves synthetic artifacts beside real ones
+`artifacts/provenance.json` reads `n_train = 323028`, but the local `X_train.npy` is the old
+synthetic file with **143514** rows, and `lgbm_model.pkl` / `lgbm_quantiles.pkl` are still
+synthetic-trained. Excluding them was deliberate and reasonable (they are regenerable) — but the
+result is a directory where provenance describes data that is not all present. Anything loading
+`X_train` or the LightGBM baseline gets synthetic input while provenance says `real-glorys`.
+Suggest the verifier fail when a file's row count contradicts `provenance.json`.
 
 ### Scaffold bug reproduced independently
 `tests/phase2/__init__.py` had to be deleted again on this branch — it came back with

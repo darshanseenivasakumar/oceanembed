@@ -78,8 +78,11 @@ more inspectable model. CONSEQUENCE (measured on fixtures): MLP 0.2223 vs LightG
 correctly reported as a tie rather than an MLP win. Fixture runs are additionally never written to
 EXPERIMENT_LOG.md, so a synthetic number cannot later be mistaken for a result.
 
-## D-016 - FINDING: MC-dropout is OVERCONFIDENT at depth. Do not ship a reliability claim on it yet
-DATE 2026-08-25. RAISED BY Unit A. TEAM_PLAN Day 4 says "uncertainty should generally increase with depth. If it
+## D-016 - FINDING: MC-dropout is OVERCONFIDENT. Do not ship a reliability claim on it yet
+DATE 2026-08-25. RAISED BY Unit A. **RESOLVED 2026-08-26 on real data - see the UPDATE at the end
+of this entry. The headline holds and is WORSE than estimated, but the DEPTH PATTERN INVERTED:
+the original title said "at depth", and depth is where it is least bad. Read the update before
+quoting any number from the fixture table below.** TEAM_PLAN Day 4 says "uncertainty should generally increase with depth. If it
 doesn't, investigate - don't fake it." It does not increase. Investigated; the cause is mechanical, not physical.
 
 MC-dropout perturbs a SHARED trunk (11 -> 128 -> 128) feeding all 11 depth outputs, so the raw spread is nearly
@@ -110,6 +113,65 @@ whether sigma rises with depth - a rising sigma can still be badly calibrated). 
 the UI can show sigma as a fraction of each depth's natural variability, which IS comparable across depths.
 DECISION REQUIRED: re-measure on real data; if the drift persists, either ship quantile uncertainty instead, or
 state the limitation explicitly on the reliability panel. Do NOT quote MC-dropout confidence at depth until then.
+
+### UPDATE 2026-08-26 - RE-MEASURED ON REAL DATA. Decision resolved; depth pattern inverted.
+The "DECISION REQUIRED" above is now answered. Unit B's data bundle landed, so
+`artifacts/argo_error_by_depth.json` (real per-depth error against 879 independent Argo profiles)
+is present and the measurement could finally be made against something real instead of fixtures.
+
+**Method.** MC-dropout sigma from the real checkpoint on the real test set (`artifacts/X_test.npy`,
+first 4000 rows), compared per depth against the MEASURED Argo RMSE.
+[VERIFIED, reproducible: stable to +-0.05 across `torch.manual_seed` 0/1/2.]
+
+    overconfidence factor = measured Argo RMSE / MC-dropout sigma      (1.0 == calibrated)
+
+      depth   factor            depth   factor            depth   factor
+        0 m    2.46  (n=12)      75 m    3.92             500 m    2.97
+        5 m    3.71             100 m    2.78             700 m    2.29
+       10 m    4.74             125 m    2.54            1000 m    1.81   <- BEST calibrated
+       20 m    7.90             150 m    2.56
+       30 m    8.46  <- WORST   200 m    3.51
+       50 m    6.92             300 m    5.67
+
+**1. The headline is CONFIRMED and is worse than the fixtures suggested.** MC-dropout is
+overconfident at EVERY ONE of the 15 depths, by 1.8x to 8.5x. The fixture estimate was a ~4x drift;
+the real worst case is more than double that. Nothing here rehabilitates MC-dropout.
+
+**2. The DEPTH PATTERN INVERTED, and this entry's original title was wrong.** The fixture table
+said the failure was "at depth", worst at 500 m (0.31 ratio, 4.0x). On real data 500 m is 2.97x and
+1000 m is 1.81x - the two BEST-calibrated depths in the column. **The worst is the MIXED LAYER at
+20-50 m (6.9x - 8.5x).**
+
+**3. The fixture-based prediction was falsified, and the reasoning behind it is worth keeping.**
+This entry predicted: *"EXPECT THIS TO GET WORSE ON REAL GLORYS... actual error will GROW with depth
+while MC-dropout sigma keeps SHRINKING."* Actual error does **not** grow with depth. It peaks at
+50 m (1.365 degC) and falls to 0.220 degC at 1000 m - our best absolute RMSE anywhere in the column
+(see F8, `docs/phase2/f8-validation.md`). The deep ocean is genuinely easy to predict, which the
+fixtures could not show because they encoded only one signal. The MECHANISM described above -
+a shared trunk giving flat sigma in normalized space, times a shrinking `targ_std` - is still
+correct; what was wrong was assuming real error would move the opposite way.
+
+**4. Independent corroboration, from a different method.** F8 compared our per-depth RMSE against
+the GLORYS reanalysis' own error versus the same floats, and found 20-50 m is exactly where we are
+**model-limited** rather than at the ceiling of our training truth (headroom +0.31 to +0.38 degC),
+while 100-150 m is inherited error. Two unrelated routes - calibration and inherited-vs-earned -
+land on the same band. The mixed layer is this model's real weakness.
+
+**ACTION, superseding the one above.** The limitation on the reliability panel must name the
+**mixed layer (20-50 m)**, not "at depth". A panel that warns about deep water and stays quiet
+about 30 m would point a judge away from the actual problem. Still do not quote MC-dropout
+confidence as a reliability claim anywhere.
+
+**CAVEAT, and it matters.** The per-depth FACTORS above are a real diagnosis: both terms are
+measured, and their ratio is meaningful. The CORRECTION derived from them is not validated -
+`fit_from_summary` is fitted on the same aggregate it would be scored against, so its
+`ratio_after` is 1.0 by construction and `is_validated` is hard-wired False. A genuine
+out-of-sample ENCE still needs per-profile residuals + sigmas persisted, which is the standing
+ask on `scripts/eval_satellite_vs_argo.py`.
+
+**Reproduce:** `phase2.reliability.calibration.fit_from_summary(load_measured_error()["rmse"],
+sigma_by_depth, n_obs_per_depth=...)` with `sigma_by_depth` from
+`oceanembed.inference.uncertainty.mc_dropout_predict` on `artifacts/X_test.npy`.
 
 ## D-017 - BUG FIXED: mc_dropout_predict leaked train() mode to the caller
 DATE 2026-08-25. OWNER Unit A. `mc_dropout_predict` called `model.train()` to enable dropout and never restored

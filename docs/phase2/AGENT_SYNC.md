@@ -59,6 +59,111 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-28 [ARJHUN] v2 START. Branch cut, CONTRACTS POSTED, and the briefing's data state is WRONG here.
+
+Branch **`phase2-tscast-nio`**, cut from `phase2-ocean-cube`. `main` untouched (0 commits ahead of
+`origin/main`). 283 tests pass, 1 skipped.
+
+### >>> ASK DARSHAN: two blockers, both need you
+
+**1. The v2 briefing's "STATE RIGHT NOW" block does not describe this machine.** [VERIFIED]
+
+| briefing says | this machine |
+|---|---|
+| GLORYS daily 238/388 days, 15.0 GB, RUNNING | **0 daily files.** `data/` still holds 48 MONTHLY steps, 2019-01..2022-12 |
+| `scripts/phase2/download_daily_2025_2026.py` | does not exist |
+| `scripts/phase2/architecture_feasibility.py` "starter exists" | does not exist |
+| download running | no python process; `copernicusmarine` was NOT installed |
+
+Newest file under `data/` is `wind_202212.nc`, 2026-08-26 01:09. That state block is your machine,
+not this one. PS requirements 3 (daily) and 8 (wind) are blocked here until this is resolved.
+
+**2. CMEMS credentials.** I installed `copernicusmarine` 2.4.1. A dry-run prompts for a username
+and aborts. **I will not enter credentials on your behalf.** You need to run `copernicusmarine
+login` on this machine, or ship the daily bundle you already have.
+
+**Sizing, computed from the MEASURED cost in your own `download_glorys.py` docstring** (54.3 MB/day
+at 0-520 m = 31 GLORYS levels; we need 0-1100 m = 36 levels, so 1.16x -> 63.0 MB/day):
+
+```
+GLORYS daily, 388 days      24.4 GB   (~15.9 h at the measured rate)
+wind hourly (pre-average)    7.2 GB
+satellite daily              0.6 GB
+processed daily bundle       1.4 GB
+--------------------------------------
+TOTAL PEAK                  33.6 GB   vs 68 GB free on D:
+```
+
+It fits. But GLORYS alone is **~16 hours**, so start it before anything that waits on it.
+
+**Useful:** `src/oceanembed/data/download_glorys.py` ALREADY targets
+`cmems_mod_glo_phy_my_0.083deg_P1D-m`, a **daily** product -- it just samples day 15 monthly via
+`monthly_dates()`. Daily GLORYS is a date-list change to proven code, not a new downloader.
+
+### >>> THE TWO CONTRACTS ARE POSTED -- read before coding against either side
+
+- `docs/phase2/tscast_data_model.md` -- what the pipeline produces / the model consumes.
+- `docs/phase2/tscast_output_schema.md` -- what the model returns / the UI shows.
+
+**The design decision that unblocks everything: `T_SEQ` and `P` are config parameters, not
+constants.** `T_SEQ=1` runs the entire stack -- real shapes, real training, real validation -- on
+the existing 48-month archive. `T_SEQ=31` (the paper's +/-15 d) is a config flip when the daily
+bundle lands. So the model gets built and tested DURING the 16-hour download, not after it.
+
+Output schema carries stage-2 keys (`salinity`, `log_var_s`, `density`, `log_var_rho`) valued
+`None` from day one, so stage 2 is a fill-in and not a schema migration.
+
+Both of Darshan's standing rules are structural in the schema, not left to the UI:
+`reasons` [15] str -- every value explains itself where it appears; `argo_check` -- prediction,
+nearest independent Argo, and the signed difference travel WITH the record. `argo_check` reuses
+F1 `collocation.py`; I am not writing a second matcher (that is the D-014 two-loader failure).
+
+### Corrections to the briefing, with evidence
+
+1. **The bake-off criterion inverts its own purpose.** "Smallest train/test gap at comparable train
+   loss" rewards UNDERFITTING -- an underfit model has a near-zero gap by construction. The
+   incumbent MLP could win by being too weak to overfit, and we would conclude "no embedding
+   needed", the exact opposite of PS requirement 9. **Rank on held-out Argo RMSE + skill vs
+   climatology; report the gap beside it as a stability diagnostic.** That answers "why not a
+   transformer?" with a stronger number, not a weaker one.
+2. **15 depths cannot carry TS-Cast's U-Net.** Four stride-2 downsamples need their 128 levels.
+   Decoder works on a 64-level internal grid, resamples to the 15 contract depths at the output
+   head. PS requirement 11 untouched.
+3. **Stage-1 loss is the paper's eq. 3, not eq. 5.** eq. 2 = FiLM; eq. 3/4 = T/S Gaussian NLL;
+   eq. 5 = density; eq. 6 = total. Matters when we cite it in the PPT.
+4. **The paper's own ablation undercuts how we are framing the climatology prior.** [VERIFIED from
+   the PDF] removing it "has minimal impact on the basin-scale RMSE... providing only modest
+   gains"; its real benefit is **training stability**, and they say so plainly. We should claim it
+   the same way rather than as an accuracy win.
+5. **We have no satellite error fields.** 3 of TS-Cast's 6 channels are error fields; all 7 of ours
+   are signal. The encoder loses its per-pixel confidence input. Probe CMEMS for them during the
+   download.
+6. **PS requirement 16 (INCOIS LAS) needs an outbound probe.** Confirm before I fire it.
+
+### TS-Cast, read from the PDF [VERIFIED -- I extracted the text, this is not from the abstract]
+
+`docs/LITERATURE_MATRIX.md` still marks this paper `[ABSTRACT-ONLY]`. It can be upgraded:
+
+- **Encoder** (2.3.1): `[6,31,15,15]` = SST/SSS/ADT + their 3 error fields, 31 d, 2 deg patch; plus
+  geo `[3,1,15,15]` from eq. 1 `X=sin(phi), Y=sin(lambda)cos(phi), Z=-cos(lambda)cos(phi)`.
+  3-D residual conv (conv -> **Mish** -> avgpool) -> `[512,1,1,1]`. Second input `[1,31,12]` =
+  31-d ADT minus 12 monthly climatological dynamic heights -> `[512,1]`. Concat `[1024,1]` -> h in R^512.
+- **Decoder** (2.3.2): the U-Net runs on the **CLIMATOLOGY**, `[12,128,2]`, not on the satellite
+  data. Initial conv spanning all 12 months collapses the month axis -> `[64,128]`. 4 down + 4 up.
+- **FiLM** (2.3.3, eq. 2): `gamma_i,c * x_i,c + beta_i,c`, injected at EVERY encode and decode step;
+  gamma/beta from a per-step MLP with two residual blocks, hidden width = that step's channel count.
+- **Heads** (2.3.4): parallel -- T/S `[2,128]` and **log** error variances `[3,128]`. Density
+  variance is predicted independently, not derived, because T/S error covariance is non-negligible.
+- **Training** (2.3.5): 250 epochs, AdamW, lr 1e-5, batch 512, 20% val, ensemble of 3 seeds.
+
+### Next, while the download question is open
+
+Phase 1 is done (contracts + `src/phase2/tscast_nio/config.py`, sanity check passes). Next is the
+metrics module (PS 12/13/14 -- correlation and bias have never been computed) and the bake-off
+harness, both of which run on the existing monthly archive at `T_SEQ=1`. Neither waits on CMEMS.
+
+---
+
 ## 2026-08-26 [ARJHUN] F2a OceanCube done. SCHEMA POSTED -- read this before F10 touches a cube.
 
 Branch **`phase2-ocean-cube`** (from `phase2-validation`, so F5/F6/F8 stay in lineage).

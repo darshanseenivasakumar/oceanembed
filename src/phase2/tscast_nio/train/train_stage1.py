@@ -75,10 +75,20 @@ def main():
     ap.add_argument("--patience", type=int, default=4,
                     help="stop after this many epochs with no held-out improvement")
     ap.add_argument("--weight-decay", type=float, default=1e-2)
+    ap.add_argument("--device", default="auto",
+                    help="auto | cpu | cuda. At T_SEQ=31 the encoder sees 43x the input elements "
+                         "it does at T_SEQ=1, which is days per run on CPU.")
+    ap.add_argument("--num-workers", type=int, default=0)
     a = ap.parse_args()
 
     enc, enc_why = (a.encoder, "chosen on the command line") if a.encoder else winning_encoder()
+    dev = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
+                       if a.device == "auto" else a.device)
     print(f"encoder: {enc}  ({enc_why})")
+    print(f"device : {dev}")
+    if dev.type != "cuda":
+        print("         CPU. Fine at T_SEQ=1. A T_SEQ=31 run here is days, not hours -- the "
+              "encoder sees 43x the input elements.")
 
     d = D.load_monthly()
     tr_t, te_t = D.split_indices(d["times"])
@@ -95,11 +105,13 @@ def main():
 
     torch.manual_seed(base.SEED)
     model = TSCastNIO(enc, len(d["channels"]), t_seq=1, p=config.P, latent=256,
-                      residual=not a.no_residual)
+                      residual=not a.no_residual).to(dev)
     torch.manual_seed(base.SEED)                    # seed AFTER build: init consumes the RNG
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
-    loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True)
-    te_loader = DataLoader(ds_te, batch_size=512, shuffle=False)
+    loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True,
+                        num_workers=a.num_workers)
+    te_loader = DataLoader(ds_te, batch_size=512, shuffle=False,
+                           num_workers=a.num_workers)
 
     # Keep the BEST-on-held-out weights, never the last. Measured on the first real run, held-out
     # NLL bottomed at epoch 4 and rose every epoch after while train NLL kept falling; saving the
@@ -112,6 +124,7 @@ def main():
         model.train()
         tot, nb = 0.0, 0
         for x, g, y, mk, _, cp, mo in loader:
+            x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
             loss = gaussian_nll(*model(x, g, cp, mo), y, mk)
             opt.zero_grad()
             loss.backward()
@@ -122,6 +135,7 @@ def main():
         vt, vn = 0.0, 0
         with torch.no_grad():
             for x, g, y, mk, _, cp, mo in te_loader:
+                x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
                 vt += float(gaussian_nll(*model(x, g, cp, mo), y, mk))
                 vn += 1
         tr_nll, va_nll = tot / max(nb, 1), vt / max(vn, 1)
@@ -165,9 +179,10 @@ def main():
     model.eval()
     with torch.no_grad():
         for x, g, _, _, _, cp, mo in DataLoader(ds_te, batch_size=512, shuffle=False):
+            x, g, cp, mo = (t.to(dev) for t in (x, g, cp, mo))
             mu, lv = model(x, g, cp, mo)
-            mus.append(mu.numpy())
-            lvs.append(lv.numpy())
+            mus.append(mu.cpu().numpy())
+            lvs.append(lv.cpu().numpy())
     mu = np.concatenate(mus) * ds_te.y_std + ds_te.y_mean          # back to degC
     sigma = np.sqrt(np.exp(np.concatenate(lvs))) * ds_te.y_std     # sigma scales with y_std
 
@@ -191,7 +206,7 @@ def main():
               f"(1.0 = honest; >1 = overconfident. MC-dropout measured 1.56-3.54)")
 
     ck = base.art("tscast_stage1.pt")
-    torch.save({"state_dict": model.state_dict(), "encoder": enc, "seed": base.SEED,
+    torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": base.SEED,
                 "residual": not a.no_residual, "channels": d["channels"],
                 "P": config.P, "T_SEQ": 1, "latent": 256,
                 "norm": [v.tolist() for v in ds_tr.norm],
@@ -208,6 +223,7 @@ def main():
         "trained_on": "monthly archive, T_SEQ=1 (the daily bundle had not landed)",
         "channels": d["channels"],
         "channels_note": "5 of the contract's 7; wind arrives with the daily pipeline",
+        "device": str(dev),
         "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
         "patience": a.patience, "weight_decay": a.weight_decay,

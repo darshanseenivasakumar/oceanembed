@@ -20,7 +20,7 @@ import pandas as pd
 from oceanembed import config
 from oceanembed.inference import predict
 from oceanembed.validation import validate_argo as VA
-from phase2.tscast_nio import metrics
+from phase2.tscast_nio import dataset as D, metrics
 
 MAX_DAYS = 5
 
@@ -44,8 +44,7 @@ def measure(source: str = "satellite") -> dict:
     keep = gap <= MAX_DAYS
 
     clim = np.load(config.art("climatology.npy"))
-    lat_i = np.clip(np.searchsorted(config.LAT, keys["lat"].values) - 1, 0, config.N_LAT - 1)
-    lon_i = np.clip(np.searchsorted(config.LON, keys["lon"].values) - 1, 0, config.N_LON - 1)
+    lat_i, lon_i = D.cell_index(keys["lat"].values, keys["lon"].values)
     clim_at = clim[pd.to_datetime(keys["date"].values).month - 1, lat_i, lon_i, :]
 
     out = metrics.per_depth(pred[keep], truth[keep], clim=clim_at[keep], reference="argo",

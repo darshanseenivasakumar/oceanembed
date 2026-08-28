@@ -1,5 +1,6 @@
 """Sampler tests. Each one encodes a failure that would look like a science result."""
 import numpy as np
+import pytest
 import torch
 
 from oceanembed import config as base
@@ -87,3 +88,29 @@ def test_t_seq_one_and_many_give_the_same_spatial_patch_at_the_centre_time():
     xb, _, _, _, _ = b[0]
     assert xb.shape[1] == 5 and xa.shape[1] == 1
     assert torch.allclose(xa[:, 0], xb[:, 2]), "centre frame moved when T_SEQ changed"
+
+
+def test_cell_index_matches_the_frozen_nearest_centre_convention():
+    """searchsorted-1 LOOKS equivalent and is not. Measured on the real Argo set the two
+    conventions disagree on 75.5% of profiles by one cell (~28 km), which would make every number
+    we quote incomparable with the published ones."""
+    from oceanembed.utils import grids
+    from phase2.tscast_nio import dataset as DD
+
+    rng = np.random.default_rng(0)
+    lat = rng.uniform(5.0, 29.75, 400)
+    lon = rng.uniform(45.0, 104.75, 400)
+    i, j = DD.cell_index(lat, lon)
+    assert all(int(a) == grids.nearest_lat_index(float(v)) for a, v in zip(i, lat))
+    assert all(int(b) == grids.nearest_lon_index(float(v)) for b, v in zip(j, lon))
+
+
+def test_cell_index_does_not_slip_a_cell_on_an_exact_grid_line():
+    """26.0N is exactly a grid latitude. searchsorted-1 returns the cell BELOW (25.75) -- the bug
+    that made this predictor disagree with the OceanCube about the Persian Gulf sea floor."""
+    from phase2.tscast_nio import dataset as DD
+
+    i, _ = DD.cell_index(26.0, 52.5)
+    assert float(base.LAT[int(i[0])]) == pytest.approx(26.0), "slipped to the neighbouring cell"
+    wrong = int(np.clip(np.searchsorted(base.LAT, 26.0) - 1, 0, base.N_LAT - 1))
+    assert wrong != int(i[0]), "this test no longer distinguishes the two conventions"

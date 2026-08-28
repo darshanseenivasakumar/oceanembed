@@ -20,8 +20,24 @@ import torch
 from torch.utils.data import Dataset
 
 from oceanembed import config as base
+from oceanembed.utils import grids
 from phase2.tscast_nio import config
 
+
+def cell_index(lat, lon):
+    """Grid cell for a position -- delegating to the FROZEN helpers, never reimplemented.
+
+    `np.searchsorted(LAT, lat) - 1` looks equivalent and is not: it takes the cell BELOW whenever
+    the coordinate lands on a grid line, and it snaps to the lower edge rather than the nearest
+    centre. Measured against the real Argo set, the two conventions disagree on 75.5% of profiles
+    by one cell (~28 km). The frozen pipeline (predict.py, glorys_vs_argo.py) uses nearest-centre,
+    so everything here must too, or our numbers are not comparable to the published ones.
+    """
+    lat = np.atleast_1d(np.asarray(lat, dtype="float64"))
+    lon = np.atleast_1d(np.asarray(lon, dtype="float64"))
+    i = np.array([grids.nearest_lat_index(float(v)) for v in lat])
+    j = np.array([grids.nearest_lon_index(float(v)) for v in lon])
+    return i, j
 
 def geo_encoding(lat_deg: np.ndarray, lon_deg: np.ndarray) -> np.ndarray:
     """Paper eq. 1 (Sinha & Abernathey 2021). Returns (..., 3): X, Y, Z."""

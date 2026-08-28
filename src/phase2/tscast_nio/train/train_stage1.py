@@ -126,8 +126,7 @@ def main():
                      for x in dts])
     keep = offs.min(axis=1) <= MAX_DAYS
     t_idx = np.asarray(te_t)[offs.argmin(axis=1)]
-    la = np.clip(np.searchsorted(base.LAT, keys["lat"].values) - 1, 0, base.N_LAT - 1)
-    lo = np.clip(np.searchsorted(base.LON, keys["lon"].values) - 1, 0, base.N_LON - 1)
+    la, lo = D.cell_index(keys["lat"].values, keys["lon"].values)
 
     ds_te.index = np.stack([t_idx[keep], la[keep], lo[keep]], axis=1)
     mus, lvs = [], []

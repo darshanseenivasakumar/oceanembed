@@ -70,8 +70,7 @@ def run_epoch(model, loader, opt=None):
 
 def argo_eval(model, ds_test, keys, truth, clim_at, keep, t_idx):
     """Predict at Argo locations by reusing the SAME patch machinery, then score with metrics.py."""
-    lat_i = np.clip(np.searchsorted(base.LAT, keys["lat"].values) - 1, 0, base.N_LAT - 1)
-    lon_i = np.clip(np.searchsorted(base.LON, keys["lon"].values) - 1, 0, base.N_LON - 1)
+    lat_i, lon_i = D.cell_index(keys["lat"].values, keys["lon"].values)
 
     saved = ds_test.index
     ds_test.index = np.stack([t_idx[keep], lat_i[keep], lon_i[keep]], axis=1)
@@ -120,8 +119,7 @@ def main():
     t_idx = np.asarray(te_t)[offs.argmin(axis=1)]        # index into the FULL time axis
 
     clim = np.load(base.art("climatology.npy"))
-    la = np.clip(np.searchsorted(base.LAT, keys["lat"].values) - 1, 0, base.N_LAT - 1)
-    lo = np.clip(np.searchsorted(base.LON, keys["lon"].values) - 1, 0, base.N_LON - 1)
+    la, lo = D.cell_index(keys["lat"].values, keys["lon"].values)
     clim_at = clim[pd.to_datetime(keys["date"].values).month - 1, la, lo, :]
     print(f"independent Argo profiles within +/-{MAX_DAYS} d of a test month: {int(keep.sum())}")
 

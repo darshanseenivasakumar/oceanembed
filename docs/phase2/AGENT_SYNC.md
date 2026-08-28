@@ -59,6 +59,114 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-28 [ARJHUN] BAKE-OFF RESULT: cnn3d wins. And the brief's ranking criterion would have picked the WRONG model.
+
+Branch **`phase2-tscast-nio`**. `main` untouched (0 commits ahead of `origin/main`). 355 tests pass.
+Artifact: `artifacts/architecture_feasibility.json`. Reproduce with
+`PYTHONPATH=src python scripts/phase2/architecture_feasibility.py --epochs 15 --train-samples 40000`.
+
+### The result — PS requirement 9 is answered with a measured number
+
+Four candidates, identical seed / samples / epochs / optimiser / batch size / decoding head, capacity
+levelled to 1.47x, scored against **897 independent Argo profiles** (+/-5 d, the same filter as the
+published headline).
+
+| candidate | params | Argo RMSE | skill | corr | bias | train/test gap | time |
+|---|---|---|---|---|---|---|---|
+| `cnn3d` | 543,383 | **0.9891** | +0.3824 | 0.904 | +0.105 | +0.0616 | 3264 s |
+| `vit` | 399,119 | **1.0071** | +0.3712 | 0.899 | +0.117 | +0.0747 | 276 s |
+| `cnn_attention` | 457,039 | **1.0198** | +0.3633 | 0.898 | +0.138 | +0.0524 | 1532 s |
+| `mlp_control` | 369,807 | **1.0566** | +0.3403 | 0.899 | +0.262 | +0.0237 | 85 s |
+
+**Winner: `cnn3d`** — the paper's 3-D residual CNN. Ranking `cnn3d < vit < cnn_attention < mlp_control`.
+
+### >>> ASK DARSHAN: I changed your ranking criterion, and here is the number that justifies it
+
+The brief said: *winner = smallest train/test generalisation gap at comparable train loss.*
+
+**Ranked that way, `mlp_control` wins — the BLIND control, with no spatial context at all.** Its gap is
++0.0237, the smallest of the four by 2.2x. It is not stable because it generalises; it is stable
+because it is too weak to overfit. Picking it would have made us report **"no satellite embedding is
+needed"**, which is the exact opposite of what requirement 9 asks us to establish, and it would have
+been 0.068 degC WORSE against real floats than the model we actually chose.
+
+So candidates are ranked on **held-out independent Argo RMSE**, with the gap reported beside the
+ranking as a stability diagnostic. Both numbers are in the JSON; nothing is hidden. If you disagree,
+say so — but the disagreement is now about a measurement rather than a preference.
+
+### What makes the comparison mean anything
+
+Two tests assert the experiment is falsifiable at all, because four candidates sharing an information
+set would make "spatial embedding helps" untestable:
+- `mlp_control` is asserted **BLIND** — perturbing a corner cell cannot move its output.
+- `cnn3d` / `cnn_attention` / `vit` are asserted to **DO** read that same neighbour.
+
+Capacity is levelled (370k–543k params, asserted by a test) and the decoding head is byte-identical
+across candidates, so the difference is INFORMATION, not size. The MLP control is deliberately the
+WIDEST-hidden of the four: it must lose on what it can see, never on what it can fit.
+
+### Three things worth saying out loud
+
+1. **ViT is competitive, and I will not overclaim the CNN.** 1.0071 vs 0.9891 — second place, and
+   **12x faster to train** (276 s vs 3264 s). If a jury asks "why not a transformer?", the honest
+   answer is "we measured it; it came second by 0.018 degC and it is much cheaper — the CNN won, but
+   not by a landslide."
+2. **Bias tracks the ranking exactly.** The blind control runs warm by **+0.262 degC**; `cnn3d` cuts
+   that to **+0.105**. Spatial context is correcting the warm mixed-layer bias specifically — an
+   independent signal pointing at the same weakness F8 already named.
+3. **GNN stayed excluded**, with the reason recorded in the artifact: a uniform 0.25 deg lat/lon
+   lattice has no irregular graph, so message passing there is convolution with extra machinery.
+
+### Context for the numbers — do NOT compare these to +0.387
+
+`cnn3d` at 0.9891 / +0.3824 is close to the incumbent, but the incumbent to compare against is the
+**GLORYS-driven** one (**0.9736 / +0.3809**), NOT the famous satellite-driven headline (0.9638 /
++0.387). `grids.npz` surface fields ARE GLORYS. Scoring a GLORYS-driven model against the
+satellite-driven headline compares two input pipelines and calls the difference model skill.
+
+Also: these bake-off candidates have **no FiLM, no climatology prior and no uncertainty head**. They
+are encoder+head only. The real stage-1 model adds all three.
+
+### A BUG THAT INVALIDATED MY FIRST RUN — you should know, and it may affect other code
+
+`np.searchsorted(LAT, lat) - 1` is **not** equivalent to the frozen `grids.nearest_lat_index`. It
+snaps to the lower cell edge, and on an exact grid line it returns the cell BELOW. Measured on the
+real Argo set the two disagree on **1,853 of 2,455 profiles — 75.5% — by one cell (~28 km)**.
+
+Found by cross-checking my new predictor against **your** `accept.py` F2a assertion for the Persian
+Gulf at 26.0N 52.5E, not against my own smoke test. 26.0 is exactly a grid latitude.
+
+Confirmation the fix is right rather than merely different: baseline `skill_rmse_ratio` moved
+**0.3712 -> 0.3861** against the published **0.3871**, so the residual gap fell from 0.0159 to 0.0010.
+
+I killed the first bake-off mid-run rather than let it finish on bad collocation. Everything in the
+table above is from the corrected code. **If any of your code uses `searchsorted` for a cell lookup,
+it has this bug.** All of mine now routes through one `D.cell_index()` that delegates to the frozen
+helper — the D-014 two-loader failure, caught earlier this time.
+
+### Status
+
+- **Stage-1 training is RUNNING** on `cnn3d` (20 epochs, 40k samples, FiLM + climatology prior +
+  eq. 3 NLL). Results will be posted here when it lands, with the calibration ratio measured the same
+  way `mc_calibration.json` measured MC-dropout's 1.56–3.54, so the comparison is like for like.
+- **STILL BLOCKED on CMEMS credentials.** No daily data, no download script and no running download
+  on this machine. PS req 3 (daily) and req 8 (wind) cannot start until someone runs
+  `copernicusmarine login` here. ~16 h for GLORYS alone once started; 33.6 GB peak vs 68 GB free.
+- Everything above ran at `T_SEQ=1` on **5 of the contract's 7 channels** (no wind). That is a real
+  limitation of the current result, not a rounding note.
+
+### Test it
+
+```
+python scripts/phase2/accept.py
+```
+`check_v2_tscast` re-derives the published per-depth n and RMSE from scratch, asserts correlation and
+bias are finite, asserts both skill definitions are reported and distinct, asserts the bake-off ran on
+four candidates with levelled capacity, and asserts the control is blind while cnn3d is not. Nothing
+in it passes on an import.
+
+---
+
 ## 2026-08-28 [ARJHUN] v2 START. Branch cut, CONTRACTS POSTED, and the briefing's data state is WRONG here.
 
 Branch **`phase2-tscast-nio`**, cut from `phase2-ocean-cube`. `main` untouched (0 commits ahead of

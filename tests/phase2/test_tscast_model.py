@@ -179,3 +179,74 @@ def test_gradients_reach_the_encoder():
     gaussian_nll(mu, logvar, torch.randn(3, DEP), torch.ones(3, DEP, dtype=torch.bool)).backward()
     grads = [p.grad for p in m.encoder.parameters() if p.grad is not None]
     assert grads and any(float(g.abs().sum()) > 0 for g in grads), "no gradient reached the encoder"
+
+
+def test_beta_nll_at_zero_is_exactly_the_papers_equation_3():
+    y, mu, lv = torch.tensor([[2.0]]), torch.tensor([[0.0]]), torch.tensor([[np.log(4.0)]])
+    mask = torch.ones(1, 1, dtype=torch.bool)
+    assert float(gaussian_nll(mu, lv, y, mask, beta=0.0)) == pytest.approx(1.1931, abs=1e-3)
+
+
+def test_beta_nll_at_one_gives_exactly_the_mse_gradient_for_the_mean():
+    """The defining property. beta=1 cancels the 1/sigma^2 weighting on the squared-error term, so
+    the mean trains as if under MSE while the variance head still learns."""
+    y = torch.tensor([[2.0]])
+    lv = torch.full((1, 1), 1.5)
+    mask = torch.ones(1, 1, dtype=torch.bool)
+
+    mu = torch.zeros(1, 1, requires_grad=True)
+    gaussian_nll(mu, lv, y, mask, beta=1.0).backward()
+    g_beta = mu.grad.clone()
+
+    mu2 = torch.zeros(1, 1, requires_grad=True)
+    (0.5 * (y - mu2) ** 2).mean().backward()
+    assert torch.allclose(g_beta, mu2.grad)
+
+
+def test_beta_weight_is_detached_so_it_cannot_become_a_second_route_to_game_sigma():
+    """If the sigma^(2beta) weight carried gradient, the model could still shrink sigma to cut the
+    loss -- reintroducing the exact failure beta-NLL exists to prevent."""
+    y = torch.tensor([[2.0]])
+    mask = torch.ones(1, 1, dtype=torch.bool)
+    lv = torch.zeros(1, 1, requires_grad=True)
+    gaussian_nll(torch.zeros(1, 1), lv, y, mask, beta=1.0).backward()
+    g_with = lv.grad.clone()
+
+    # the same loss with the weight treated as a plain constant must give the identical gradient
+    lv2 = torch.zeros(1, 1, requires_grad=True)
+    w = float(torch.exp(torch.zeros(1, 1)) ** 1.0)
+    per = 0.5 * torch.exp(-lv2) * (y - 0.0) ** 2 + 0.5 * lv2
+    (per * w).mean().backward()
+    assert torch.allclose(g_with, lv2.grad), "the beta weight is leaking gradient into logvar"
+
+
+def test_higher_beta_removes_the_reward_for_collapsing_sigma_on_well_fit_points():
+    """Encodes the measured failure precisely.
+
+    The variance collapse only pays off where the model ALREADY fits well: with a large residual,
+    shrinking sigma makes NLL worse, not better. So this uses a near-zero residual -- a training
+    point the network has learned -- which is where the loss can be driven down without bound by
+    sigma alone. beta must remove almost all of that reward.
+    """
+    y, mu = torch.tensor([[0.01]]), torch.tensor([[0.0]])
+    mask = torch.ones(1, 1, dtype=torch.bool)
+    wide, collapsed = torch.zeros(1, 1), torch.full((1, 1), -6.0)
+
+    reward_0 = (float(gaussian_nll(mu, wide, y, mask, beta=0.0))
+                - float(gaussian_nll(mu, collapsed, y, mask, beta=0.0)))
+    reward_1 = (float(gaussian_nll(mu, wide, y, mask, beta=1.0))
+                - float(gaussian_nll(mu, collapsed, y, mask, beta=1.0)))
+
+    assert reward_0 > 2.0, "beta=0 should hand out a large free loss reduction - the pathology"
+    assert reward_1 < 0.05, "beta=1 must remove essentially all of it"
+    assert reward_0 > 100 * reward_1
+
+
+def test_a_large_residual_does_not_reward_shrinking_sigma_even_at_beta_zero():
+    """The other half of the mechanism, and the reason the collapse is a TRAIN-set failure that a
+    held-out score exposes: where the model is wrong, plain NLL already punishes a narrow sigma."""
+    y, mu = torch.tensor([[1.0]]), torch.tensor([[0.0]])
+    mask = torch.ones(1, 1, dtype=torch.bool)
+    wide = float(gaussian_nll(mu, torch.zeros(1, 1), y, mask, beta=0.0))
+    collapsed = float(gaussian_nll(mu, torch.full((1, 1), -6.0), y, mask, beta=0.0))
+    assert collapsed > wide

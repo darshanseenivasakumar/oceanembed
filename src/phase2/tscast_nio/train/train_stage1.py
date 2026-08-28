@@ -79,13 +79,17 @@ def main():
                     help="auto | cpu | cuda. At T_SEQ=31 the encoder sees 43x the input elements "
                          "it does at T_SEQ=1, which is days per run on CPU.")
     ap.add_argument("--num-workers", type=int, default=0)
+    ap.add_argument("--beta", type=float, default=0.5,
+                    help="beta-NLL (Seitzer 2022). 0 = the paper's plain eq. 3, which we MEASURED "
+                         "collapsing variance instead of learning the mean; 1 = MSE gradient for "
+                         "mu; 0.5 = recommended default.")
     a = ap.parse_args()
 
     enc, enc_why = (a.encoder, "chosen on the command line") if a.encoder else winning_encoder()
     dev = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
                        if a.device == "auto" else a.device)
     print(f"encoder: {enc}  ({enc_why})")
-    print(f"device : {dev}")
+    print(f"device : {dev}   beta-NLL: {a.beta}")
     if dev.type != "cuda":
         print("         CPU. Fine at T_SEQ=1. A T_SEQ=31 run here is days, not hours -- the "
               "encoder sees 43x the input elements.")
@@ -125,7 +129,7 @@ def main():
         tot, nb = 0.0, 0
         for x, g, y, mk, _, cp, mo in loader:
             x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
-            loss = gaussian_nll(*model(x, g, cp, mo), y, mk)
+            loss = gaussian_nll(*model(x, g, cp, mo), y, mk, beta=a.beta)
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -136,7 +140,9 @@ def main():
         with torch.no_grad():
             for x, g, y, mk, _, cp, mo in te_loader:
                 x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
-                vt += float(gaussian_nll(*model(x, g, cp, mo), y, mk))
+                # beta=0 deliberately: held-out score must be the PROPER scoring rule,
+                # otherwise early stopping and cross-run comparison move with beta.
+                vt += float(gaussian_nll(*model(x, g, cp, mo), y, mk, beta=0.0))
                 vn += 1
         tr_nll, va_nll = tot / max(nb, 1), vt / max(vn, 1)
         curve.append({"epoch": ep + 1, "train_nll": round(tr_nll, 4),
@@ -226,7 +232,8 @@ def main():
         "device": str(dev),
         "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
-        "patience": a.patience, "weight_decay": a.weight_decay,
+        "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta,
+        "beta_nll_why": ("plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0."),
         "training_curve": curve,
         "checkpoint_is": "the BEST held-out epoch, not the last -- this run overfits after a handful of epochs",
         "lr": a.lr, "batch_size": a.batch_size,

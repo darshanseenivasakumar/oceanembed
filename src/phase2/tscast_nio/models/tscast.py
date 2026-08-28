@@ -220,16 +220,38 @@ class TSCastNIO(nn.Module):
         return mu, logvar.clamp(LOGVAR_MIN, LOGVAR_MAX)
 
 
-def gaussian_nll(mu, logvar, y, mask):
-    """Paper eq. 3: mean over valid levels of  0.5*exp(-logvar)*(y-mu)^2 + 0.5*logvar.
+def gaussian_nll(mu, logvar, y, mask, beta: float = 0.0):
+    """Paper eq. 3 (beta=0), with the beta-NLL correction of Seitzer et al. 2022 for beta>0.
 
-    The +0.5*logvar term is what stops the network inflating its variance to escape the penalty.
-    Masked, because ~24% of cells are below the sea floor and a masked-out level must contribute
-    nothing rather than contribute a zero.
+    Plain NLL is  0.5*exp(-logvar)*(y-mu)^2 + 0.5*logvar.  The +0.5*logvar term stops the network
+    inflating its variance -- but nothing stops the opposite, and that is what bit us:
+
+        MEASURED on the first real stage-1 run. Train NLL fell to -1.0610 while held-out NLL rose
+        to +0.6732, and the best held-out epoch was 3 of 20. The gradient of the squared-error term
+        is scaled by 1/sigma^2, so the cheapest way for the model to cut the loss is to SHRINK
+        sigma on training points rather than improve the mean. Capacity goes into collapsing
+        variance instead of learning temperature. Argo RMSE came out at 1.1861 -- worse than the
+        0.9891 the same encoder reached under plain MSE in the bake-off.
+
+    beta-NLL multiplies the per-point loss by a STOP-GRADIENT sigma^(2*beta), cancelling that
+    1/sigma^2 weighting:
+
+        beta = 0  -> plain NLL (the paper's eq. 3)
+        beta = 1  -> the gradient w.r.t. mu is exactly the MSE gradient, while the variance head
+                     still trains
+        beta = 0.5-> the authors' recommended middle, and our default
+
+    The weight is detached, so it re-weights the loss without becoming a second path through which
+    the network can game sigma.
+
+    Masked, because ~24% of cells are below the sea floor: a masked level must contribute nothing,
+    not contribute a zero.
     """
     m = mask.float()
     n = m.sum().clamp(min=1.0)
     per = 0.5 * torch.exp(-logvar) * (y - mu) ** 2 + 0.5 * logvar
+    if beta:
+        per = per * (torch.exp(logvar).detach() ** beta)
     return (per * m).sum() / n
 
 

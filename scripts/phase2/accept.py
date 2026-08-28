@@ -365,6 +365,120 @@ def check_f2b() -> tuple[bool, list[str]]:
     return all(c for c, _ in checks), lines
 
 
+def check_v2_tscast() -> tuple[bool, list[str]]:
+    """v2 TS-Cast-NIO: the metrics must reproduce a known number, the bake-off must have actually
+    run under identical conditions, and the control must really be blind.
+
+    None of these pass by a module importing. The metrics check in particular re-derives the
+    published Phase-1 per-depth n and RMSE from scratch -- if the pipeline drifts, this fails.
+    """
+    import json
+    import os
+
+    import numpy as np
+    import torch
+
+    from oceanembed import config
+    from phase2.tscast_nio import config as vcfg
+    from phase2.tscast_nio import dataset as D
+    from phase2.tscast_nio import encoders as E
+    from phase2.tscast_nio import metrics
+
+    checks = []
+
+    # 1. contracts exist -- the model is coded against them
+    for doc in ("tscast_data_model.md", "tscast_output_schema.md"):
+        p = os.path.join("docs", "phase2", doc)
+        checks.append((os.path.exists(p), f"contract {doc} present"))
+
+    # 2. the metrics module reproduces the PUBLISHED artifact, not itself
+    base = config.art("tscast_baseline_metrics.json")
+    if os.path.exists(base) and os.path.exists(config.art("argo_error_by_depth.json")):
+        mine = json.load(open(base))
+        pub = json.load(open(config.art("argo_error_by_depth.json")))
+        dn = max(abs(a - b) for a, b in zip(mine["n"], pub["n_obs_per_depth"]))
+        dr = max(abs(a - b) for a, b in zip(mine["rmse"], pub["rmse_satellite"]))
+        checks.append((dn == 0, f"per-depth n reproduces the published artifact exactly "
+                                f"(max difference {dn})"))
+        checks.append((dr < 0.05, f"per-depth RMSE within {dr:.4f} degC of the published value"))
+
+        # 3. correlation and bias are REAL numbers (PS req 13, 14 -- never computed before v2)
+        corr, bias = np.array(mine["correlation"]), np.array(mine["bias"])
+        checks.append((np.isfinite(corr).sum() >= 14 and float(np.nanmin(corr)) > 0.5,
+                       f"correlation computed at {int(np.isfinite(corr).sum())}/15 depths, "
+                       f"min {np.nanmin(corr):.3f} (PS req 13)"))
+        checks.append((np.isfinite(bias).sum() >= 14 and float(np.nanmax(np.abs(bias))) < 5.0,
+                       f"bias computed, warmest {np.nanmax(bias):+.3f} degC at "
+                       f"{mine['depths_m'][int(np.nanargmax(bias))]} m (PS req 14)"))
+
+        # 4. the two skill definitions must NOT be conflated
+        o = mine["overall"]
+        checks.append((abs(o["skill_rmse_ratio"] - o["skill_vs_climatology"]) > 0.1,
+                       f"both skill definitions reported and distinct: "
+                       f"1-RMSE/RMSEclim={o['skill_rmse_ratio']:.4f} vs "
+                       f"Murphy={o['skill_vs_climatology']:.4f}"))
+    else:
+        checks.append((False, "artifacts/tscast_baseline_metrics.json missing -- run "
+                              "scripts/phase2/measure_v2_metrics.py"))
+
+    # 5. the bake-off actually ran, on all four candidates, under identical conditions
+    feas = config.art("architecture_feasibility.json")
+    if os.path.exists(feas):
+        f = json.load(open(feas))
+        r = f["results"]
+        want = {"mlp_control", "cnn3d", "cnn_attention", "vit"}
+        pars = [v["params"] for v in r.values()]
+        checks.append((set(r) == want, f"all four candidates ran: {sorted(r)}"))
+        checks.append(("gnn" not in r and "gnn_excluded_because" in f,
+                       "GNN excluded with a stated reason, not silently dropped"))
+        checks.append((max(pars) / min(pars) < 1.6,
+                       f"capacity levelled: {min(pars):,}-{max(pars):,} params "
+                       f"({max(pars)/min(pars):.2f}x)"))
+        checks.append((f["ranking_criterion"].startswith("held-out INDEPENDENT Argo"),
+                       "ranked on held-out independent Argo, not on the train/test gap"))
+        checks.append((f["conditions"]["argo_profiles"] > 500,
+                       f"scored against {f['conditions']['argo_profiles']} independent Argo "
+                       f"profiles"))
+        w = r[f["winner"]]
+        checks.append((w["argo_skill_rmse_ratio"] > 0.0,
+                       f"winner {f['winner']}: Argo RMSE {w['argo_rmse']:.4f} degC, "
+                       f"skill {w['argo_skill_rmse_ratio']:+.4f} vs climatology"))
+    else:
+        checks.append((False, "artifacts/architecture_feasibility.json missing -- run "
+                              "scripts/phase2/architecture_feasibility.py"))
+
+    # 6. the bake-off is FALSIFIABLE: the control must be blind, the spatial encoders must not be
+    x = torch.randn(1, 5, 1, vcfg.P, vcfg.P)
+    g = torch.randn(1, 3, 1, vcfg.P, vcfg.P)
+    x2 = x.clone()
+    x2[0, :, 0, 0, 0] = 999.0
+    moved = {}
+    with torch.no_grad():
+        for name in ("mlp_control", "cnn3d"):
+            torch.manual_seed(config.SEED)
+            m = E.build(name, 5, 1, vcfg.P, vcfg.N_DEPTHS).eval()
+            moved[name] = not torch.allclose(m(x, g), m(x2, g))
+    checks.append((not moved["mlp_control"],
+                   "MLP control is genuinely BLIND to neighbours -- it is a real control"))
+    checks.append((moved["cnn3d"],
+                   "cnn3d does read its neighbours -- the two candidates differ in information"))
+
+    # 7. the sampler must not wrap the basin
+    d = D.load_monthly()
+    tr, _ = D.split_indices(d["times"])
+    surf = d["surface"].copy()
+    surf[:, :, -3:, :] = 9999.0                       # unmistakable eastern marker
+    ds = D.GriddedPatches(surf, d["temp"], d["times"], d["land_mask"], d["channels"],
+                          tr, t_seq=1, max_samples=10)
+    ds.index = np.array([[tr[0], 50, 0]])             # westernmost column
+    xw = ds[0][0]
+    checks.append((bool(torch.isfinite(xw).all()) and float(xw.abs().max()) < 100.0,
+                   "a westernmost patch contains no eastern data: the grid does not wrap"))
+
+    lines = [("     " + ("ok   " if c else "FAIL ") + m) for c, m in checks]
+    return all(c for c, _ in checks), lines
+
+
 CHECKS = [
     ("F1 collocation", "phase2.data.collocation", check_f1),
     ("F2b volume", "phase2.cube.volume", check_f2b),
@@ -372,6 +486,7 @@ CHECKS = [
     ("F5 physics", "phase2.physics.layers", check_f5),
     ("F6 events", "phase2.events.eddy", check_f6),
     ("F8 validation", "phase2.validation.lab", check_f8),
+    ("v2 TS-Cast-NIO", "phase2.tscast_nio.metrics", check_v2_tscast),
 ]
 
 

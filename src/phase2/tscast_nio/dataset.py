@@ -36,7 +36,7 @@ class GriddedPatches(Dataset):
 
     def __init__(self, surface, temp, times, land_mask, channels,
                  t_indices, norm=None, t_seq=None, p=None, max_samples=None, seed=None,
-                 stride=1):
+                 stride=1, clim=None, return_clim=False):
         self.C = surface.shape[-1]
         self.T_SEQ = int(config.T_SEQ if t_seq is None else t_seq)
         self.P = int(config.P if p is None else p)
@@ -45,6 +45,15 @@ class GriddedPatches(Dataset):
         self.times = times
         self.temp = temp
         self.n_t = surface.shape[0]
+        # (12, n_lat, n_lon, 15) monthly climatology -- the physical prior the decoder adjusts.
+        # MUST be built from training years only; see tscast_data_model.md section 3.
+        # return_clim is OPT-IN so the 5-tuple every existing consumer unpacks is unchanged.
+        self.clim = clim
+        self.return_clim = bool(return_clim)
+        if self.return_clim and clim is None:
+            raise ValueError('return_clim=True needs a climatology array; refusing to '
+                             'fabricate a zero prior')
+        self.month = np.array([int(str(t)[5:7]) - 1 for t in times])
 
         # pad space with NaN so an edge patch is explicitly "missing", not fabricated
         self.surface = np.pad(
@@ -108,9 +117,15 @@ class GriddedPatches(Dataset):
         y_valid = np.isfinite(y)
         y_z = np.where(y_valid, (y - self.y_mean) / self.y_std, 0.0).astype("float32")
 
-        return (torch.from_numpy(x), torch.from_numpy(x_geo),
+        sample = (torch.from_numpy(x), torch.from_numpy(x_geo),
                 torch.from_numpy(y_z), torch.from_numpy(y_valid),
                 torch.tensor([lat, lon], dtype=torch.float32))
+        if not self.return_clim:
+            return sample
+
+        cp = self.clim[:, i, j, :].astype("float32")              # (12, 15): all 12 months
+        cp_z = np.where(np.isfinite(cp), (cp - self.y_mean) / self.y_std, 0.0).astype("float32")
+        return sample + (torch.from_numpy(cp_z), torch.tensor(int(self.month[t])))
 
 
 def load_monthly(path=None):

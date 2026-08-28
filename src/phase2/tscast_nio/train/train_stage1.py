@@ -18,6 +18,7 @@ Run:  PYTHONPATH=src python -m phase2.tscast_nio.train.train_stage1 [--epochs N]
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import subprocess
@@ -71,6 +72,9 @@ def main():
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--encoder", default=None)
     ap.add_argument("--no-residual", action="store_true")
+    ap.add_argument("--patience", type=int, default=4,
+                    help="stop after this many epochs with no held-out improvement")
+    ap.add_argument("--weight-decay", type=float, default=1e-2)
     a = ap.parse_args()
 
     enc, enc_why = (a.encoder, "chosen on the command line") if a.encoder else winning_encoder()
@@ -93,11 +97,17 @@ def main():
     model = TSCastNIO(enc, len(d["channels"]), t_seq=1, p=config.P, latent=256,
                       residual=not a.no_residual)
     torch.manual_seed(base.SEED)                    # seed AFTER build: init consumes the RNG
-    opt = torch.optim.AdamW(model.parameters(), lr=a.lr)
+    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
     loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True)
     te_loader = DataLoader(ds_te, batch_size=512, shuffle=False)
 
+    # Keep the BEST-on-held-out weights, never the last. Measured on the first real run, held-out
+    # NLL bottomed at epoch 4 and rose every epoch after while train NLL kept falling; saving the
+    # final epoch would have checkpointed the single most overfit model and then reported its Argo
+    # numbers as the result.
     t0 = time.time()
+    best = {"nll": float("inf"), "epoch": 0, "state": None}
+    curve, stale = [], 0
     for ep in range(a.epochs):
         model.train()
         tot, nb = 0.0, 0
@@ -114,9 +124,31 @@ def main():
             for x, g, y, mk, _, cp, mo in te_loader:
                 vt += float(gaussian_nll(*model(x, g, cp, mo), y, mk))
                 vn += 1
-        print(f"  epoch {ep + 1}/{a.epochs}  train NLL {tot/max(nb,1):.4f}   "
-              f"held-out NLL {vt/max(vn,1):.4f}", flush=True)
+        tr_nll, va_nll = tot / max(nb, 1), vt / max(vn, 1)
+        curve.append({"epoch": ep + 1, "train_nll": round(tr_nll, 4),
+                      "heldout_nll": round(va_nll, 4)})
+
+        if va_nll < best["nll"] - 1e-4:
+            best = {"nll": va_nll, "epoch": ep + 1,
+                    "state": copy.deepcopy(model.state_dict())}
+            stale, flag = 0, "  <- best"
+        else:
+            stale += 1
+            flag = f"  ({stale}/{a.patience} without improvement)"
+        print(f"  epoch {ep + 1}/{a.epochs}  train NLL {tr_nll:.4f}   "
+              f"held-out NLL {va_nll:.4f}{flag}", flush=True)
+
+        if stale >= a.patience:
+            print(f"  early stop: no held-out improvement for {a.patience} epochs")
+            break
     secs = time.time() - t0
+
+    if best["state"] is None:
+        raise RuntimeError("no epoch improved on the initial held-out loss; refusing to save")
+    model.load_state_dict(best["state"])
+    model.eval()
+    print(f"\nrestored the best epoch: {best['epoch']} (held-out NLL {best['nll']:.4f}). "
+          f"Everything below is that model, not the last one.")
 
     # ---- independent Argo -------------------------------------------------
     keys, truth = VA.pivot_profiles(VA.load_argo())
@@ -163,7 +195,8 @@ def main():
                 "residual": not a.no_residual, "channels": d["channels"],
                 "P": config.P, "T_SEQ": 1, "latent": 256,
                 "norm": [v.tolist() for v in ds_tr.norm],
-                "epochs": a.epochs, "lr": a.lr, "batch_size": a.batch_size}, ck)
+                "epochs": best["epoch"], "lr": a.lr,
+                "batch_size": a.batch_size}, ck)
 
     out = {
         "model": "tscast-nio-stage1",
@@ -175,7 +208,12 @@ def main():
         "trained_on": "monthly archive, T_SEQ=1 (the daily bundle had not landed)",
         "channels": d["channels"],
         "channels_note": "5 of the contract's 7; wind arrives with the daily pipeline",
-        "seed": base.SEED, "epochs": a.epochs, "lr": a.lr, "batch_size": a.batch_size,
+        "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),
+        "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
+        "patience": a.patience, "weight_decay": a.weight_decay,
+        "training_curve": curve,
+        "checkpoint_is": "the BEST held-out epoch, not the last -- this run overfits after a handful of epochs",
+        "lr": a.lr, "batch_size": a.batch_size,
         "train_samples": len(ds_tr), "train_seconds": round(secs, 1),
         "train_years": list(base.TRAIN_YEARS), "test_years": list(base.TEST_YEARS),
         "argo_profiles": int(keep.sum()), "max_days_offset": MAX_DAYS,

@@ -109,9 +109,14 @@ def build_year(files: list[str], year: int, out_dir: str, with_salinity: bool = 
     np.savez_compressed(path, **payload)
 
     print(f"  [{year}] wrote {path}  ({os.path.getsize(path)/1e9:.2f} GB)")
+    # Coverage is reported over OCEAN cells, not all cells, so it is directly comparable with
+    # the F2a OceanCube figure (~75.8% at 1000 m). Over all cells the same mask reads ~37%, which
+    # looks like a regression and is not.
+    ocean = ~land_mask
+    cov1000 = float(valid_mask[:, :, -1][ocean].mean())
     print(f"        {n} days {times[0]}..{times[-1]}, {len(missing)} missing, "
-          f"ocean {100*(~land_mask).mean():.1f}%, "
-          f"1000 m coverage {100*valid_mask[:, :, -1].mean():.1f}%")
+          f"ocean {100*ocean.mean():.1f}% of grid, "
+          f"1000 m coverage {100*cov1000:.1f}% of ocean cells")
     return path
 
 

@@ -83,8 +83,6 @@ def main():
                     help="latent width; defaults to config.LATENT_DIM")
     ap.add_argument("--unet-width", type=int, nargs="+", default=None,
                     help="decoder channel widths; defaults to config.UNET_CHANNELS")
-    ap.add_argument("--latent", type=int, default=None)
-    ap.add_argument("--unet-width", type=int, nargs="+", default=None)
     ap.add_argument("--decoder", choices=["film", "simple"], default="film",
                     help="'simple' is the bake-off's head. Varying this INDEPENDENTLY of --loss is "
                          "the point: the move from the bake-off model to TS-Cast changed the "

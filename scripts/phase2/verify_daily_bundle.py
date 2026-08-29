@@ -40,7 +40,10 @@ REGION = config.REGION
 EXPECTED_VARS = {"thetao", "so", "zos", "uo", "vo"}
 
 # Physical sanity bounds for the North Indian Ocean.
-SST_MIN, SST_MAX = 18.0, 36.0          # degC. Kelvin would read ~300 and fail loudly.
+# 16.0 not 18.0: the Somali/Oman upwelling at peak SW monsoon genuinely reaches ~17.1 degC in
+# this bundle, and F6 validated that upwelling as a real feature of this region. A tighter floor
+# rejects correct data for showing the correct signal. Kelvin still reads ~300 and fails loudly.
+SST_MIN, SST_MAX = 16.0, 36.0
 DEEP_MIN, DEEP_MAX = 1.0, 20.0         # degC at 1000 m
 
 
@@ -177,14 +180,34 @@ def check_one_file(path: str, r: Result, *, deep_check: bool = True) -> None:
                               f"[{name}] deepest mean {float(deep[-1]):.2f} degC is physical")
 
         # ---- provenance: reanalysis vs forecast --------------------------------------------
-        attrs = " ".join(f"{k}={v}" for k, v in ds.attrs.items()).lower()
-        suspicious = [w for w in ("forecast", "analysis", "nrt", "near-real-time", "myint")
-                      if w in attrs]
-        r.add(not suspicious, f"[{name}] no forecast/NRT markers in global attributes",
-              f"found {suspicious} -- mixing a forecast product into a reanalysis archive is a "
-              f"science problem, not a bookkeeping one. Confirm the dataset_id." if suspicious
-              else "")
+        # NOT a substring scan: "reanalysis" CONTAINS "analysis", so a naive match flags every
+        # legitimate file. GLORYS ships a boilerplate title ("... Analysis and Forecast ...") on
+        # reanalysis output, so `source` is what actually identifies the product.
+        src = str(ds.attrs.get("source", "")).lower()
+        title = str(ds.attrs.get("title", "")).lower()
+        if src:
+            ok = "glorys" in src or "reanalysis" in src
+            r.add(ok, f"[{name}] source is a reanalysis product",
+                  f"source={src!r}, title={title!r} -- if this is an analysis/forecast product "
+                  f"rather than GLORYS reanalysis, it must not be mixed into this archive."
+                  if not ok else f"source={src!r}")
+        else:
+            r.add(False, f"[{name}] source attribute present",
+                  "no `source` global attribute -- cannot confirm this is reanalysis")
 
+        # The internal time coordinate must match the filename. Mercator's field_date/bulletin_date
+        # attributes are stale template values (field_date 2021-06-30 on a 2025-06-01 file), so
+        # they prove nothing either way -- the coordinate is what the data is indexed by.
+        if "time" in ds.coords:
+            import re as _re
+            m = _re.search(r"(\d{8})", name)
+            if m:
+                t = str(np.asarray(ds["time"].values).ravel()[0])[:10].replace("-", "")
+                r.add(t == m.group(1),
+                      f"[{name}] internal time {t} matches the filename",
+                      "" if t == m.group(1) else
+                      f"file is named {m.group(1)} but its data is indexed {t}. A silent offset "
+                      f"like this trains cleanly and is wrong by that interval everywhere.")
 
 def check_grid(path: str, r: Result) -> None:
     with xr.open_dataset(path) as ds:

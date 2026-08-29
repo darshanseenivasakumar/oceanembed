@@ -46,7 +46,9 @@ def _write(dirpath, dates, levels=GOOD_LEVELS, kelvin=False, reverse=False, attr
                   else np.full_like(t, 35.0))
              for v in ("thetao", "so")},
             coords={"time": [np.datetime64(d)], "latitude": lat, "longitude": lon, "depth": lev},
-            attrs=attrs or {},
+            attrs=attrs or {"source": "MERCATOR GLORYS12V1",
+                            "title": "daily mean fields from Global Ocean Physics "
+                                     "Analysis and Forecast updated Daily"},
         )
         ds["zos"] = (("time", "latitude", "longitude"), np.zeros((1, len(lat), len(lon))))
         ds["uo"] = ds["thetao"] * 0.0
@@ -100,9 +102,23 @@ def test_a_missing_day_is_REJECTED(tmp_path):
 
 
 def test_a_forecast_product_in_a_reanalysis_archive_is_REJECTED(tmp_path):
-    _write(tmp_path, DATES, attrs={"title": "GLOBAL ANALYSIS FORECAST PHY"})
+    """Checked on `source`, NOT the title: GLORYS ships the boilerplate title 'Analysis and
+    Forecast' on genuine reanalysis output, and "reanalysis" contains "analysis" as a substring,
+    so a naive title scan rejects every legitimate file."""
+    _write(tmp_path, DATES, attrs={"source": "MERCATOR PSY4QV3R1 FORECAST",
+                                   "title": "GLOBAL ANALYSIS FORECAST PHY"})
     rc, out = _run(tmp_path)
-    assert rc == 1 and "forecast" in out.lower()
+    assert rc == 1 and "reanalysis" in out.lower()
+
+
+def test_the_real_boilerplate_title_is_NOT_treated_as_a_forecast(tmp_path):
+    """The exact attributes Mercator ships on GLORYS reanalysis files. These must pass."""
+    _write(tmp_path, DATES, attrs={"source": "MERCATOR GLORYS12V1",
+                                   "title": "daily mean fields from Global Ocean Physics "
+                                            "Analysis and Forecast updated Daily",
+                                   "bulletin_type": "operational"})
+    rc, out = _run(tmp_path)
+    assert rc == 0, out
 
 
 def test_the_contract_depths_are_read_from_config_not_hardcoded(tmp_path):

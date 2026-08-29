@@ -83,6 +83,14 @@ def main():
                     help="latent width; defaults to config.LATENT_DIM")
     ap.add_argument("--unet-width", type=int, nargs="+", default=None,
                     help="decoder channel widths; defaults to config.UNET_CHANNELS")
+    ap.add_argument("--latent", type=int, default=None)
+    ap.add_argument("--unet-width", type=int, nargs="+", default=None)
+    ap.add_argument("--decoder", choices=["film", "simple"], default="film",
+                    help="'simple' is the bake-off's head. Varying this INDEPENDENTLY of --loss is "
+                         "the point: the move from the bake-off model to TS-Cast changed the "
+                         "decoder AND the loss at once, and no amount of tuning inside that "
+                         "confound could say which caused the regression.")
+    ap.add_argument("--loss", choices=["nll", "mse"], default="nll")
     ap.add_argument("--beta", type=float, default=0.5,
                     help="beta-NLL (Seitzer 2022). 0 = the paper's plain eq. 3, which we MEASURED "
                          "collapsing variance instead of learning the mean; 1 = MSE gradient for "
@@ -94,6 +102,21 @@ def main():
                        if a.device == "auto" else a.device)
     print(f"encoder: {enc}  ({enc_why})")
     print(f"device : {dev}   beta-NLL: {a.beta}")
+
+    def objective(mu, logvar, y, mk):
+        if a.loss == "mse":
+            m = mk.float()
+            return (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
+        return gaussian_nll(mu, logvar, y, mk, beta=a.beta)
+
+    def heldout(mu, logvar, y, mk):
+        """Held out ALWAYS on plain NLL when the head is probabilistic, so early stopping and
+        cross-run comparison never move with --loss or --beta. Under --loss mse there is no
+        variance head to score, so it falls back to MSE."""
+        if a.loss == "mse":
+            m = mk.float()
+            return (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
+        return gaussian_nll(mu, logvar, y, mk, beta=0.0)
     if dev.type != "cuda":
         print("         CPU. Fine at T_SEQ=1. A T_SEQ=31 run here is days, not hours -- the "
               "encoder sees 43x the input elements.")
@@ -112,8 +135,15 @@ def main():
     print(f"train {len(ds_tr):,} samples  |  held-out GLORYS {len(ds_te):,}")
 
     torch.manual_seed(base.SEED)
-    model = TSCastNIO(enc, len(d["channels"]), t_seq=1, p=config.P, latent=256,
-                      residual=not a.no_residual).to(dev)
+    latent = a.latent or config.LATENT_DIM
+    widths = tuple(a.unet_width) if a.unet_width else tuple(config.UNET_CHANNELS)
+    model = TSCastNIO(enc, len(d["channels"]), t_seq=1, p=config.P, latent=latent,
+                      residual=not a.no_residual, unet_channels=widths,
+                      decoder=a.decoder).to(dev)
+    n_enc = sum(q.numel() for q in model.encoder.parameters())
+    n_dec = sum(q.numel() for q in model.parameters()) - n_enc
+    print(f"params : {n_enc + n_dec:,} total  ({n_enc:,} encoder + {n_dec:,} decoder), "
+          f"latent {latent}, decoder {a.decoder}, loss {a.loss}")
     torch.manual_seed(base.SEED)                    # seed AFTER build: init consumes the RNG
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
     loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True,
@@ -133,7 +163,7 @@ def main():
         tot, nb = 0.0, 0
         for x, g, y, mk, _, cp, mo in loader:
             x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
-            loss = gaussian_nll(*model(x, g, cp, mo), y, mk, beta=a.beta)
+            loss = objective(*model(x, g, cp, mo), y, mk)
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -144,9 +174,7 @@ def main():
         with torch.no_grad():
             for x, g, y, mk, _, cp, mo in te_loader:
                 x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
-                # beta=0 deliberately: held-out score must be the PROPER scoring rule,
-                # otherwise early stopping and cross-run comparison move with beta.
-                vt += float(gaussian_nll(*model(x, g, cp, mo), y, mk, beta=0.0))
+                vt += float(heldout(*model(x, g, cp, mo), y, mk))
                 vn += 1
         tr_nll, va_nll = tot / max(nb, 1), vt / max(vn, 1)
         curve.append({"epoch": ep + 1, "train_nll": round(tr_nll, 4),
@@ -238,6 +266,7 @@ def main():
         "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
         "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta,
+        "decoder": a.decoder, "loss": a.loss,
         "beta_nll_why": ("plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0."),
         "training_curve": curve,
         "checkpoint_is": "the BEST held-out epoch, not the last -- this run overfits after a handful of epochs",

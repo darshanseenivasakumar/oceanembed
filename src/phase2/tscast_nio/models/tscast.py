@@ -187,7 +187,8 @@ class TSCastNIO(nn.Module):
     """Stage 1: 7 (or 5) surface channels + climatology prior -> 15 depths + per-depth log-var."""
 
     def __init__(self, encoder_name: str, c_in: int, t_seq: int = None, p: int = None,
-                 latent: int = None, residual: bool = True, unet_channels=None):
+                 latent: int = None, residual: bool = True, unet_channels=None,
+                 decoder: str = "film"):
         super().__init__()
         t_seq = int(config.T_SEQ if t_seq is None else t_seq)
         p = int(config.P if p is None else p)
@@ -195,7 +196,20 @@ class TSCastNIO(nn.Module):
 
         self.encoder = E.ENCODERS[encoder_name](c_in, t_seq, p, latent=latent)
         self.encoder_name = encoder_name
-        self.decoder = ClimatologyUNet(latent, widths=unet_channels)
+        self.decoder_name = decoder
+        if decoder == "film":
+            self.decoder = ClimatologyUNet(latent, widths=unet_channels)
+        elif decoder == "simple":
+            # The bake-off's head, verbatim: latent -> 15 depths, no climatology, no FiLM. This is
+            # the ONLY decoder that has been scored against Argo (0.9891 degC). Keeping it here as a
+            # switch is what lets the loss be varied INDEPENDENTLY of the decoder -- going from the
+            # bake-off model to the TS-Cast model changed both at once, and three rounds of tuning
+            # inside that confound could not attribute the regression to either.
+            self.decoder = None
+            self.simple_head = nn.Sequential(
+                nn.Linear(latent, 256), nn.Mish(), nn.Linear(256, 2 * config.N_DEPTHS))
+        else:
+            raise ValueError(f"decoder must be 'film' or 'simple', got {decoder!r}")
         self.residual = bool(residual)
 
         lo, hi = config.INTERNAL_DEPTH_RANGE
@@ -208,6 +222,12 @@ class TSCastNIO(nn.Module):
     def forward(self, x, x_geo, clim, month):
         """clim: (B, 12, 15) z-scored. month: (B,) int index of the target month."""
         h = self.encoder(x, x_geo)
+
+        if self.decoder is None:                                       # 'simple': the bake-off head
+            out = self.simple_head(h)
+            mu, logvar = out[:, :config.N_DEPTHS], out[:, config.N_DEPTHS:]
+            return mu, logvar.clamp(LOGVAR_MIN, LOGVAR_MAX)
+
         c_int = torch.einsum("ls,bms->bml", self.up_M, clim)          # (B,12,64)
         mu_i, logvar_i = self.decoder(c_int, h)
 

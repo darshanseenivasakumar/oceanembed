@@ -89,6 +89,11 @@ def main():
                          "decoder AND the loss at once, and no amount of tuning inside that "
                          "confound could say which caused the regression.")
     ap.add_argument("--loss", choices=["nll", "mse"], default="nll")
+    ap.add_argument("--data", choices=["monthly", "daily"], default="monthly")
+    ap.add_argument("--t-seq", type=int, default=None,
+                    help="input window length. Only meaningful with --data daily; "
+                         "the monthly archive has no daily neighbours.")
+    ap.add_argument("--test-samples", type=int, default=12000)
     ap.add_argument("--beta", type=float, default=0.5,
                     help="beta-NLL (Seitzer 2022). 0 = the paper's plain eq. 3, which we MEASURED "
                          "collapsing variance instead of learning the mean; 1 = MSE gradient for "
@@ -119,16 +124,29 @@ def main():
         print("         CPU. Fine at T_SEQ=1. A T_SEQ=31 run here is days, not hours -- the "
               "encoder sees 43x the input elements.")
 
-    d = D.load_monthly()
-    tr_t, te_t = D.split_indices(d["times"])
-    clim = np.load(base.art("climatology.npy"))     # built from TRAIN years only (climatology.py)
+    if a.data == "daily":
+        d = D.load_daily()
+        tr_t, te_t = D.daily_split_indices(d["times"])
+    else:
+        d = D.load_monthly()
+        tr_t, te_t = D.split_indices(d["times"])
+    t_seq = int(a.t_seq or 1)
+    if a.data == "monthly" and t_seq != 1:
+        raise SystemExit("--t-seq > 1 needs --data daily: the monthly archive has one sample per "
+                         "month, so a window of 31 steps would span 31 MONTHS, not 31 days.")
+    print(f"data   : {a.data}, {len(d['times'])} steps, T_SEQ={t_seq}, "
+          f"train {len(tr_t)} / test {len(te_t)}")
+    # 2019-2021 climatology, DISJOINT from the 2025-26 daily period -> no leakage path.
+    # See scripts/phase2/build_daily_climatology.py for why not a train-split climatology.
+    clim = np.load(base.art("climatology.npy"))
 
     ds_tr = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
-                             tr_t, t_seq=config.T_SEQ if config.T_SEQ == 1 else 1,
+                             tr_t, t_seq=t_seq,
                              max_samples=a.train_samples, seed=base.SEED,
                              clim=clim, return_clim=True)
     ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
-                             te_t, norm=ds_tr.norm, t_seq=1, max_samples=12000,
+                             te_t, norm=ds_tr.norm, t_seq=t_seq,
+                             max_samples=a.test_samples,
                              seed=base.SEED + 1, clim=clim, return_clim=True)
     print(f"train {len(ds_tr):,} samples  |  held-out GLORYS {len(ds_te):,}")
 
@@ -244,7 +262,7 @@ def main():
     ck = base.art("tscast_stage1.pt")
     torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": base.SEED,
                 "residual": not a.no_residual, "channels": d["channels"],
-                "P": config.P, "T_SEQ": 1, "latent": latent, "unet_channels": list(widths),
+                "P": config.P, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
                 "norm": [v.tolist() for v in ds_tr.norm],
                 "epochs": best["epoch"], "lr": a.lr,
                 "batch_size": a.batch_size}, ck)
@@ -259,7 +277,7 @@ def main():
         "trained_on": "monthly archive, T_SEQ=1 (the daily bundle had not landed)",
         "channels": d["channels"],
         "channels_note": "5 of the contract's 7; wind arrives with the daily pipeline",
-        "device": str(dev), "latent": latent, "unet_channels": list(widths),
+        "device": str(dev), "data": a.data, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
         "n_params_encoder": n_enc, "n_params_decoder": n_dec,
         "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),

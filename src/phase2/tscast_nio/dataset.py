@@ -15,6 +15,8 @@ Design notes that are not cosmetic:
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -153,6 +155,52 @@ def load_monthly(path=None):
     surface = np.stack([g[c] for c in chans], axis=-1).astype("float32")
     return dict(surface=surface, temp=g["temp"].astype("float32"), times=g["times"],
                 land_mask=g["land_mask"], valid_mask=g["valid_mask"], channels=chans)
+
+
+def load_daily(d=None):
+    """The 388-day bundle built by phase2.tscast_nio.daily_pipeline.
+
+    Same dict shape as load_monthly(), so every consumer -- sampler, trainer, ablation -- works
+    unchanged. That is the whole point of the T_SEQ/P contract: going daily is a data swap and a
+    config flip, not a rewrite.
+    """
+    import glob as _glob
+    d = d or os.path.join(base.DATA_PROCESSED, "daily")
+    files = sorted(_glob.glob(os.path.join(d, "*.npz")))
+    if not files:
+        raise FileNotFoundError(f"no daily bundle in {d}; run phase2.tscast_nio.daily_pipeline")
+    times, surface, temp, sal = [], [], [], []
+    land = valid = chans = None
+    for f in files:
+        z = np.load(f, allow_pickle=True)
+        times.append(z["times"]); surface.append(z["surface"]); temp.append(z["temp"])
+        if "salinity" in z.files:
+            sal.append(z["salinity"])
+        land = z["land_mask"] if land is None else land
+        valid = z["valid_mask"] if valid is None else valid
+        chans = list(z["channels"]) if chans is None else chans
+    times = np.concatenate(times)
+    order = np.argsort(times)
+    out = dict(surface=np.concatenate(surface)[order], temp=np.concatenate(temp)[order],
+               times=times[order], land_mask=land, valid_mask=valid, channels=chans)
+    if sal:
+        out["salinity"] = np.concatenate(sal)[order]
+    return out
+
+
+# The daily split, from the v2 brief. Temporal holdout, and asserted disjoint below.
+DAILY_TRAIN = (np.datetime64("2025-06-01"), np.datetime64("2026-03-31"))
+DAILY_TEST = (np.datetime64("2026-04-01"), np.datetime64("2026-06-23"))
+
+
+def daily_split_indices(times):
+    """Train / test indices for the daily bundle. Test comes strictly AFTER train."""
+    t = np.asarray(times, dtype="datetime64[D]")
+    tr = np.nonzero((t >= DAILY_TRAIN[0]) & (t <= DAILY_TRAIN[1]))[0]
+    te = np.nonzero((t >= DAILY_TEST[0]) & (t <= DAILY_TEST[1]))[0]
+    assert len(np.intersect1d(tr, te)) == 0, "daily train and test windows overlap"
+    assert t[tr].max() < t[te].min(), "test window must start after train ends: no future leakage"
+    return tr, te
 
 
 def split_indices(times, train_years=None, test_years=None):

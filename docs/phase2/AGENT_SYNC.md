@@ -59,6 +59,181 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-29 [ARJHUN] DAILY DATA IS IN. The FiLM decoder was the regression, not the loss. Best model now beats the frozen headline.
+
+Branch **`phase2-tscast-nio`**. `main` untouched. 370 tests pass.
+
+---
+
+### 1. >>> THE HEADLINE: the decoder was the problem all along
+
+I spent three rounds tuning the wrong thing. Going from the bake-off model to the TS-Cast model I
+changed the DECODER (linear head -> FiLM/climatology U-Net) **and** the LOSS (MSE -> NLL) in one
+step, then tuned inside that confound: 13x capacity range, two beta settings, best epoch stuck at 3
+every time, RMSE stuck at 1.15-1.19. None of it could attribute the regression, because the
+regression was not inside what I was varying. That was my error.
+
+The 2x2 that should have come first, on the monthly archive vs 897 independent 2022 Argo profiles:
+
+| | MSE | NLL |
+|---|---|---|
+| **simple head** | 0.9891 | **0.9672** <- best |
+| **FiLM decoder** | 1.1598 | 1.1618 |
+
+**The FiLM/climatology decoder costs ~0.18 degC under EITHER loss. The loss costs nothing** -- NLL
+is actually BETTER than MSE with a simple head. The two do not interact; the decoder is simply
+harmful at this data scale.
+
+So `(simple head, NLL)` is the model, and it beats the frozen build on both axes at once:
+
+| | Argo RMSE | skill | calibration |
+|---|---|---|---|
+| frozen build, GLORYS-driven | 0.9736 | +0.3809 | **1.56-3.54** (MC-dropout) |
+| **v2 (simple + NLL)** | **0.9672** | **+0.3961** | **0.74-1.82** |
+
+MC-dropout's 1.6-3.5x overconfidence (D-016) is replaced by a predicted sigma that reads 1.00 at
+500 m. That was the whole point of the rebuild and it works.
+
+**Do not read (film, MSE)'s calibration of 0.25-0.86 as "MSE calibrates better."** Under MSE there
+is no variance head; that column is scored against a fixed sigma. Only the two NLL cells are
+comparable.
+
+### 2. DAILY DATA: bundle built and VERIFIED. Requirement 3 is unblocked.
+
+Darshan's 388 files copied and processed. **We did not re-download anything** -- that is the 16-hour
+GLORYS pull we did not have to run.
+
+```
+data/processed/daily/2025.npz   214 days  2025-06-01..2025-12-31   0 missing
+data/processed/daily/2026.npz   174 days  2026-01-01..2026-06-23   0 missing
+1000 m coverage 75.8% of ocean cells  <- matches F2a's independently derived 75.8% EXACTLY
+```
+
+`scripts/phase2/verify_daily_bundle.py` opened **all 388 files**: depth reaches 1062.4 m so 1000 m
+is interpolated between real levels; `source` is MERCATOR GLORYS12V1; internal time coordinates
+match filenames exactly; contiguous, no gaps.
+
+> **DARSHAN -- worth knowing about your own files.** Their global attributes are STALE TEMPLATE
+> values: `field_date 2021-06-30`, `history 2023/06/01`, on a file named `20250601`. They prove
+> nothing either way. I added a check that the internal TIME COORDINATE matches the filename, which
+> is what the data is actually indexed by. Verified across the bundle -- they agree. A silent offset
+> there would have trained cleanly and been wrong by four years everywhere.
+
+**Every rejection the verifier produced was MY threshold, not your data** -- three in a row, and the
+last two were the same mistake at opposite ends. The Persian Gulf is shallow, semi-enclosed and
+inside our 45-105 E box, so it sets BOTH extremes:
+
+```
+ceiling  36.34 degC  24.08N 53.58E  2025-08-04   southern Gulf, late summer
+floor    13.34 degC  29.75N 48.33E  2026-01-17   head of the Gulf, mid-winter
+```
+
+On that January day the open Arabian Sea held 24.4 degC. Bounds tuned to the open ocean clip the
+marginal seas for being exactly what they are. Both values are now pinned by a test.
+
+The pipeline REUSES `preprocess._process_one` rather than reimplementing the regrid -- that function
+already raises instead of extrapolating past the deepest level, and a second regridder is the D-014
+two-loader failure.
+
+### 3. THE CLIMATOLOGY CANNOT BE REBUILT FROM THE DAILY TRAIN YEARS
+
+Two independent reasons, and both matter:
+
+1. **The train split has no April and no May.** Train 2025-06..2026-03, test 2026-04..2026-06.
+   Months 4 and 5 have ZERO train days and 61 of the 84 test days. A prior built from the train
+   period would have no entry for two of the three months the model must predict.
+2. **388 days over 13 months is not a climatology.** A climatology is a MULTI-YEAR average. Over one
+   year the monthly mean IS that month's data, so the prior becomes a copy of the target.
+
+So the prior stays the 2019-2021 three-year climatology -- which is **stronger**, not a fallback: it
+is drawn from 2019-2021 and applied to 2025-2026, **completely disjoint periods, so no leakage path
+exists at all.** That is a better guarantee than any split inside one period.
+
+Staleness MEASURED, not assumed: surface drift **-0.025 degC** (monthly range -0.30..+0.32), worst
+depth 100 m at **+0.45 degC**, most levels under 0.10. Far below the model's own ~1 degC thermocline
+error. Full table in `artifacts/clim_daily.npz`.
+
+### 4. INDEPENDENT ARGO FOR THE DAILY PERIOD -- 962 profiles at MEDIAN OFFSET 0 DAYS
+
+`artifacts/argo_test.parquet` is **2022 only**, so the daily model had no independent validation at
+all -- only held-out GLORYS, which is our own training truth. Fetched 2025-06..2026-06 via argopy:
+4,331 profiles, **962 in the test window**.
+
+Compare: the frozen headline rests on 897 profiles matched within +/-5 days of a MONTHLY field,
+median offset 7 days. Against DAILY fields the same tolerance gives **same-day collocation**. Tighter
+comparison, not merely an equal-sized one.
+
+> **The 2022 set was NOT overwritten.** `download_argo.download()` defaults to writing
+> `artifacts/argo_test`, which is the file every published number rests on. Overwriting it would
+> have destroyed the monthly model's only independent check and **nothing in the numbers would have
+> revealed it** -- they would just quietly have become a different measurement. The fetch script
+> writes to separate files and asserts that file's mtime is unchanged before exiting.
+
+Needed a dependency pin: **argopy 1.4.0 requires erddapy 2.x.** pip had installed 3.3.0, where
+`_quote_string_constraints` no longer exists, and that broke ALL THREE fetchers, not just one.
+
+### 5. T_SEQ ABLATION -- in flight, 2 of 3 in, and the daily data is doing what it should
+
+On daily data, 962 independent Argo profiles, identical seed/samples/decoder/loss:
+
+| T_SEQ | Argo RMSE | corr | bias | skill | best epoch |
+|---|---|---|---|---|---|
+| 1 (no window) | 0.9096 | 0.894 | +0.170 | +0.258 | 7 |
+| **11 (+/-5 d)** | **0.8529** | 0.889 | **+0.036** | **+0.304** | 2 |
+| 31 (+/-15 d) | running | | | | |
+
+A +/-5 day window is worth **0.057 degC** over no window, and it cuts the warm bias from +0.170 to
++0.036. Whether +/-15 earns its extra cost is the open question.
+
+**THE CONSTRAINT THAT CAPPED EVERYTHING YESTERDAY HAS LIFTED.** On the monthly archive the best
+held-out epoch was 3 in every single run regardless of capacity or loss -- 36 monthly steps give
+~36 genuinely independent time samples no matter how many grid cells you draw from them. On daily
+data T_SEQ=1 reaches epoch 7 with held-out NLL -0.6764 against -0.2287 before.
+
+**Do NOT compare 0.8529 against 0.9672 as an improvement.** Different test sets (2026 Argo vs 2022
+Argo), different input period, different collocation quality. They are not the same measurement.
+
+Cost is MEASURED, and I over-estimated it earlier: T_SEQ=31 is **13.8x** T_SEQ=1, not the 43x I
+claimed when arguing we needed a GPU. Patch extraction dominates, not the convolution. A T_SEQ=31
+run at 40k samples is ~2 hours, not days.
+
+### 6. BUGS FOUND -- two would have produced confident wrong numbers
+
+1. **FiLM zero-init froze the encoder.** Exact-identity init makes d(gamma)/dh identically zero, so
+   NO GRADIENT reaches the satellite embedding on step one -- the entire point of requirement 9.
+   It self-heals once the weight moves, so the symptom is a slow start and the loss curve looks
+   fine. Now a small random init; both halves guarded by tests that name each other.
+2. **The trainer saved the LAST epoch, not the best.** Held-out loss bottomed at epoch 4 and rose
+   every epoch after while train loss kept falling. A 20-epoch run would have checkpointed the most
+   overfit model and reported its Argo numbers as the result.
+3. **Cell lookup**: `searchsorted-1` disagrees with the frozen `grids.nearest_*` on **75.5%** of
+   Argo profiles by one cell (~28 km). Found via YOUR accept.py F2a assertion, not my own smoke
+   test. **If any of your code does cell lookup with searchsorted, it has this bug.** Confirmed
+   fixed by baseline skill moving 0.3712 -> 0.3861 against the published 0.3871.
+4. **Scoring against the wrong period.** The daily ablation trained a full run then died because
+   2022 Argo matched zero 2026 profiles. The crash was the LUCKY outcome -- had one profile matched
+   instead of none, it would have completed and reported an RMSE from a single float as a result.
+   Now refuses to score on zero matches and prints the count and median offset every run.
+
+### 7. STILL BLOCKED -- one thing, and it is yours
+
+**WIND. PS requirement 8 is at 0%.** GLORYS is ocean-only; there is no wind in the bundle. No daily
+L4 wind product covers 2025-26, so it must come from `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H`
+(hourly), be averaged 24->1 day, and regridded 0.125 -> 0.25 deg. **That needs a CMEMS login on this
+machine** (`.venv/Scripts/copernicusmarine.exe login`) or the files from yours. ~7.2 GB, 3-4 hours.
+
+Everything above runs on **5 of the contract's 7 channels**. That is a real limitation of the current
+result, not a footnote.
+
+### 8. Test it
+
+```
+python scripts/phase2/accept.py
+PYTHONPATH=src python scripts/phase2/verify_daily_bundle.py --dir data/raw/daily --full
+```
+
+---
+
 ## 2026-08-28 [ARJHUN] BAKE-OFF RESULT: cnn3d wins. And the brief's ranking criterion would have picked the WRONG model.
 
 Branch **`phase2-tscast-nio`**. `main` untouched (0 commits ahead of `origin/main`). 355 tests pass.

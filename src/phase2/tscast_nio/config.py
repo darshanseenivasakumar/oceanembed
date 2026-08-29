@@ -42,8 +42,22 @@ P = 17       # patch width in cells; must be odd so the target cell is the centr
 # evenly-spaced grid and resamples to the 15 contract depths at the output head.
 INTERNAL_LEVELS = 64
 INTERNAL_DEPTH_RANGE = (0.0, 1000.0)
-LATENT_DIM = 512      # h, as in the paper
-UNET_CHANNELS = (64, 128, 256, 512)
+
+# SIZED FOR OUR DATA, NOT THE PAPER'S. The paper uses a 512-wide latent and a (64,128,256,512)
+# U-Net, but it trains on 155,030 profiles spanning 27 years at 128 depth levels. We have 36
+# MONTHLY timesteps and 15 levels.
+#
+# MEASURED: at the paper's widths the model is 7,118,474 parameters -- 519k encoder and 6.6M
+# decoder, of which 3.0M is FiLM alone -- against 543,383 for the encoder+head the bake-off
+# actually validated at 0.9891 degC. That is 13.1x the capacity on the same 100k samples, and it
+# overfits by epoch 3 no matter what the loss does: beta-NLL removed the variance collapse (train
+# NLL -1.0610 -> -0.2025) and the best epoch stayed at 3.
+#
+# So these are cut to roughly encoder scale. Restore the paper's widths when the daily bundle
+# lands and there is data to justify them.
+LATENT_DIM = 128
+UNET_CHANNELS = (32, 64, 128)
+PAPER_UNET_CHANNELS = (64, 128, 256, 512)   # kept for the record, and for the daily rerun
 
 # ---- training --------------------------------------------------------------
 TRAIN = dict(epochs=250, lr=1e-5, batch_size=512, optimizer="adamw", val_fraction=0.2, n_ensemble=3)

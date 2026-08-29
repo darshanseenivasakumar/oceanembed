@@ -79,6 +79,10 @@ def main():
                     help="auto | cpu | cuda. At T_SEQ=31 the encoder sees 43x the input elements "
                          "it does at T_SEQ=1, which is days per run on CPU.")
     ap.add_argument("--num-workers", type=int, default=0)
+    ap.add_argument("--latent", type=int, default=None,
+                    help="latent width; defaults to config.LATENT_DIM")
+    ap.add_argument("--unet-width", type=int, nargs="+", default=None,
+                    help="decoder channel widths; defaults to config.UNET_CHANNELS")
     ap.add_argument("--beta", type=float, default=0.5,
                     help="beta-NLL (Seitzer 2022). 0 = the paper's plain eq. 3, which we MEASURED "
                          "collapsing variance instead of learning the mean; 1 = MSE gradient for "
@@ -214,7 +218,7 @@ def main():
     ck = base.art("tscast_stage1.pt")
     torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": base.SEED,
                 "residual": not a.no_residual, "channels": d["channels"],
-                "P": config.P, "T_SEQ": 1, "latent": 256,
+                "P": config.P, "T_SEQ": 1, "latent": latent, "unet_channels": list(widths),
                 "norm": [v.tolist() for v in ds_tr.norm],
                 "epochs": best["epoch"], "lr": a.lr,
                 "batch_size": a.batch_size}, ck)
@@ -229,7 +233,8 @@ def main():
         "trained_on": "monthly archive, T_SEQ=1 (the daily bundle had not landed)",
         "channels": d["channels"],
         "channels_note": "5 of the contract's 7; wind arrives with the daily pipeline",
-        "device": str(dev),
+        "device": str(dev), "latent": latent, "unet_channels": list(widths),
+        "n_params_encoder": n_enc, "n_params_decoder": n_dec,
         "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
         "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta,

@@ -187,7 +187,7 @@ class TSCastNIO(nn.Module):
     """Stage 1: 7 (or 5) surface channels + climatology prior -> 15 depths + per-depth log-var."""
 
     def __init__(self, encoder_name: str, c_in: int, t_seq: int = None, p: int = None,
-                 latent: int = None, residual: bool = True):
+                 latent: int = None, residual: bool = True, unet_channels=None):
         super().__init__()
         t_seq = int(config.T_SEQ if t_seq is None else t_seq)
         p = int(config.P if p is None else p)
@@ -195,7 +195,7 @@ class TSCastNIO(nn.Module):
 
         self.encoder = E.ENCODERS[encoder_name](c_in, t_seq, p, latent=latent)
         self.encoder_name = encoder_name
-        self.decoder = ClimatologyUNet(latent)
+        self.decoder = ClimatologyUNet(latent, widths=unet_channels)
         self.residual = bool(residual)
 
         lo, hi = config.INTERNAL_DEPTH_RANGE

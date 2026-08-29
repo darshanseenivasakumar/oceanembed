@@ -219,7 +219,20 @@ def main():
           f"Everything below is that model, not the last one.")
 
     # ---- independent Argo -------------------------------------------------
-    keys, truth = VA.pivot_profiles(VA.load_argo())
+    # The Argo set MUST cover the same period as the data. artifacts/argo_test.parquet is 2022;
+    # against a 2026 test window the +/-5 day filter matches nothing, and the run then died on
+    # "need at least one array to concatenate" AFTER a full training run had completed.
+    if a.data == "daily":
+        argo_path = base.art("argo_daily_period.parquet")
+        if not os.path.exists(argo_path):
+            raise SystemExit(
+                f"--data daily needs {argo_path}. artifacts/argo_test.parquet is 2022 only and "
+                "would match zero profiles in the 2026 test window. Run "
+                "scripts/phase2/fetch_argo_daily_period.py first.")
+        argo_df = pd.read_parquet(argo_path)
+    else:
+        argo_df = VA.load_argo()
+    keys, truth = VA.pivot_profiles(argo_df)
     all_times = np.asarray(d["times"], dtype="datetime64[D]")
     dts = pd.to_datetime(keys["date"].values).values.astype("datetime64[D]")
     offs = np.array([np.abs((all_times[te_t] - x).astype("timedelta64[D]").astype(int))
@@ -228,6 +241,14 @@ def main():
     t_idx = np.asarray(te_t)[offs.argmin(axis=1)]
     la, lo = D.cell_index(keys["lat"].values, keys["lon"].values)
 
+    if int(keep.sum()) == 0:
+        raise SystemExit(
+            f"NO Argo profile falls within +/-{MAX_DAYS} days of the test window "
+            f"({str(all_times[te_t].min())}..{str(all_times[te_t].max())}). The Argo set spans "
+            f"{keys['date'].min()}..{keys['date'].max()}. Scoring is impossible; refusing to "
+            f"report metrics computed on zero profiles.")
+    print(f"independent Argo in the test window: {int(keep.sum())} profiles "
+          f"(median offset {int(np.median(offs.min(axis=1)[keep]))} d)")
     ds_te.index = np.stack([t_idx[keep], la[keep], lo[keep]], axis=1)
     mus, lvs = [], []
     model.eval()

@@ -125,3 +125,17 @@ def test_the_contract_depths_are_read_from_config_not_hardcoded(tmp_path):
     src = open(SCRIPT, encoding="utf-8").read()
     assert "DEPTHS = list(config.DEPTHS)" in src
     assert str(config.DEPTHS) not in src, "contract depths are hardcoded in the verifier"
+
+
+def test_sst_bounds_admit_the_real_persian_gulf_extremes():
+    """The Gulf sets both extremes in this basin and my first two bounds clipped it at both ends.
+    These are the MEASURED values from Darshan's bundle, so a future tightening breaks this test
+    rather than silently rejecting 65+ good files."""
+    import importlib.util as u
+    spec = u.spec_from_file_location("v", SCRIPT)
+    mod = u.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.SST_MIN < 13.34, "head of the Persian Gulf, 2026-01-17, 29.75N 48.33E"
+    assert mod.SST_MAX > 36.34, "southern Persian Gulf, 2025-08-04, 24.08N 53.58E"
+    # but still tight enough that Kelvin cannot slip through
+    assert mod.SST_MAX < 100.0, "a Kelvin field (~270-310) must still fail"

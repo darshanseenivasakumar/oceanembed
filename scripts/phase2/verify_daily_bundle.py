@@ -40,10 +40,15 @@ REGION = config.REGION
 EXPECTED_VARS = {"thetao", "so", "zos", "uo", "vo"}
 
 # Physical sanity bounds for the North Indian Ocean.
-# 16.0 not 18.0: the Somali/Oman upwelling at peak SW monsoon genuinely reaches ~17.1 degC in
-# this bundle, and F6 validated that upwelling as a real feature of this region. A tighter floor
-# rejects correct data for showing the correct signal. Kelvin still reads ~300 and fails loudly.
-SST_MIN, SST_MAX = 16.0, 36.0
+# Bounds set from what the REGION actually does, verified against the real bundle at BOTH ends.
+# The Persian Gulf -- shallow, semi-enclosed, and inside our 45-105 E box -- sets both extremes:
+#   ceiling  36.34 degC at 24.08N 53.58E on 2025-08-04 (southern Gulf, late summer)
+#   floor    13.34 degC at 29.75N 48.33E on 2026-01-17 (head of the Gulf, mid-winter)
+# On that same January day the open Arabian Sea held 24.4 degC. Bounds tuned to the open ocean
+# clip the marginal seas for being exactly what they are, so these are set wide enough to admit
+# the Gulf and no wider.
+# Kelvin still fails loudly: it reads ~270-310 across the WHOLE field, not 13 in one basin.
+SST_MIN, SST_MAX = 11.0, 38.0
 DEEP_MIN, DEEP_MAX = 1.0, 20.0         # degC at 1000 m
 
 
@@ -152,8 +157,9 @@ def check_one_file(path: str, r: Result, *, deep_check: bool = True) -> None:
                 r.add(SST_MIN <= lo and hi <= SST_MAX,
                       f"[{name}] SST {lo:.1f}..{hi:.1f} degC",
                       "" if SST_MIN <= lo and hi <= SST_MAX else
-                      f"outside {SST_MIN}..{SST_MAX} degC. ~270-310 means KELVIN, which would "
-                      f"train fine and be wrong by 273 everywhere.")
+                      f"outside {SST_MIN}..{SST_MAX} degC. A whole field at ~270-310 means KELVIN, which "
+                      f"would train fine and be wrong by 273 everywhere. A single "
+                      f"basin above 36 is more likely the Persian Gulf in August.")
 
             r.add(np.isfinite(sv).mean() if sv.size else 0 > 0,
                   f"[{name}] surface field is not all-NaN")

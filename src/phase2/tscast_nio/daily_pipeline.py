@@ -37,6 +37,51 @@ from phase2.tscast_nio import config
 SURFACE_KEYS = ["sst", "sss", "ssh", "u", "v"]
 SURFACE_UNITS = ["degC", "psu", "m", "m s-1", "m s-1"]
 
+# Channels 6 and 7 of the frozen contract, from phase2.data.download_wind_daily. Appended in this
+# order and no other -- the contract is ["sst","sss","ssh","u","v","wu","wv"] and readers index by
+# position, so a reordered write is a silent science bug, not a formatting one.
+WIND_KEYS = ["wu", "wv"]
+WIND_UNITS = ["m s-1", "m s-1"]
+WIND_NPZ = os.path.join(base.DATA_PROCESSED, "wind_daily.npz")
+
+
+def load_wind(path: str = WIND_NPZ) -> dict | None:
+    """Daily-mean wind on config.LAT/LON, keyed BY DATE. None if it was never downloaded.
+
+    The grid is verified here rather than trusted: `download_wind_daily` writes the lat/lon it
+    regridded onto, so a bundle built against some other grid must fail loudly instead of being
+    stacked into channels 6-7 where nothing would ever look at it again.
+    """
+    if not os.path.exists(path):
+        return None
+    z = np.load(path, allow_pickle=False)
+    for axis, want in (("lat", base.LAT), ("lon", base.LON)):
+        got = z[axis]
+        if got.shape != want.shape or not np.allclose(got, want, atol=1e-6):
+            raise ValueError(
+                f"{path} is on a different {axis} grid than config: "
+                f"{got[:3]}... vs {want[:3]}... -- refusing to merge it as a surface channel")
+    return {"dates": np.asarray(z["dates"], dtype="datetime64[D]"),
+            "wu": z["wu"], "wv": z["wv"]}
+
+
+def _wind_for(wind: dict, times: np.ndarray) -> np.ndarray:
+    """(T, 100, 240, 2) wind aligned to `times` BY DATE, never by position.
+
+    Refuses on any missing day. A NaN wind channel would train fine and quietly mean "no wind
+    information for this day" -- the model cannot tell that apart from calm.
+    """
+    idx = np.searchsorted(wind["dates"], times)
+    idx = np.clip(idx, 0, len(wind["dates"]) - 1)
+    hit = wind["dates"][idx] == times
+    if not hit.all():
+        miss = times[~hit]
+        raise ValueError(
+            f"wind is missing {len(miss)} of {len(times)} days needed by this year, "
+            f"e.g. {list(miss[:5])}. Re-run `python -m phase2.data.download_wind_daily --process` "
+            f"or build this year with --no-wind and say so beside every number it produces.")
+    return np.stack([wind["wu"][idx], wind["wv"][idx]], axis=-1).astype("float32")
+
 
 def _salinity_at_depths(path: str) -> np.ndarray:
     """(T, 100, 240, 15) salinity, regridded the same way preprocess does it."""
@@ -57,7 +102,8 @@ def _salinity_at_depths(path: str) -> np.ndarray:
         return sal.transpose(timen, latn, lonn, depthn).values.astype("float32")
 
 
-def build_year(files: list[str], year: int, out_dir: str, with_salinity: bool = True) -> str:
+def build_year(files: list[str], year: int, out_dir: str, with_salinity: bool = True,
+               wind: dict | None = None) -> str:
     n = len(files)
     nlat, nlon, nd = base.N_LAT, base.N_LON, base.N_DEPTHS
     times = np.empty(n, dtype="datetime64[D]")
@@ -81,6 +127,14 @@ def build_year(files: list[str], year: int, out_dir: str, with_salinity: bool = 
     if with_salinity:
         salinity = salinity[order]
 
+    # Wind is joined AFTER the sort, so it aligns to the dates actually written -- joining before
+    # would align it to file order, which is not the same thing.
+    keys, units = list(SURFACE_KEYS), list(SURFACE_UNITS)
+    if wind is not None:
+        surface = np.concatenate([surface, _wind_for(wind, times)], axis=-1)
+        keys += WIND_KEYS
+        units += WIND_UNITS
+
     # Gaps are RECORDED, never interpolated and never silently dropped: a gap the model cannot see
     # is a gap it will learn straight through.
     full = np.arange(times[0], times[-1] + np.timedelta64(1, "D"), dtype="datetime64[D]")
@@ -93,14 +147,20 @@ def build_year(files: list[str], year: int, out_dir: str, with_salinity: bool = 
     path = os.path.join(out_dir, f"{year}.npz")
     payload = dict(
         times=times, surface=surface, temp=temp,
-        channels=np.array(SURFACE_KEYS), units=np.array(SURFACE_UNITS),
+        channels=np.array(keys), units=np.array(units),
         land_mask=land_mask, valid_mask=valid_mask, missing_days=missing,
         provenance=json.dumps({
             "source": "GLORYS12V1 daily (cmems_mod_glo_phy_my_0.083deg_P1D-m)",
             "from": "Darshan's bundle, verified by scripts/phase2/verify_daily_bundle.py",
             "regrid": "oceanembed.data.preprocess._process_one -- reused, not reimplemented",
             "n_files": n, "year": year,
-            "channels_note": "5 of the contract's 7; wind needs the hourly NRT product",
+            "channels_note": (f"{len(keys)} of the contract's 7 channels: {keys}"
+                              + ("" if len(keys) == 7 else
+                                 " -- WIND ABSENT, state that beside every number built on this")),
+            "wind_source": (None if wind is None else
+                            "cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H, hourly -> daily mean, "
+                            "block-averaged 0.125->0.25 deg by coordinate "
+                            "(phase2.data.download_wind_daily)"),
             "code_commit": _commit(),
         }),
     )
@@ -129,10 +189,18 @@ def _commit() -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--raw-dir", default=os.path.join("data", "raw", "daily"))
+    # `data/raw/daily` never existed: our own launcher (scripts/phase2/download_daily_2025_2026.py)
+    # writes GLORYS to data/raw/glorys_daily. The old default sent anyone following the checklist
+    # toward a 16 h re-download of files that were already on disk.
+    ap.add_argument("--raw-dir", default=os.path.join("data", "raw", "glorys_daily"),
+                    help="where download_daily_2025_2026.py put the GLORYS files")
     ap.add_argument("--out-dir", default=os.path.join("data", "processed", "daily"))
     ap.add_argument("--no-salinity", action="store_true")
     ap.add_argument("--limit", type=int, default=None, help="first N files only (smoke test)")
+    ap.add_argument("--wind", default=WIND_NPZ,
+                    help="daily wind npz to merge as channels 6-7; absent = 5 channels")
+    ap.add_argument("--no-wind", action="store_true",
+                    help="write 5 channels even if wind exists (to reproduce a 5-channel run)")
     a = ap.parse_args()
 
     files = sorted(glob.glob(os.path.join(a.raw_dir, "*.nc")))
@@ -146,10 +214,23 @@ def main() -> None:
         m = re.search(r"(\d{4})\d{4}", os.path.basename(f))
         by_year[int(m.group(1))].append(f)
 
+    wind = None if a.no_wind else load_wind(a.wind)
+    if wind is None:
+        print(f"WIND: absent ({a.wind}) -- writing 5 of the contract's 7 channels. Every "
+              f"number built on this bundle must say so.")
+    else:
+        print(f"WIND: {len(wind['dates'])} days {wind['dates'][0]}..{wind['dates'][-1]}, "
+              f"merging as channels 6-7 -> 7 of 7 contract channels")
+
     print(f"{len(files)} files -> {dict((y, len(v)) for y, v in sorted(by_year.items()))}")
     for year in sorted(by_year):
-        build_year(sorted(by_year[year]), year, a.out_dir, with_salinity=not a.no_salinity)
-    print("\nNEXT: rebuild the climatology from the daily TRAIN years before training on this.")
+        build_year(sorted(by_year[year]), year, a.out_dir, with_salinity=not a.no_salinity,
+                   wind=wind)
+    # NOT "rebuild the climatology from the daily train years" -- that line used to sit here and
+    # it contradicts a settled decision. The prior is the 2019-2021 monthly climatology PRECISELY
+    # because it is disjoint from 2025-26; the daily train split contains no April or May at all,
+    # and 388 days is not a climatology. See scripts/phase2/build_daily_climatology.py.
+    print("\nNEXT: train against artifacts/climatology.npy (2019-2021, disjoint from this bundle).")
 
 
 if __name__ == "__main__":

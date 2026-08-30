@@ -121,3 +121,64 @@ def test_variables_match_the_frozen_contract_channels():
     assert W.VARIABLES == ["eastward_wind", "northward_wind"]
     doc = open("docs/phase2/tscast_data_model.md", encoding="utf-8").read()
     assert '"wu","wv"' in doc.replace(" ", ""), "channel contract changed -- re-read it"
+
+
+# ── merging wind into the daily bundle as channels 6-7 ────────────────────────────────
+
+def _fake_wind(dates, nlat=None, nlon=None):
+    nlat = nlat or len(config.LAT)
+    nlon = nlon or len(config.LON)
+    d = np.asarray(dates, dtype="datetime64[D]")
+    # value == day number, so a misalignment shows up as a wrong number, not a wrong shape
+    day = d.astype("int64").astype(np.float32)
+    return {"dates": d,
+            "wu": np.broadcast_to(day[:, None, None], (len(d), nlat, nlon)).astype(np.float32),
+            "wv": np.broadcast_to(-day[:, None, None], (len(d), nlat, nlon)).astype(np.float32)}
+
+
+def test_wind_is_joined_by_date_not_by_position():
+    from phase2.tscast_nio import daily_pipeline as P
+
+    wind = _fake_wind(np.arange(np.datetime64("2025-06-01"), np.datetime64("2025-07-01")))
+    # ask for a NON-contiguous subset in a different position than the wind array
+    times = np.array(["2025-06-20", "2025-06-05", "2025-06-11"], dtype="datetime64[D]")
+    out = P._wind_for(wind, times)
+    assert out.shape == (3, len(config.LAT), len(config.LON), 2)
+    want = times.astype("int64").astype(np.float32)
+    assert np.allclose(out[:, 0, 0, 0], want), (
+        "wind rows do not carry the day they are labelled with -- it was joined by position")
+    assert np.allclose(out[:, 0, 0, 1], -want)
+
+
+def test_wind_refuses_a_missing_day_rather_than_writing_nan():
+    from phase2.tscast_nio import daily_pipeline as P
+
+    wind = _fake_wind(np.arange(np.datetime64("2025-06-01"), np.datetime64("2025-06-10")))
+    times = np.array(["2025-06-05", "2025-06-30"], dtype="datetime64[D]")
+    with pytest.raises(ValueError, match="wind is missing"):
+        P._wind_for(wind, times)
+
+
+def test_wind_channels_are_appended_in_the_frozen_contract_order():
+    from phase2.tscast_nio import daily_pipeline as P
+
+    assert P.SURFACE_KEYS + P.WIND_KEYS == ["sst", "sss", "ssh", "u", "v", "wu", "wv"]
+    assert len(P.WIND_UNITS) == len(P.WIND_KEYS)
+
+
+def test_load_wind_refuses_a_bundle_on_a_different_grid(tmp_path):
+    from phase2.tscast_nio import daily_pipeline as P
+
+    p = tmp_path / "wrong_grid.npz"
+    np.savez(p, dates=np.array(["20250601"], dtype="<U8"),
+             wu=np.zeros((1, len(config.LAT), len(config.LON)), dtype=np.float32),
+             wv=np.zeros((1, len(config.LAT), len(config.LON)), dtype=np.float32),
+             lat=config.LAT + 0.125, lon=config.LON)     # the +0.125 offset of trap #5
+    with pytest.raises(ValueError, match="different lat grid"):
+        P.load_wind(str(p))
+
+
+def test_load_wind_returns_none_when_absent(tmp_path):
+    from phase2.tscast_nio import daily_pipeline as P
+
+    assert P.load_wind(str(tmp_path / "nope.npz")) is None

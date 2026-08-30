@@ -59,6 +59,114 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-30 [DARSHAN] PHASE 1 DONE — wind is in, 7 of 7 channels. PHASE 5 UI built. Phase 4 next.
+
+### 1. WIND LANDED [VERIFIED]
+
+`cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H`, 13 monthly chunks, **3,576 MB, 0 failures** — half
+the 7.2 GB the brief budgeted, because the NetCDF is compressed (measured 8.81 MB/day on a 1-day
+probe before committing to the full run). Processed to daily means: **388 days 2025-06-01..2026-06-23,
+0.0% NaN, mean |wind| 3.94 m/s**, on `config.LAT`/`config.LON` exactly.
+
+**The daily bundle is rebuilt at 7 of 7 contract channels** `["sst","sss","ssh","u","v","wu","wv"]`.
+PS requirement 8 goes from 0% to satisfied.
+
+**The monsoon is in the data, and it is the check that matters.** Over the western Arabian Sea
+(5–20N, 50–65E), measured across whole seasons rather than one date:
+
+| season | days | mean \|wind\| |
+|---|---|---|
+| JJA 2025 | 115 | **9.57 m/s** |
+| DJF 2025-26 | 90 | 5.60 m/s |
+
+A 1.71× ratio — that is the Findlater Jet, the strongest low-level wind on Earth in JJA. It is
+independent confirmation that the dates and the grid are both right, which no shape assertion can
+give you. It is a test (`test_the_summer_monsoon_is_visible_in_the_western_arabian_sea`), not a
+one-off observation.
+
+### 2. Two real bugs, both caught by guards rather than by luck
+
+**(a) The grid trap you flagged is real, and worse than "offset".** The catalog reports the wind
+grid as `-89.9375..89.9375 step 0.125`, so its points sit 0.0625 deg off every multiple of 0.125:
+**no wind point coincides with any config.LAT/LON value at all.** A live probe confirmed 200×480
+points over our box — exactly 2×2 per 0.25 deg cell — so the block mean is an exact average.
+`regrid_to_config()` proves the nesting instead of trusting it, and **one of its guards exists
+because a test caught me**: counting 2 source points per cell does not prove they are in the right
+place. A grid shifted a quarter-cell still yields 2 per cell, off-centre, biasing every value by
+~3.5 km. The invariant that actually pins the grid is that each block's centroid equals the target
+centre. 22 tests, all on coordinates rather than shape — including one showing the naive "take every
+other point" shortcut has the identical `(100, 240)` shape while sitting 0.0625 deg from where it
+claims to be.
+
+**(b) `np.asarray("20250601", dtype="datetime64[D]")` parses that as the YEAR 20250601.** Silently,
+with a correct-looking dtype, two million years off. `load_wind` did exactly that, so every date
+join matched nothing. It surfaced as a **refusal, not a NaN channel**, only because `_wind_for`
+refuses on any missing day — which is the whole argument for refusing rather than filling: a NaN
+wind channel trains perfectly well and quietly means "no wind information", and the model cannot
+tell that apart from calm. `_parse_dates` now inserts separators explicitly and asserts the years
+land in 1990–2100, because a date off by two million years should never reach a comparison.
+Verified after the fix: all 388 days join, both years, 0.000% NaN.
+
+### 3. The wind comparison is not measurable as the brief describes it — so I changed the setup
+
+The brief says to compare the 7-channel result against the recorded T=11 / 5-channel **0.8529**.
+That figure was **40k samples over 15 epochs**; the Phase-4 run is **60k over 25**. Subtracting them
+would attribute three changes to wind.
+
+So: `data/processed/daily_5ch/` is preserved, and the trainer gained `--daily-dir` and `--tag`.
+Phase 4 runs **both** bundles at matched settings, and the difference is then the channels and
+nothing else. `--tag` also fixes the thing your correction box warned about structurally — every
+T_SEQ leg wrote `tscast_stage1.pt` and overwrote the last, which is why the winning checkpoint no
+longer exists; a tagged run cannot do that.
+
+### 4. PHASE 5 — the v2 UI, on port 8504 [VERIFIED, rendered and clicked through]
+
+Four tabs, none touching the frozen demo. **Profile**: point + date → profile with its own ±1σ band,
+every depth explaining its own error bar, and the nearest independent float drawn on the same axes
+with the signed difference beside it. Below-seafloor depths render as REFUSALS carrying the seafloor
+depth — "there is no ocean here" is an answer and an empty cell reads as a missing number. Past
+2026-06-23 the page says FORECAST and attaches no Argo check. **Benchmark**: per-depth RMSE / corr /
+bias / n, both skill definitions labelled and never mixed, `rmse_climatology` in every row.
+**Calibration**: per-depth ratio beside MC-dropout's 1.56–3.54 on the identical aggregation, plus
+coverage against the Gaussian 68.3/95.4 targets. **Honesty**: channel state, the mixed-layer vs
+inherited-error distinction, the 1000 m paradox, the CUT list, the T_SEQ table with each row's
+provenance, and the evidence-tag legend.
+
+**Coverage did not exist anywhere, so I measured it** rather than quoting the paper: `calibration()`
+now records the fraction of independent floats inside ±1σ and ±2σ per depth. The paper contains no
+calibration or coverage figure at all, so there was nothing to copy.
+
+**"The UI computes nothing scientific" was an untested claim** while the transformation lived inside
+a Streamlit callback, which cannot be imported. The tables now come from
+`phase2.tscast_nio.ui_tables`; the page renders what it returns; and `accept.py`'s new `check_v2_ui`
+imports the **same** functions and asserts every rendered value equals the metrics artifact to 4 dp.
+It passes. That makes the claim a check that can fail.
+
+### 5. >>> ASK ARJHUN — a gap in `metrics.py` I filled, tell me if you disagree
+
+`overall` reported both skills but never `rmse_climatology`, so a reader of the summary alone could
+not tell what the skill was measured against. I added it — computed on the points `skill_rmse_ratio`
+uses (finite in pred AND truth AND clim), **not** via `rmse(clim, truth)`, which masks on two arrays
+where skill masks on three. On different subsets the published skill would not equal
+`1 - RMSE/RMSEclim` and a reader checking that arithmetic would find it off with no way to see why.
+Verified: the identity now holds exactly, and the naive version breaks it.
+
+### 6. State
+
+Tests **264 passed, 1 failed, 1 skipped** — the 1 failure is still the pre-existing LightGBM guard
+(§2 of my last entry), untouched. `accept.py`: the new **v2 UI check passes in full**; the gate is
+still REJECTED on the same two pre-existing items I recorded last entry, neither mine.
+
+Commits: `fb6d542` wind download + regrid · `a824a1f` pipeline merge · `92f3563` the datetime64 bug ·
+`1abc4d4` monsoon tests · `15464ee` v2 UI + accept check · `cb680fb` EXPERIMENT_LOG backfill (it had
+**zero** v2 entries; bake-off, 2×2, all three T_SEQ legs and the load-path fixture are now in it,
+each row naming the artifact it was copied from) · `8c6ee3e` trainer `--tag`/`--daily-dir`.
+
+Next: 7-channel retrain at T_SEQ=11 (60k/25ep/patience 5), then the matched 5-channel run, then
+HANDBACK.
+
+---
+
 ## 2026-08-30 [DARSHAN] PHASES 0-3 done. Wind is downloading, D1 is fixed, and the inference path loads.
 
 Solo on both units until Mon 16:30. Branch `phase2-tscast-nio`, pulled your 401e67b cleanly

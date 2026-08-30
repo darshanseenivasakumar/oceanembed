@@ -114,7 +114,16 @@ with left:
         g_, s_ = gl.get(k), (sat or {}).get(k)
         rows.append({"variable": f"{k.upper()} ({unit})", "GLORYS": g_, "satellite": s_,
                      "difference": None if (g_ is None or s_ is None) else round(s_ - g_, 3)})
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    # Same trap as the profile table below, and it bites hardest on land: every value is None, so
+    # all three columns come out OBJECT dtype and Streamlit prints the word "None" fifteen times.
+    # On a rejected point that is the whole table, which reads like a crash rather than "there is
+    # no ocean here". Coerce to float64 so they become NaN, then let the Styler mark them.
+    sdf = pd.DataFrame(rows)
+    st.dataframe(
+        sdf.astype({c: "float64" for c in ("GLORYS", "satellite", "difference")})
+           .style.format({"GLORYS": "{:.4f}", "satellite": "{:.4f}", "difference": "{:.3f}"},
+                         na_rep="—"),
+        hide_index=True, width="stretch")
     if sat is None:
         st.info("No satellite within tolerance. **Normal** — satellite covers 24 of our 48 dates.")
 
@@ -178,10 +187,19 @@ if prof:
         # pandas turns the engine's None into NaN on construction, and Streamlit prints NaN as the
         # literal word "None" -- so a level the float simply did not sample reads like a failure.
         # A Styler is the only way to set the missing marker; "--" is the conventional one.
+        # Two separate traps here, and the second only appears when there is NO Argo at all.
+        # 1. Streamlit prints NaN as the literal word "None", so a level the float did not sample
+        #    reads like a failure. A Styler with na_rep is the only way to set the marker.
+        # 2. If EVERY value in a column is None, pandas keeps that column as OBJECT dtype, and
+        #    Streamlit renders object columns straight through -- na_rep never gets a look in, so
+        #    "None" comes back. Coercing to float64 first turns them into real NaN, which the
+        #    Styler then formats. This is the common case: most of the basin has no float nearby.
+        num = [c for c in df.columns if c != "depth (m)"]
+        shown = df.astype({c: "float64" for c in num})
         st.dataframe(
-            df.style.format({"depth (m)": "{:.0f}", "GLORYS T (°C)": "{:.3f}",
-                             "salinity (psu)": "{:.3f}", "ARGO T (°C)": "{:.3f}",
-                             "ARGO − GLORYS": "{:+.2f}"}, na_rep="—"),
+            shown.style.format({"depth (m)": "{:.0f}", "GLORYS T (°C)": "{:.3f}",
+                                "salinity (psu)": "{:.3f}", "ARGO T (°C)": "{:.3f}",
+                                "ARGO − GLORYS": "{:.2f}"}, na_rep="—"),
             hide_index=True, width="stretch", height=400)
 
     # The reanalysis-vs-float gap is worth surfacing: it is not OUR model's error. But this is ONE

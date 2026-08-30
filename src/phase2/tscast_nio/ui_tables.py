@@ -1,0 +1,126 @@
+"""The exact tables the v2 UI renders, built here rather than inside the page.
+
+OWNER: Unit B (Darshan). PHASE-2 ONLY.
+
+WHY THIS MODULE EXISTS
+`app/phase2/tscast_page.py` must not be the place where a number is decided -- two definitions
+drift and only one can be right. But "the UI shows the metrics JSON" is an untested claim as long
+as the transformation lives inside a Streamlit callback, which cannot be imported (importing the
+page runs `st.set_page_config` and renders it).
+
+So the page imports these functions and renders what they return, and `scripts/phase2/accept.py`
+imports the SAME functions and asserts every value matches the artifact to 4 decimals. That makes
+"the UI does not invent numbers" a check that can fail, instead of a comment.
+
+Nothing here computes science. Every value is copied or rounded from a measured artifact; the only
+arithmetic is the signed difference in `argo_comparison_rows`, which is prediction minus float and
+is already carried in the record as `difference`.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+# Display rounding. 4 decimals is what accept.py compares to, so this constant is the contract
+# between the UI and the check -- change it in one place or the check stops meaning anything.
+DECIMALS = 4
+
+
+def _r(v, nd: int = DECIMALS):
+    """Round for display, preserving None and non-finite values as themselves."""
+    if v is None:
+        return None
+    v = float(v)
+    return None if not np.isfinite(v) else round(v, nd)
+
+
+def benchmark_rows(m: dict) -> list[dict]:
+    """Per-depth RMSE / correlation / bias / both skills / n, straight from the metrics artifact.
+
+    `rmse_climatology` sits beside skill in every row on purpose: at 1000 m the model has its worst
+    skill and its best absolute error at the same time, and either column alone misreads that.
+    """
+    mm = m["metrics"]
+    depths = mm["depths_m"]
+    rows = []
+    for k, d in enumerate(depths):
+        rows.append({
+            "depth (m)": int(d),
+            "RMSE (°C)": _r(mm["rmse"][k]),
+            "climatology RMSE (°C)": _r(mm["rmse_climatology"][k]),
+            "correlation": _r(mm["correlation"][k]),
+            "bias (°C)": _r(mm["bias"][k]),
+            "skill 1−RMSE/RMSEclim": _r(mm["skill_rmse_ratio"][k]),
+            "skill Murphy": _r(mm["skill_vs_climatology"][k]),
+            "n": int(mm["n"][k]),
+        })
+    return rows
+
+
+def calibration_rows(m: dict) -> list[dict]:
+    """Per-depth RMSE / RMS(sigma) / ratio / coverage, straight from the calibration block.
+
+    Coverage columns are None on any run that predates them; the UI says so rather than filling
+    the gap with a number it worked out itself.
+    """
+    cal = m.get("calibration") or {}
+    rows = []
+    for d in sorted(int(k) for k in cal):
+        v = cal[str(d)]
+        rows.append({
+            "depth (m)": d,
+            "n": v.get("n"),
+            "RMSE (°C)": _r(v.get("rmse")),
+            "RMS σ (°C)": _r(v.get("sigma")),
+            "ratio RMSE/σ": _r(v.get("ratio")),
+            "within ±1σ": _r(v.get("coverage_1sigma")),
+            "within ±2σ": _r(v.get("coverage_2sigma")),
+        })
+    return rows
+
+
+def profile_rows(record: dict) -> list[dict]:
+    """One row per depth. A depth with no valid value is a REFUSAL carrying its reason, not a blank.
+
+    Below-seafloor is a real answer -- "there is no ocean here" -- and rendering it as an empty
+    cell would read as a missing number instead.
+    """
+    floor = record.get("seafloor_depth_m")
+    rows = []
+    for k, d in enumerate(record["depths_m"]):
+        t, s = record["temperature"][k], record["sigma_t"][k]
+        if t is None:
+            why = (f"REFUSED — below the seafloor, which is at {float(floor):.0f} m here"
+                   if floor is not None else "REFUSED — no valid ocean at this depth")
+            rows.append({"depth (m)": int(d), "temperature (°C)": None, "± σ (°C)": None,
+                         "explanation": why})
+        else:
+            rows.append({"depth (m)": int(d), "temperature (°C)": _r(t, 2),
+                         "± σ (°C)": _r(s, 2), "explanation": record["reasons"][k]})
+    return rows
+
+
+def argo_comparison_rows(record: dict) -> list[dict]:
+    """Prediction, the independent float, and the signed difference -- never one without the others."""
+    ac = record.get("argo_check")
+    if not ac or not ac.get("argo_temperature"):
+        return []
+    rows = []
+    for k, d in enumerate(record["depths_m"]):
+        a = ac["argo_temperature"][k]
+        p = record["temperature"][k]
+        if a is None or p is None:
+            continue
+        rows.append({"depth (m)": int(d), "us (°C)": _r(p, 2), "float (°C)": _r(a, 2),
+                     "difference (°C)": _r(float(p) - float(a), 2)})
+    return rows
+
+
+def headline(m: dict) -> dict:
+    """The four tiles above the benchmark table, with missing values named rather than shown as nan."""
+    o = (m.get("metrics") or {}).get("overall") or {}
+    return {
+        "overall RMSE": _r(o.get("rmse")),
+        "skill 1−RMSE/RMSEclim": _r(o.get("skill_rmse_ratio")),
+        "skill Murphy": _r(o.get("skill_vs_climatology")),
+        "climatology RMSE": _r(o.get("rmse_climatology")),
+    }

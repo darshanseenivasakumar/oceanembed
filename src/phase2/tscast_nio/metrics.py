@@ -90,6 +90,25 @@ def skill_vs_climatology(pred, truth, clim) -> float:
     return float(1.0 - mse_m / mse_c)
 
 
+def rmse_climatology_matched(pred, truth, clim) -> float:
+    """RMSE of the climatology on the SAME points the model was scored on.
+
+    `rmse(clim, truth)` would mask on clim & truth only, while `skill_rmse_ratio` masks on all
+    three. On different subsets the published skill would not equal 1 - rmse/rmse_clim, and a
+    reader checking that arithmetic would find it off by a little with no way to tell why. The
+    baseline must be measured where the model was measured, or it is not the baseline.
+    """
+    p = np.asarray(pred, dtype="float64").ravel()
+    t = np.asarray(truth, dtype="float64").ravel()
+    c = np.asarray(clim, dtype="float64").ravel()
+    if not (p.shape == t.shape == c.shape):
+        raise ValueError(f"shapes disagree: pred {p.shape}, truth {t.shape}, clim {c.shape}")
+    ok = np.isfinite(p) & np.isfinite(t) & np.isfinite(c)
+    if ok.sum() == 0:
+        return float("nan")
+    return float(np.sqrt(np.mean((c[ok] - t[ok]) ** 2)))
+
+
 def skill_rmse_ratio(pred, truth, clim) -> float:
     """1 - RMSE(model)/RMSE(climatology) -- the definition the FROZEN Phase-1 headline uses.
 
@@ -171,6 +190,18 @@ def per_depth(pred, truth, clim=None, reference: str = "argo", window=None) -> d
                                      if clim is not None else float("nan")),
             "skill_rmse_ratio": (skill_rmse_ratio(pred, truth, clim)
                                  if clim is not None else float("nan")),
+            # Skill without its baseline is unreadable: at 1000 m this model has its WORST skill
+            # and its BEST absolute error at the same time, because climatology is already
+            # excellent down there. The per-depth column carried this; the overall block did not,
+            # so any reader of the summary alone could not tell what the skill was measured against.
+            "rmse_climatology": (rmse_climatology_matched(pred, truth, clim)
+                                 if clim is not None else float("nan")),
+            "rmse_climatology_note": (
+                "Measured on the points `skill_rmse_ratio` uses (finite in pred AND truth AND "
+                "clim), so 1 - RMSE/RMSE_clim reproduces the published skill exactly. `rmse` "
+                "above masks on pred and truth only; where climatology is also finite everywhere "
+                "the two masks coincide, and where it is not, the skill figure -- not this "
+                "division -- is the one to quote."),
             "skill_note": (
                 "TWO DEFINITIONS, both returned because they are not interchangeable. "
                 "`skill_rmse_ratio` = 1 - RMSE/RMSE_clim is what the FROZEN Phase-1 headline "

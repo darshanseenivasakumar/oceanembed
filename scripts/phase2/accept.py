@@ -479,6 +479,114 @@ def check_v2_tscast() -> tuple[bool, list[str]]:
     return all(c for c, _ in checks), lines
 
 
+def check_v2_ui() -> tuple[bool, list[str]]:
+    """v2 UI: every number the page renders must BE the number in the metrics artifact.
+
+    The page imports phase2.tscast_nio.ui_tables and renders exactly what it returns, so importing
+    the same module here is not a parallel implementation -- it is the rendered content. Values are
+    compared to 4 decimals, the same rounding the page displays at.
+
+    This is the F1 pattern: assert against something outside the code under test (the JSON the
+    trainer wrote), not against the code's own output.
+    """
+    import json
+    import os
+
+    from oceanembed import config
+    from phase2.tscast_nio import ui_tables as T
+
+    checks = []
+    mpath = config.art("tscast_stage1_metrics.json")
+    if not os.path.exists(mpath):
+        return True, ["     [skip] no tscast_stage1_metrics.json -- train a model to enable this"]
+    with open(mpath, encoding="utf-8") as f:
+        m = json.load(f)
+    mm = m["metrics"]
+
+    page = os.path.join("app", "phase2", "tscast_page.py")
+    checks.append((os.path.exists(page), "the v2 page exists"))
+    if os.path.exists(page):
+        src = open(page, encoding="utf-8").read()
+        checks.append(("ui_tables" in src,
+                       "the page renders the SAME builders this check reads, not its own copy"))
+        checks.append(("plotly" not in src, "altair only -- plotly is not assumed present"))
+
+    rows = T.benchmark_rows(m)
+    checks.append((len(rows) == len(mm["depths_m"]),
+                   f"benchmark table has one row per depth ({len(rows)})"))
+    bad = []
+    for k, r in enumerate(rows):
+        for col, src_key in (("RMSE (°C)", "rmse"),
+                             ("climatology RMSE (°C)", "rmse_climatology"),
+                             ("correlation", "correlation"),
+                             ("bias (°C)", "bias"),
+                             ("skill 1−RMSE/RMSEclim", "skill_rmse_ratio"),
+                             ("skill Murphy", "skill_vs_climatology")):
+            want, got = mm[src_key][k], r[col]
+            if got is None:
+                continue
+            if abs(float(want) - float(got)) > 5e-5:
+                bad.append(f"depth {r['depth (m)']} {src_key}: artifact {want} vs rendered {got}")
+        if r["n"] != mm["n"][k]:
+            bad.append(f"depth {r['depth (m)']} n: artifact {mm['n'][k]} vs rendered {r['n']}")
+    checks.append((not bad,
+                   "every rendered per-depth value equals the artifact to 4 dp"
+                   + ("" if not bad else f" -- {len(bad)} disagree, e.g. {bad[0]}")))
+
+    # Skill without its baseline is unreadable, so the baseline must be in the same row.
+    checks.append((all("climatology RMSE (°C)" in r for r in rows),
+                   "rmse_climatology travels beside skill in every row"))
+    checks.append((all(("skill 1−RMSE/RMSEclim" in r) and ("skill Murphy" in r) for r in rows),
+                   "both skill definitions are rendered, labelled and distinct"))
+
+    cal = T.calibration_rows(m)
+    src_cal = m.get("calibration") or {}
+    checks.append((len(cal) == len(src_cal),
+                   f"calibration table has one row per measured depth ({len(cal)})"))
+    cbad = [f"depth {r['depth (m)']}" for r in cal
+            if r["ratio RMSE/σ"] is not None
+            and abs(float(src_cal[str(r["depth (m)"])]["ratio"]) - float(r["ratio RMSE/σ"])) > 5e-5]
+    checks.append((not cbad, "every rendered calibration ratio equals the artifact to 4 dp"))
+
+    mc = m.get("mc_dropout_for_comparison") or {}
+    checks.append((bool(mc.get("best")) and bool(mc.get("worst")),
+                   f"MC-dropout is carried for comparison ({mc.get('best')}-{mc.get('worst')}), "
+                   f"so the v2 ratio is never shown alone"))
+
+    # A refusal must read as a refusal. Only checkable with a checkpoint present.
+    if os.path.exists(config.art("tscast_stage1.pt")):
+        from phase2.tscast_nio.inference import TSCastPredictor
+
+        rec = TSCastPredictor().reconstruct(15.0, 68.0, "2026-05-15")
+        prof = T.profile_rows(rec)
+        checks.append((len(prof) == len(config.DEPTHS),
+                       "profile table has one row per contract depth"))
+        checks.append((all(r["explanation"] for r in prof),
+                       "every depth explains itself -- no blank cells"))
+        refusals = [r for r in prof if r["temperature (°C)"] is None]
+        checks.append((all("REFUSED" in r["explanation"] for r in refusals),
+                       f"{len(refusals)} unavailable depth(s) render as REFUSALS with a reason, "
+                       f"not as blanks"))
+        ac = T.argo_comparison_rows(rec)
+        checks.append((len(ac) > 0,
+                       f"a 2026 prediction renders a real independent-float comparison "
+                       f"({len(ac)} depths) -- D1"))
+        # All three columns are rounded to 2 dp for display, so the shown subtraction can differ
+        # from the shown operands by up to 3 x 0.005. Anything beyond that is a real disagreement,
+        # not rounding -- e.g. a sign flip, or a difference taken against the wrong profile.
+        tol = 0.015 + 1e-9
+        dbad = [r for r in ac
+                if abs((float(r["us (°C)"]) - float(r["float (°C)"]))
+                       - float(r["difference (°C)"])) > tol]
+        checks.append((not dbad,
+                       "the displayed difference really is prediction minus float at every depth "
+                       "(within display rounding)"
+                       + ("" if not dbad else f" -- {len(dbad)} disagree, e.g. {dbad[0]}")))
+
+    lines = [("     " + ("ok   " if c else "FAIL ") + msg) for c, msg in checks]
+    return all(c for c, _ in checks), lines
+
+
 CHECKS = [
     ("F1 collocation", "phase2.data.collocation", check_f1),
     ("F2b volume", "phase2.cube.volume", check_f2b),
@@ -487,6 +595,7 @@ CHECKS = [
     ("F6 events", "phase2.events.eddy", check_f6),
     ("F8 validation", "phase2.validation.lab", check_f8),
     ("v2 TS-Cast-NIO", "phase2.tscast_nio.metrics", check_v2_tscast),
+    ("v2 UI", "phase2.tscast_nio.ui_tables", check_v2_ui),
 ]
 
 

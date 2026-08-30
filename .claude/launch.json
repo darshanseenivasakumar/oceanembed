@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tscast-v2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "streamlit", "run", "app/phase2/tscast_page.py",
+                      "--server.port", "8504", "--server.headless", "true"],
+      "port": 8504
+    }
+  ]
+}

@@ -58,9 +58,17 @@ def calibration(pred, sigma, truth):
             continue
         rmse = float(np.sqrt(np.mean((pred[ok, k] - truth[ok, k]) ** 2)))
         rms_sig = float(np.sqrt(np.mean(sigma[ok, k] ** 2)))
+        # COVERAGE: the fraction of independent floats that actually land inside the stated band.
+        # The ratio alone can look healthy while the errors are the wrong SHAPE -- a heavy tail
+        # sits outside 2 sigma no matter how well the RMS matches. Gaussian targets are 68.3 and
+        # 95.4 per cent. The paper shows no calibration or coverage figure at all, so this is
+        # measured here rather than quoted from it.
+        err = np.abs(pred[ok, k] - truth[ok, k])
         out[int(d)] = {"n": int(ok.sum()), "rmse": round(rmse, 4),
                        "sigma": round(rms_sig, 4),
-                       "ratio": round(rmse / rms_sig, 3) if rms_sig > 1e-9 else None}
+                       "ratio": round(rmse / rms_sig, 3) if rms_sig > 1e-9 else None,
+                       "coverage_1sigma": round(float(np.mean(err <= sigma[ok, k])), 4),
+                       "coverage_2sigma": round(float(np.mean(err <= 2 * sigma[ok, k])), 4)}
     return out
 
 
@@ -334,6 +342,9 @@ def main():
         "argo_profiles": int(keep.sum()), "max_days_offset": MAX_DAYS,
         "metrics": m,
         "calibration": cal,
+        "coverage_targets": {"1sigma": 0.683, "2sigma": 0.954,
+                             "note": "Gaussian targets. Below = the band is too narrow at that "
+                                     "depth; well above = too wide, which is also not honest."},
         "calibration_method": ("RMSE(pred-argo) / RMS(sigma), aggregated per depth THEN divided "
                                "-- identical to artifacts/mc_calibration.json so the comparison "
                                "against MC-dropout's 1.56-3.54 is like for like"),

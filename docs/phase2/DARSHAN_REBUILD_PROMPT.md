@@ -6,6 +6,27 @@ tagged otherwise.**
 
 ---
 
+> ## ⚠ THREE CORRECTIONS — this file was written before they were found
+>
+> 1. **The T_SEQ sweep is FINISHED, and Phase 2 is now ~15 minutes, not 2.5 hours.** The claim
+>    below that the T_SEQ=31 leg "was killed mid-run and never recorded" is **wrong** — it
+>    completed at 13:29 on 2026-08-30. All three legs, on 962 independent Argo profiles with seed,
+>    decoder, loss, samples and encoder held identical:
+>    **T_SEQ=1 → 0.9096 · T_SEQ=11 → 0.8529 (winner) · T_SEQ=31 → 0.9267.**
+>    T_SEQ=11 wins by 0.0567 °C, clear of the 0.02 tie-break. Committed as
+>    `artifacts/tseq_ablation.json`. The paper's ±15-day window is the *worst* of the three at our
+>    data scale — a measured disagreement worth putting in the pitch.
+> 2. **`artifacts/tscast_stage1.pt` is the T_SEQ=31 model — the worst leg.** Each leg overwrote
+>    the last, so the winning T_SEQ=11 checkpoint no longer exists. Phase 4 regenerates it. **Copy
+>    the checkpoint pair aside before launching any training run.**
+> 3. **plotly IS installed** (7.0.0) on Arjhun's clone, contradicting trap #20 below. The
+>    altair-only rule still stands for the reason in `app/panels/_viz.py` — the demo laptop is not
+>    this laptop — but check your own venv rather than trusting either claim.
+>
+> **The step-by-step implementation spec is `docs/phase2/DARSHAN_BUILD_SPEC.md`** (~3,570 lines,
+> 217 verified API signatures, 17 open decisions). This file is the orientation; that file is the
+> how. Read only your phase's section of it — its index gives line numbers.
+
 ## HOW TO USE THIS FILE (read this first, Darshan)
 
 Your Claude builds solo until **Monday 16:30 IST**, when Arjhun's weekly limit refreshes and his
@@ -15,8 +36,11 @@ Claude takes back Unit A. You have **$90 of usage credits**. Spend them like thi
 repo, so a new chat needs only this (do NOT paste the whole file):
 
 ```
-Read CLAUDE.md, then docs/phase2/DARSHAN_REBUILD_PROMPT.md in full.
-Execute PHASE <N>. Report the checklist at the end of the phase card when done.
+Read CLAUDE.md, then docs/phase2/DARSHAN_REBUILD_PROMPT.md in full (this file, ~400 lines).
+Then read ONLY the PHASE <N> section of docs/phase2/DARSHAN_BUILD_SPEC.md, plus its
+REFERENCE and OPEN DECISIONS appendices. Its index at the top gives the line numbers --
+use offset/limit, do not load the whole 3,570-line file.
+Execute PHASE <N>. Work its numbered steps. Report its DONE checklist when finished.
 ```
 
 Start a new chat when a phase ends or when the current chat gets slow/long — a long chat re-sends
@@ -251,9 +275,16 @@ Do not let wind block Phases 2–5.
 
 **DONE =** 7-channel daily bundle rebuilt + verified + tests + committed, OR the fallback recorded.
 
-### PHASE 2 — Close the T_SEQ question (runs while wind downloads; ~2.5 h CPU)
+### PHASE 2 — Adjudicate T_SEQ (~15 min — SUPERSEDED, the sweep finished)
 
-The ablation is 2/3 done; T_SEQ=31 was killed mid-run and **no result was ever recorded**.
+**Read the correction box at the top of this file.** All three legs are done and recorded in the
+tracked `artifacts/tseq_ablation.json`; **T_SEQ=11 wins at 0.8529 °C**. Phase 2 is now: verify the
+artifact, run `record_tseq_ablation.py --check`, run the picker, post the verdict. Full steps in
+`DARSHAN_BUILD_SPEC.md` Phase 2. The 2.5 hours this frees belong to Phase 1 and Phase 5.
+
+The original text is kept below only so the reasoning is auditable — **do not execute it**:
+
+~~The ablation is 2/3 done; T_SEQ=31 was killed mid-run and **no result was ever recorded**.~~
 
 1. Run the missing leg on the **5-channel** bundle, so it is comparable to the two recorded legs
    (they ran without wind; a 7-channel T=31 would not be the same experiment):

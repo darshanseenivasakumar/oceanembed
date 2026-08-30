@@ -20,6 +20,80 @@
 > Ordering note: the 2026-08-25 Phase-1 block further down runs oldest-first, against this file's
 > own "newest on top" header. Left as found — reordering another unit's rows is not a backfill.
 
+## v2-final  2026-08-30  — the shipped stage-1 model, and the wind ablation that pays for it
+model: TSCastNIO — cnn3d encoder + simple decoder + β-NLL(β=0.5), residual, latent 128, P=17
+dataset: daily bundle, 388 days 2025-06-01..2026-06-23 | **7 of 7 contract channels**
+        `["sst","sss","ssh","u","v","wu","wv"]` — wind from
+        `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H`, hourly → daily mean, block-averaged
+        0.125°→0.25° by coordinate
+split: train 2025-06-01..2026-03-31 (304 d) / held-out GLORYS 2026-04-01..2026-06-23 (84 d)
+seed: 42 | hyperparams: T_SEQ=11, 25 epochs max, patience 5, 60,000 train / 12,000 held-out
+        samples, adamw lr 1e-3, weight-decay 1e-2, batch 256 | hardware: CPU
+scored on: **962 INDEPENDENT Argo profiles**, ±5 day collocation, 12,829 depth comparisons
+git-commit: 6e6ba9a | checkpoints: `artifacts/tscast_stage1_{7ch,5ch}.pt` (gitignored — the numbers
+below and in AGENT_SYNC are the durable record)
+
+**Both legs are MATCHED.** Identical seed, T_SEQ, samples, epochs, patience, decoder, loss, encoder
+and Argo set; the only difference is whether channels 6–7 exist. `rmse_climatology` comes out
+**identical to 4 dp (1.2259) in both**, which is the check that they really were scored on the same
+points. The brief's suggested comparison — 7-channel against the recorded 0.8529 — would have
+compared 60k/25ep against 40k/15ep and credited wind for three changes.
+
+| | **7 ch (shipped)** | 5 ch (matched control) | delta |
+|---|---|---|---|
+| Argo RMSE °C | **0.8612** | 0.8760 | **−0.0149** |
+| bias °C | **+0.1247** | +0.2124 | **−0.0878** |
+| correlation (mean per depth) | 0.8893 | 0.8923 | −0.0030 |
+| skill 1−RMSE/RMSEclim | **+0.2975** | +0.2854 | +0.0121 |
+| skill Murphy | +0.5065 | +0.4893 | +0.0172 |
+| climatology RMSE °C | 1.2259 | 1.2259 | 0.0000 |
+| best epoch / run | 3 / 8 | 4 / 9 | — |
+| params | 548,582 | 547,238 | — |
+| train seconds | 4,932 | 5,531 | — |
+
+**Wind helps, and the bias story is larger than the RMSE story.** RMSE improves at 11 of 15 depths;
+the overall warm bias falls **41%**. The gain concentrates at 100–200 m, exactly where wind-driven
+mixing and upwelling set the thermocline in this basin: bias at 125 m goes +0.506 → +0.190, at
+150 m +0.436 → +0.203, at 200 m +0.272 → +0.067 with RMSE −0.100. Wind *hurts* at 50 m (+0.102)
+and at the surface (0 m +0.034, 5 m +0.009). Correlation is fractionally worse; stated, not hidden.
+
+### per-depth, 7-channel shipped model
+
+| depth m | n | RMSE °C | clim °C | corr | bias °C | skill | ratio RMSE/σ | ±1σ | ±2σ |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 21 | 0.3972 | 0.7500 | 0.7974 | −0.0223 | +0.4703 | — | — | — |
+| 5 | 959 | 0.4325 | 1.0035 | 0.9488 | −0.1065 | +0.5690 | 1.335 | 0.541 | 0.861 |
+| 10 | 960 | 0.4588 | 0.9944 | 0.9402 | −0.0125 | +0.5386 | 1.375 | 0.610 | 0.905 |
+| 20 | 959 | 0.7299 | 1.1287 | 0.8893 | +0.1762 | +0.3533 | 1.535 | 0.551 | 0.845 |
+| 30 | 959 | 0.9513 | 1.3080 | 0.8827 | +0.4159 | +0.2727 | 1.487 | 0.463 | 0.745 |
+| 50 | 958 | 1.1038 | 1.2950 | 0.8640 | +0.5185 | +0.1476 | 1.424 | 0.437 | 0.777 |
+| 75 | 958 | 0.9883 | 1.3198 | 0.8443 | +0.1773 | +0.2512 | 1.283 | 0.611 | 0.894 |
+| 100 | 958 | 1.1780 | 1.5501 | 0.7871 | +0.1461 | +0.2401 | 1.505 | 0.529 | 0.837 |
+| 125 | 958 | 1.1874 | 1.6282 | 0.8286 | +0.1896 | +0.2707 | 1.490 | 0.507 | 0.826 |
+| 150 | 950 | 1.0781 | 1.5300 | 0.8747 | +0.2033 | +0.2954 | 1.409 | 0.543 | 0.879 |
+| 200 | 872 | 0.9335 | 1.5917 | 0.9287 | +0.0666 | +0.4135 | 1.432 | 0.623 | 0.923 |
+| 300 | 854 | 0.8949 | 1.2678 | 0.9097 | −0.0884 | +0.2941 | 1.850 | 0.673 | 0.930 |
+| 500 | 833 | 0.5588 | 0.6425 | 0.9204 | +0.0009 | +0.1302 | 1.857 | 0.725 | 0.936 |
+| 700 | 827 | 0.3776 | 0.4319 | 0.9518 | −0.0179 | +0.1258 | 1.183 | 0.774 | 0.960 |
+| 1000 | 803 | 0.2267 | 0.2928 | 0.9720 | −0.0045 | +0.2259 | 0.702 | 0.824 | 0.989 |
+
+**Skill is positive at all 15 depths** (PS req 12–14 all satisfied: RMSE, correlation and bias are
+each reported per depth). Correlation ≥ 0.787 everywhere. The 1000 m paradox is visible in one row:
+the *best* absolute RMSE (0.2267) sits with a modest skill (+0.2259), because climatology is already
+excellent there.
+
+**Calibration, measured the way `mc_calibration.json` measured it so the comparison is like-for-like:**
+ratio **0.70–1.86** against MC-dropout's **1.56–3.54** (D-016). Coverage — which the paper reports
+nowhere — is **0.437–0.824 within ±1σ** (Gaussian target 0.683) and **0.745–0.989 within ±2σ**
+(target 0.954). Read together with the ratios, the σ band is **too narrow through the mixed layer
+and thermocline** (ratios 1.28–1.54, coverage well under target at 30–125 m) and **too wide at
+1000 m** (ratio 0.702, coverage 0.824/0.989 — above target). Neither is "calibrated"; both are far
+better than MC-dropout, and the direction now has a number attached at every depth.
+
+**Not comparable to** the monthly 0.9672 (2022 Argo, different test set) or to the T_SEQ legs'
+0.8529 (40k samples, 15 epochs). The only fair delta in this table is 7ch vs 5ch.
+
+
 ## v2-bakeoff  2026-08-28  — which encoder, PS req 9
 model: TSCastNIO stage-1, four encoders, capacity levelled 369,807–543,383 params (1.47×)
 dataset: monthly archive, 5 of 7 channels [sst,sss,ssh,u,v] — wind had not landed | P=17, T_SEQ=1

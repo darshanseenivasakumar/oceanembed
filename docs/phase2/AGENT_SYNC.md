@@ -59,6 +59,131 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-30 [DARSHAN] HANDBACK — Phases 0–6 all done. RMSE 0.8612 at 7 of 7 channels, and wind is worth 41% of the bias.
+
+Finished Sunday night rather than Monday afternoon. Everything is committed and pushed to
+`phase2-tscast-nio`. Unit A is yours again whenever you pull.
+
+### 1. PHASE 4 — the shipped model [VERIFIED]
+
+**cnn3d + simple decoder + β-NLL(0.5), daily, T_SEQ=11, 7 of 7 contract channels, 60k samples,
+best epoch 3 of 8, seed 42. Scored on 962 INDEPENDENT Argo profiles, 12,829 depth comparisons:**
+
+| | **7 ch (shipped)** | 5 ch (matched control) | delta |
+|---|---|---|---|
+| **Argo RMSE °C** | **0.8612** | 0.8760 | **−0.0149** |
+| **bias °C** | **+0.1247** | +0.2124 | **−0.0878 (−41%)** |
+| correlation (mean per depth) | 0.8893 | 0.8923 | −0.0030 |
+| skill 1−RMSE/RMSEclim | **+0.2975** | +0.2854 | +0.0121 |
+| skill Murphy | +0.5065 | +0.4893 | +0.0172 |
+| climatology RMSE °C | 1.2259 | 1.2259 | **0.0000** |
+
+**Skill is positive at all 15 depths. Correlation ≥ 0.787 at every depth.** PS req 12–14 all
+reported per depth. Full table with per-depth calibration and coverage is now in
+`docs/EXPERIMENT_LOG.md` (which had **zero** v2 entries when I arrived — bake-off, 2×2, all three
+T_SEQ legs, the load-path fixture and this run are all in it now, each row naming its artifact).
+
+**I did not run the comparison the brief asked for, because it would not have measured wind.** The
+brief says to compare 7-channel against the recorded T=11 / 5-channel **0.8529**. That number is
+40k samples over 15 epochs; this run is 60k over 25. Subtracting them credits wind for three
+changes. So I preserved `data/processed/daily_5ch/`, added `--daily-dir` and `--tag` to the
+trainer, and ran **both bundles at matched settings** — same seed, T_SEQ, samples, epochs,
+patience, decoder, loss, encoder, Argo set. `rmse_climatology` came out **identical to 4 dp in
+both**, which is the check that they really were scored on the same points.
+
+**Wind helps, and the bias story is bigger than the RMSE story.** RMSE improves at 11 of 15 depths.
+The gain concentrates at 100–200 m — exactly where wind-driven mixing and upwelling set the
+thermocline in this basin: bias at 125 m goes +0.506 → +0.190, at 150 m +0.436 → +0.203, at 200 m
++0.272 → +0.067 with RMSE −0.100. Wind **hurts** at 50 m (+0.102) and at the surface (0 m +0.034).
+Correlation is fractionally worse. Both stated, neither hidden.
+
+### 2. Calibration + coverage — the beat-the-paper artifact now has numbers at every depth
+
+Ratio **0.70–1.86** against MC-dropout's **1.56–3.54**, measured the way `mc_calibration.json`
+measured it so the comparison is like-for-like. Coverage, which the paper reports **nowhere**:
+**0.437–0.824 within ±1σ** (Gaussian target 0.683) and **0.745–0.989 within ±2σ** (target 0.954).
+
+Read together, those two say something the ratio alone does not: the σ band is **too narrow through
+the mixed layer and thermocline** (ratios 1.28–1.54, coverage well under target at 30–125 m) and
+**too wide at 1000 m** (ratio 0.702, coverage 0.824/0.989 — above target). Neither is calibrated.
+Both are far better than MC-dropout everywhere. The direction now has a number at every depth
+instead of a range.
+
+I added coverage to `calibration()` in `train_stage1.py` — it did not exist anywhere, and computing
+it in the UI would have made the page a second place where a metric is defined.
+
+### 3. What each phase ended at
+
+| phase | state |
+|---|---|
+| 0 sync + audit | **DONE.** The 388 GLORYS files were never lost — they are in `data/raw/glorys_daily`, not `data/raw/daily`, which is where our own launcher puts them. `daily_pipeline`'s default pointed at a directory that has never existed; fixed. Bundle re-verified ACCEPTED. |
+| 1 wind | **DONE.** 3,576 MB, 0 failures, 388 daily-mean fields, 7 of 7 channels. Monsoon-validated. |
+| 2 T_SEQ | **DONE** (verified from your artifact, not re-run). T_SEQ=11 by 0.0567 °C — clear of the 0.02 tie-break. |
+| 3 inference path | **DONE.** Loads, refuses three ways, produces schema-complete records. D1 answered. |
+| 4 final model | **DONE**, plus the matched control the brief did not ask for. |
+| 5 UI | **DONE.** Four tabs on 8504, `check_v2_ui` passes in full against the real checkpoint. |
+| 6 handback | **this entry.** |
+
+### 4. Three bugs worth knowing about, none of which were mine to expect
+
+**(a) `TSCastPredictor` could not load any checkpoint.** It built FiLM unconditionally
+(`Missing key(s) decoder.*`), defaulted to the monthly bundle, and the metrics `trained_on` was
+boilerplate reading "monthly archive, T_SEQ=1" after every daily run. **Trap #11 is worse than
+recorded**: the model is constructed at `t_seq=1` while the checkpoint stores the data window, and
+inference fed the stored value to *both*. It only works because cnn3d pools over time. `built_t_seq`
+is now saved separately.
+
+**(b) `np.asarray("20250601", dtype="datetime64[D]")` parses that as the YEAR 20250601.** Silently,
+correct dtype, two million years off. `load_wind` did exactly that and every date join matched
+nothing. It surfaced as a **refusal rather than a NaN channel** only because `_wind_for` refuses on
+any missing day — which is the whole argument for refusing instead of filling: a NaN wind channel
+trains fine and quietly means "no wind information", indistinguishable from calm.
+
+**(c) A test caught me writing a guard that did not guard.** Counting 2 source points per 0.25°
+cell does not prove they are in the right place — a grid shifted a quarter-cell still yields 2 per
+cell, off-centre, biasing every value ~3.5 km. The invariant that pins it down is that each block's
+centroid equals the target centre.
+
+### 5. >>> ASK ARJHUN — four things, in priority order
+
+1. **`accept.py` is still REJECTED on two items, neither mine, both diagnosed** in my first entry
+   today: the LightGBM guard whose own precondition is false on this machine, and
+   `per-depth n reproduces the published artifact exactly` — which compares tracked
+   `tscast_baseline_metrics.json` (897 profiles, corrected lookup) against **untracked**
+   `argo_error_by_depth.json` (879, restored here from the zip). Your machine has a different local
+   copy, which is why you never saw it. I did not touch either: changing an acceptance test to make
+   it green is the one edit I will not make unprompted. **Tell me which artifact is canonical and
+   I'll fix it properly.**
+2. **I added `overall.rmse_climatology` to `metrics.py`** — it reported both skills but never what
+   they were measured against. Computed on the points `skill_rmse_ratio` uses (finite in pred AND
+   truth AND clim), not via `rmse(clim, truth)` which masks on two arrays where skill masks on
+   three. Verified the identity `1 − RMSE/RMSEclim` now holds exactly and the naive version breaks
+   it. Your file; say if you disagree.
+3. **The winning checkpoints now cannot be overwritten.** `--tag` suffixes both the checkpoint and
+   the metrics file. Every T_SEQ leg wrote `tscast_stage1.pt`, which is why the winning T=11
+   checkpoint no longer exists anywhere.
+4. **Stage 2 is the obvious next move and I did not start it.** The daily bundle already carries the
+   salinity targets, `tscast_output_schema.md` has the keys as `None`, and F5's EOS-80
+   `seawater.py` gives density for the paper's eq. 5 loss. I stopped here rather than begin a
+   multi-hour build I could not finish and validate in one sitting.
+
+### 6. State at handback
+
+- **Tests: 264 passed, 1 failed, 1 skipped.** The failure is item 1 above.
+- `accept.py`: **v2 UI check passes in full**; gate REJECTED on the two pre-existing items.
+- Shipped artifacts (gitignored, so the numbers above and in EXPERIMENT_LOG are the durable
+  record): `tscast_stage1_7ch.pt` / `_5ch.pt` and their metrics JSONs. The 7-channel pair is also
+  copied to the untagged names, so the UI and `accept.py` read the real model by default.
+- `data/processed/daily/` is the 7-channel bundle; `daily_5ch/` is preserved for the control.
+- UI: `streamlit run app/phase2/tscast_page.py --server.port 8504`.
+
+**Nothing on this branch quotes a number the model did not produce.** The one figure I generated
+that is not a result — a 600-sample checkpoint trained only so the Phase-3 tests had something real
+to load — is logged in EXPERIMENT_LOG as NOT A RESULT, and the UI shows a red banner over any run
+under 10k samples so it can never be mistaken for one.
+
+---
+
 ## 2026-08-30 [DARSHAN] PHASE 1 DONE — wind is in, 7 of 7 channels. PHASE 5 UI built. Phase 4 next.
 
 ### 1. WIND LANDED [VERIFIED]

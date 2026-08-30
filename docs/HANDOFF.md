@@ -1101,3 +1101,45 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - NEXT TASK (A): implement `models/mlp_profile.py` + training on fixtures (stubs + signatures ready).
 - NEXT TASK (C): implement `validation/metrics.py` + `climatology.py` on fixtures; seed LITERATURE/NOVELTY matrices.
 - BLOCKERS: none. A and C can start immediately against `artifacts/sample_*`.
+
+## 2026-08-30 — Unit B (Darshan) — v2 TS-Cast-NIO: wind in, inference fixed, model retrained, UI built
+- CURRENT PHASE: Phase 2 v2 (TS-Cast-NIO). Branch `phase2-tscast-nio`. Solo on both units while
+  Arjhun's Claude was out of tokens; handing back Mon 16:30 IST.
+- WHAT WORKS [VERIFIED by execution]:
+  - **PS requirement 8 (wind) went from 0% to done.** `phase2.data.download_wind_daily` fetched
+    3,576 MB of hourly L4 wind and built 388 daily-mean fields on `config.LAT/LON`; the daily
+    bundle is rebuilt at **7 of 7 contract channels**. Validated against the summer monsoon:
+    9.57 m/s (JJA) vs 5.60 (DJF) over the western Arabian Sea.
+  - **The shipped stage-1 model: Argo RMSE 0.8612 degC, skill +0.2975, bias +0.1247** on 962
+    INDEPENDENT profiles, 12,829 depth comparisons. Skill positive at all 15 depths; correlation
+    >= 0.787 everywhere. Full per-depth table in `docs/EXPERIMENT_LOG.md`.
+  - **Wind is worth 0.0149 degC and 41% of the warm bias**, measured against a MATCHED 5-channel
+    control (same seed, samples, epochs, patience, everything). Both scored on identical points --
+    `rmse_climatology` comes out 1.2259 in both.
+  - **The inference path loads.** It previously raised `Missing key(s) ... decoder.*` on every
+    checkpoint, so no output record could come from the real model. The checkpoint now records
+    decoder/loss/data/T_SEQ/periods, and the predictor builds what it names.
+  - **`argo_check` is no longer empty on 2026 dates** (AGENT_SYNC ask D1): `CollocationEngine` takes
+    an `argo_table`, defaulting to `argo_test` so F1's published numbers are untouched.
+  - **v2 UI on port 8504**, four tabs, frozen demo untouched. `streamlit run app/phase2/tscast_page.py
+    --server.port 8504`.
+- WHAT IS BROKEN: `pytest` has **1 pre-existing failure**,
+  `test_lightgbm_stays_refused_even_when_the_row_counts_match` -- its own precondition
+  (`local_x_train_rows != provenance_n_train`) is false on this machine (both 323028), so it asserts
+  its own setup. Unit C's file; not touched. `accept.py` is REJECTED on that plus one artifact-vintage
+  mismatch, both recorded in AGENT_SYNC with diagnosis.
+- LAST CHANGE: retrained at 7 channels + matched 5-channel control; backfilled EXPERIMENT_LOG.
+- FILES MODIFIED: `src/phase2/data/{download_wind_daily.py,collocation.py}`,
+  `src/phase2/tscast_nio/{daily_pipeline,inference,metrics,ui_tables}.py`,
+  `src/phase2/tscast_nio/train/train_stage1.py`, `app/phase2/tscast_page.py`,
+  `scripts/phase2/accept.py`, `tests/phase2/{test_wind_daily,test_tscast_inference_path}.py`,
+  `docs/{EXPERIMENT_LOG.md,phase2/AGENT_SYNC.md}`, `PHASE2_STATUS.md`.
+- TESTS RUN: **264 passed, 1 failed (above), 1 skipped.** `accept.py`'s new `check_v2_ui` passes in
+  full against the real checkpoint.
+- KNOWN ISSUES: the sigma band is too NARROW through the mixed layer and thermocline (ratio
+  1.28-1.54, coverage 0.44-0.61 against a 0.683 target) and too WIDE at 1000 m (ratio 0.70). Better
+  than MC-dropout's 1.56-3.54 everywhere, but not calibrated. Stage 2 (salinity + the eq. 5 density
+  loss) is not started.
+- NEXT TASK: stage 2 salinity -- the daily bundle already carries the targets, the output schema has
+  the keys as `None`, and F5's EOS-80 `seawater.py` provides density for the paper's eq. 5 loss.
+- BLOCKERS: none.

@@ -59,6 +59,78 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-30 [ARJHUN] HANDOVER: Darshan's Claude drives until Mon 16:30. Branches merged, the brief is committed, and one instruction of mine was a fabrication risk.
+
+Arjhun's weekly limit is spent. Unit A hands BOTH units to Darshan's Claude until **Monday
+2026-08-31 16:30 IST**, then takes them back. Single writer on `phase2-tscast-nio` until then —
+no new branches, so there is nothing to merge at handback.
+
+**Read `docs/phase2/DARSHAN_REBUILD_PROMPT.md`.** It is the whole brief: six phase cards, the
+verified state of the build, the data checklist, and the fifteen traps that have already cost this
+project hours. It supersedes `V2_DARSHAN_PROMPT.md` for this window.
+
+### 1. The two machines are on one branch again
+
+`origin/phase2-tscast-nio` had five commits of Darshan's (v2 kickoff, the daily download launcher,
+F8 review note, collocation-page fixes) that Arjhun's line had never pulled — 47 commits ahead, 5
+behind. Merged. **227 phase2 tests pass on the merged tree** [VERIFIED]. Two files conflicted:
+
+- `accept.py` — both machines independently wrote the SAME check (compare `main` to `origin/main`
+  by ancestry instead of pinning 4995444, because the legitimate v1.0.1 caption pushes made the
+  pinned version cry wolf). Darshan's diagnosis, already implemented on Arjhun's side. Resolved to
+  Arjhun's; nothing of Darshan's reasoning is lost — it is the same fix.
+- `architecture_feasibility.py` — resolved to Arjhun's, because that is the version that produced
+  the recorded bake-off, with the corrected cell lookup.
+
+### 2. `pick_tseq_and_retrain.py` was UNTRACKED — the decision rule lived on one laptop
+
+Now committed. It encodes the T_SEQ rule: rank on independent-Argo RMSE, prefer the shorter window
+when the margin is under 0.02 °C, refuse a partial sweep.
+
+### 3. >>> A correction to my own brief, before anyone acts on it
+
+My first draft told Darshan's Claude to reconstruct the T_SEQ=1 and T_SEQ=11 console sections by
+hand from the section-5 table above, so the picker would see three legs. **That is manufacturing
+evidence** — the file would look like run output and feed a script built to read real runs. Those
+legs genuinely ran; their logs just were not kept, and each leg overwrites the previous leg's
+metrics JSON, which is why only the table survives.
+
+Fixed in code rather than in prose. Recorded results now enter through their own flag:
+
+```
+python scripts/phase2/pick_tseq_and_retrain.py --log tseq_ablation.log \
+    --recorded "1=0.9096,11=0.8529" --dry-run
+```
+
+Every row prints as `measured in <log>` or `declared, from <source>`; the script says how many
+legs were declared and warns that anything quoting the ranking must repeat that; and it **refuses**
+when a leg arrives by both routes rather than guessing. [VERIFIED] both paths, including the
+refusal. Worth generalising: when a rule needs a number we cannot re-measure cheaply, give it a
+door with a label on it, rather than a doorway that looks like the measured one.
+
+### 4. What Darshan's Claude owns for the next 24 hours
+
+Priority order, full detail in the brief: **wind** (PS req 8, still 0%, and only his machine has
+the CMEMS session) → **T_SEQ=31**, the leg that was killed mid-run and never recorded → **the
+inference path**, which currently raises `RuntimeError: Missing key(s) decoder.*` on the shipped
+checkpoint because the trainer never saves the `--decoder` choice → **final retrain** →
+**the v2 UI** → **docs backfill** (`EXPERIMENT_LOG.md` still has zero v2 entries).
+
+> **Expect one gap on his machine that is not on Arjhun's:** he has the raw daily `.nc` files (he
+> downloaded them) but `data/processed/daily/*.npz` was built here and is gitignored. That is a
+> 1–2 h `daily_pipeline` run before anything can train, and it should start in parallel with the
+> wind download on Sunday evening, not after it.
+
+### 5. >>> ASK DARSHAN — decide these two yourself, they are yours now
+
+1. **If wind does not land by Sunday night, ship on 5 of 7 channels** and state it beside every
+   result. Do not let a download block the UI. The brief says the same; this is the authority to
+   act on it without waiting for a reply.
+2. **T_SEQ=31 must run on the 5-channel bundle**, not the 7-channel one, or it is not comparable
+   to the two recorded legs. The final retrain is where wind enters.
+
+---
+
 ## 2026-08-29 [ARJHUN] DAILY DATA IS IN. The FiLM decoder was the regression, not the loss. Best model now beats the frozen headline.
 
 Branch **`phase2-tscast-nio`**. `main` untouched. 370 tests pass.

@@ -40,18 +40,60 @@ class TSCastPredictor:
         ck = torch.load(path, map_location="cpu", weights_only=False)
         self.meta = {k: v for k, v in ck.items() if k != "state_dict"}
 
-        self.data = data or D.load_monthly()
+        # Which BUNDLE this checkpoint belongs to. Older checkpoints predate the field; they were
+        # all monthly, so that is the only safe default -- and we say we assumed it rather than
+        # letting a daily model quietly read monthly inputs.
+        self.trained_data = ck.get("data")
+        if self.trained_data is None:
+            self.trained_data = "monthly"
+            self.meta["data_assumed"] = ("checkpoint predates the `data` field; assuming monthly. "
+                                         "Retrain to remove this assumption.")
+        if data is not None:
+            self.data = data
+        elif self.trained_data == "daily":
+            self.data = D.load_daily()
+        else:
+            self.data = D.load_monthly()
+
         if list(self.data["channels"]) != list(ck["channels"]):
             raise ValueError(
                 f"checkpoint was trained on channels {ck['channels']} but the loaded data has "
                 f"{self.data['channels']}. Channel order is frozen; predicting across a mismatch "
                 "would silently feed the model the wrong variables.")
 
+        # A daily checkpoint pointed at monthly steps produces plausible numbers from the wrong
+        # inputs -- the failure mode with no symptom. Catch it on the time axis, which differs by
+        # construction: daily steps are 1 day apart, monthly steps ~30.
+        self._refuse_on_cadence_mismatch()
+
         self.clim = clim if clim is not None else np.load(base.art("climatology.npy"))
-        self.model = TSCastNIO(ck["encoder"], len(ck["channels"]), t_seq=ck["T_SEQ"],
-                               p=ck["P"], latent=ck["latent"], residual=ck["residual"])
-        self.model.load_state_dict(ck["state_dict"])
+
+        # Build the decoder the CHECKPOINT names. Guessing `film` is what made every
+        # simple-decoder checkpoint fail to load with `Missing key(s) ... decoder.*`.
+        self.decoder_name = ck.get("decoder", "film")
+        # T_SEQ is the data WINDOW; the network was constructed at `built_t_seq` (1). They differ
+        # for every T_SEQ>1 run, and only cnn3d's time pooling hides it.
+        built_t = int(ck.get("built_t_seq", ck["T_SEQ"]))
+        self.model = TSCastNIO(ck["encoder"], len(ck["channels"]), t_seq=built_t,
+                               p=ck["P"], latent=ck["latent"], residual=ck["residual"],
+                               unet_channels=(tuple(ck["unet_channels"]) if ck.get("unet_channels") else None),
+                               decoder=self.decoder_name)
+        try:
+            self.model.load_state_dict(ck["state_dict"])
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"the checkpoint at {path} does not fit the network described by its own metadata "
+                f"(encoder={ck['encoder']}, decoder={self.decoder_name}, latent={ck['latent']}, "
+                f"built_t_seq={built_t}).\n  torch said: {e}\n"
+                "This predictor will not silently drop or invent weights to make a load succeed."
+            ) from None
         self.model.eval()
+
+        # The independent-Argo table must cover the period this checkpoint predicts in.
+        # `argo_test` is 2022 only: against a 2026 daily prediction it matches nothing and the
+        # panel reads "no float nearby", which looks identical to genuinely unsampled ocean.
+        self.argo_table = "argo_daily_period" if self.trained_data == "daily" else "argo_test"
+        self._engine = None
 
         norm = [np.asarray(v, dtype="float32") for v in ck["norm"]]
         self.ds = D.GriddedPatches(
@@ -60,6 +102,34 @@ class TSCastPredictor:
             np.arange(len(self.data["times"])), norm=norm, t_seq=ck["T_SEQ"], p=ck["P"],
             max_samples=1, clim=self.clim, return_clim=True)
         self.y_mean, self.y_std = norm[2], norm[3]
+
+    @property
+    def engine(self):
+        """F1's CollocationEngine, pointed at this bundle's Argo table. One matcher, not two."""
+        if self._engine is None:
+            from phase2.data.collocation import CollocationEngine
+
+            self._engine = CollocationEngine(argo_table=self.argo_table)
+        return self._engine
+
+    def _refuse_on_cadence_mismatch(self) -> None:
+        """A daily checkpoint must not be fed monthly steps, or the reverse.
+
+        The time axis tells us which bundle we actually hold, independently of any label, so this
+        catches a mislabelled npz as well as a wrong `data=` argument.
+        """
+        t = np.asarray(self.data["times"], dtype="datetime64[D]")
+        if len(t) < 2:
+            return
+        step = int(np.median(np.diff(t).astype(int)))
+        looks = "daily" if step <= 3 else "monthly"
+        if looks != self.trained_data:
+            raise ValueError(
+                f"this checkpoint was trained on the {self.trained_data} bundle, but the loaded "
+                f"data has a median step of {step} day(s), which is a {looks} bundle "
+                f"({len(t)} steps, {t[0]}..{t[-1]}). Predicting across that mismatch would feed "
+                f"the model inputs at a cadence it never saw. Load the {self.trained_data} bundle, "
+                f"or pass data= explicitly if you know why you are crossing them.")
 
     # ------------------------------------------------------------------ helpers
     def _cell(self, lat: float, lon: float) -> tuple[int, int]:
@@ -111,7 +181,34 @@ class TSCastPredictor:
             "days_from_requested": days_off,
             "grid_cell": {"lat": float(base.LAT[i]), "lon": float(base.LON[j])},
             "clim_train_years": list(base.TRAIN_YEARS),
+            "decoder": self.decoder_name,
+            "loss": self.meta.get("loss"),
+            "trained_on": self.meta.get("trained_on"),
+            "channels": [str(c) for c in self.data["channels"]],
+            "argo_table": self.argo_table,
         }
+        if argo_check is None and not forecast:
+            argo_check = self._argo_check_for(lat, lon, target, temp)
+
         return output.build_record(
             temperature=temp, log_var_t=logvar_deg, valid=valid, seafloor_depth_m=floor,
             provenance=prov, argo_check=None if forecast else argo_check, forecast=forecast)
+
+    def _argo_check_for(self, lat: float, lon: float, target, temp) -> dict | None:
+        """Nearest INDEPENDENT float beside the prediction -- or None, meaning genuinely none near.
+
+        Any failure to reach the table returns None rather than a fabricated comparison; the record
+        then says no float was found, which is the honest reading of "we could not check this".
+        """
+        try:
+            m = self.engine.match_argo(lat, lon, str(target))
+        except Exception:
+            return None
+        if m is None:
+            return None
+        return output.build_argo_check(
+            argo_temperature=m["temperature_profile"], temperature=temp,
+            profile_id=f"{m['latitude']:.3f},{m['longitude']:.3f}@{m['datetime']}",
+            distance_km=float(m["spatial_offset_km"]),
+            days_offset=abs(float(m["temporal_offset_days"])),
+            source=f"argopy/{self.argo_table}")

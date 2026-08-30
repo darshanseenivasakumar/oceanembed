@@ -136,6 +136,14 @@ def main():
                          "month, so a window of 31 steps would span 31 MONTHS, not 31 days.")
     print(f"data   : {a.data}, {len(d['times'])} steps, T_SEQ={t_seq}, "
           f"train {len(tr_t)} / test {len(te_t)}")
+    # Derived from the split that actually ran, so it cannot drift from it the way a hand-written
+    # `trained_on` string did (it still claimed "monthly archive" on every daily run).
+    _t = np.asarray(d["times"], dtype="datetime64[D]")
+    train_period = (str(_t[tr_t].min()), str(_t[tr_t].max()))
+    test_period = (str(_t[te_t].min()), str(_t[te_t].max()))
+    trained_on = (f"{a.data} bundle, T_SEQ={t_seq}, train {train_period[0]}..{train_period[1]}, "
+                  f"held-out GLORYS {test_period[0]}..{test_period[1]}, "
+                  f"{len(d['channels'])} channels {[str(c) for c in d['channels']]}")
     # 2019-2021 climatology, DISJOINT from the 2025-26 daily period -> no leakage path.
     # See scripts/phase2/build_daily_climatology.py for why not a train-split climatology.
     clim = np.load(base.art("climatology.npy"))
@@ -284,6 +292,15 @@ def main():
     torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": base.SEED,
                 "residual": not a.no_residual, "channels": d["channels"],
                 "P": config.P, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
+                # Without these the predictor cannot rebuild the network it is loading: it guessed
+                # `film` and died with "Missing key(s) decoder.*" on every simple-decoder run.
+                "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "data": a.data,
+                # The model is CONSTRUCTED at t_seq=1 above while T_SEQ is the DATA window. They are
+                # different numbers and only coincide at T_SEQ=1; cnn3d pools over time so its
+                # shapes do not change, but a reader must not have to know that to load us.
+                "built_t_seq": 1,
+                "trained_on": trained_on,
+                "train_period": list(train_period), "test_period": list(test_period),
                 "norm": [v.tolist() for v in ds_tr.norm],
                 "epochs": best["epoch"], "lr": a.lr,
                 "batch_size": a.batch_size}, ck)
@@ -295,9 +312,13 @@ def main():
         "stage": 1,
         "stage_note": "temperature + log-variance only; salinity and the eq. 5 density "
                       "constraint are stage 2 and start only once this is validated",
-        "trained_on": "monthly archive, T_SEQ=1 (the daily bundle had not landed)",
+        "trained_on": trained_on,
+        "train_period": list(train_period), "test_period": list(test_period),
+        "data": a.data, "T_SEQ": t_seq,
         "channels": d["channels"],
-        "channels_note": "5 of the contract's 7; wind arrives with the daily pipeline",
+        "channels_note": (f"{len(d['channels'])} of the contract's 7 channels"
+                          + ("" if len(d["channels"]) == 7 else "; wind (wu, wv) is ABSENT -- every "
+                             "number from this run must be quoted with that stated")),
         "device": str(dev), "data": a.data, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
         "n_params_encoder": n_enc, "n_params_decoder": n_dec,
         "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),

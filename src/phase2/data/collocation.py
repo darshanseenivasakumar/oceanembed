@@ -105,11 +105,24 @@ class CollocationEngine:
     """
 
     def __init__(self, tolerance_days: float = DEFAULT_TOLERANCE_D,
-                 spatial_method: str = "nearest"):
+                 spatial_method: str = "nearest", argo_table: str = "argo_test"):
+        """
+        argo_table
+            Which independent-Argo table to match against, WITHOUT the extension.
+            Default `"argo_test"` is 2022 only -- the table every published F1 number was
+            validated on, so the default keeps that behaviour byte-identical.
+            The v2 daily period is 2026, which `argo_test` cannot match at all: it returned
+            "no float within range" for every v2 prediction, which is indistinguishable from
+            genuinely unsampled ocean. v2 passes `"argo_daily_period"` instead.
+            Choosing the table is the CALLER's decision because only the caller knows which
+            period its prediction is in; guessing from the date would silently switch ground
+            truth underneath a comparison.
+        """
         if spatial_method not in ("nearest", "bilinear"):
             raise ValueError(f"spatial_method must be 'nearest' or 'bilinear', got {spatial_method!r}")
         self.tolerance_days = float(tolerance_days)
         self.spatial_method = spatial_method
+        self.argo_table = str(argo_table)
         self._cache: dict[str, Any] = {}
         self._argo: pd.DataFrame | None = None
 
@@ -123,7 +136,7 @@ class CollocationEngine:
     def _argo_table(self) -> pd.DataFrame | None:
         if self._argo is None:
             try:
-                df = io.load_table(config.art("argo_test"))
+                df = io.load_table(config.art(self.argo_table))
                 df["date"] = pd.to_datetime(df["date"])
                 self._argo = df
             except Exception:
@@ -270,6 +283,14 @@ class CollocationEngine:
         )
         record.quality = self._quality(record)
         return record
+
+    def match_argo(self, lat: float, lon: float, when) -> dict | None:
+        """Public entry to the SAME Argo matcher `collocate()` uses.
+
+        Exposed so v2 can reuse F1's validated matching instead of growing a second one that would
+        drift from it. Behaviour is byte-identical -- this only makes the call reachable.
+        """
+        return self._match_argo(float(lat), float(lon), pd.Timestamp(when))
 
     def _match_argo(self, lat: float, lon: float, when: pd.Timestamp) -> dict | None:
         """Nearest Argo profile in space AND time, or None. Never the nearest in one alone."""

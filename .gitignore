@@ -51,3 +51,6 @@ PHASE2_DATA_MANIFEST.json
 
 # build metadata from pip install -e .
 src/*.egg-info/
+
+# session logs (regenerable)
+/*.log

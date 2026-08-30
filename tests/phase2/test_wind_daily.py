@@ -5,6 +5,8 @@ right by SHAPE can still be wrong by ~14 km at every cell. These assert on COORD
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
@@ -182,3 +184,71 @@ def test_load_wind_returns_none_when_absent(tmp_path):
     from phase2.tscast_nio import daily_pipeline as P
 
     assert P.load_wind(str(tmp_path / "nope.npz")) is None
+
+
+# ── does the downloaded wind behave like the real Indian Ocean? ────────────────────────
+
+WIND_NPZ = os.path.join(config.DATA_PROCESSED, "wind_daily.npz")
+needs_wind = pytest.mark.skipif(not os.path.exists(WIND_NPZ),
+                                reason="wind_daily.npz not built on this machine")
+
+
+def _wind_box(z, lat0, lat1, lon0, lon1):
+    """Indices of the config cells inside a lat/lon box, selected BY VALUE."""
+    la = (config.LAT >= lat0) & (config.LAT <= lat1)
+    lo = (config.LON >= lon0) & (config.LON <= lon1)
+    return np.ix_(np.flatnonzero(la), np.flatnonzero(lo))
+
+
+@needs_wind
+def test_the_summer_monsoon_is_visible_in_the_western_arabian_sea():
+    """The Findlater Jet is the strongest low-level wind on Earth in JJA. If our field does not
+    show it over the western Arabian Sea, we have downloaded, regridded or dated something wrong.
+
+    Measured across MONTHS, never one date: a single day inverts seasonal signals routinely.
+    """
+    z = np.load(WIND_NPZ, allow_pickle=False)
+    dates = np.asarray(z["dates"], dtype="<U8")
+    months = np.array([int(d[4:6]) for d in dates])
+    speed = np.hypot(z["wu"], z["wv"])
+    box = _wind_box(z, 5.0, 20.0, 50.0, 65.0)
+
+    jja = np.isin(months, [6, 7, 8])
+    djf = np.isin(months, [12, 1, 2])
+    assert jja.sum() > 40 and djf.sum() > 40, (
+        f"not enough days to compare seasons: JJA {jja.sum()}, DJF {djf.sum()}")
+
+    summer = float(np.nanmean(speed[jja][:, box[0], box[1]]))
+    winter = float(np.nanmean(speed[djf][:, box[0], box[1]]))
+    assert summer > winter, (
+        f"summer wind {summer:.2f} m/s does not exceed winter {winter:.2f} m/s over the western "
+        f"Arabian Sea. The monsoon is the largest signal in this basin; if it is missing or "
+        f"inverted, the dates or the grid are wrong.")
+    assert summer > 1.5 * winter, (
+        f"summer {summer:.2f} vs winter {winter:.2f} m/s is a {summer / winter:.2f}x ratio -- "
+        f"the Findlater Jet should be far more pronounced than that")
+
+
+@needs_wind
+def test_wind_values_are_physical_and_the_grid_is_ours():
+    z = np.load(WIND_NPZ, allow_pickle=False)
+    assert np.allclose(z["lat"], config.LAT, atol=1e-6)
+    assert np.allclose(z["lon"], config.LON, atol=1e-6)
+    speed = np.hypot(z["wu"], z["wv"])
+    finite = speed[np.isfinite(speed)]
+    assert finite.size > 0
+    # Daily MEANS, so cyclone gusts are averaged down; anything past this is not wind.
+    assert float(finite.max()) < 40.0, f"peak daily-mean wind {finite.max():.1f} m/s is not physical"
+    assert 1.0 < float(finite.mean()) < 12.0, f"basin mean {finite.mean():.2f} m/s is implausible"
+
+
+@needs_wind
+def test_wind_covers_every_day_of_the_daily_bundle():
+    z = np.load(WIND_NPZ, allow_pickle=False)
+    d = np.asarray(z["dates"], dtype="<U8")
+    assert len(np.unique(d)) == len(d), "duplicate dates in the wind bundle"
+    assert d[0] == "20250601" and d[-1] == "20260623", f"window is {d[0]}..{d[-1]}"
+    full = np.arange(np.datetime64("2025-06-01"), np.datetime64("2026-06-24"), dtype="datetime64[D]")
+    have = np.array([np.datetime64(f"{s[:4]}-{s[4:6]}-{s[6:]}") for s in d])
+    missing = np.setdiff1d(full, have)
+    assert missing.size == 0, f"{missing.size} days missing, e.g. {missing[:5]}"

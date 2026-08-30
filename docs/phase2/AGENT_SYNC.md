@@ -59,6 +59,146 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-30 [DARSHAN] PHASES 0-3 done. Wind is downloading, D1 is fixed, and the inference path loads.
+
+Solo on both units until Mon 16:30. Branch `phase2-tscast-nio`, pulled your 401e67b cleanly
+(fast-forward, nothing of mine dropped).
+
+### 1. PHASE 0 — the daily bundle was here all along, under a different name [VERIFIED]
+
+`data/raw/daily/` does not exist on this machine; the 388 files are in **`data/raw/glorys_daily/`**
+(23 GB), which is where my own overnight launcher put them. `daily_pipeline.py` defaults to
+`--raw-dir data/raw/daily`, so anyone following the checklist literally would conclude the bundle
+was lost and start a 16 h re-download. It is not lost. Pass `--raw-dir data/raw/glorys_daily`.
+
+`verify_daily_bundle.py` → **ACCEPTED**, 388 files, contract and science all pass. Two zero-length
+partial-download temp files (`.nc.89at299q`, `.nc.mmi6outz`) sat beside them and are now removed.
+
+Bundle rebuilt from scratch here: 214 days 2025-06-01..2025-12-31 + 174 days 2026-01-01..2026-06-23,
+**0 missing**, ocean 49.3% of grid, 1000 m coverage 75.8% of ocean cells. Matches your numbers
+exactly. `artifacts/climatology.npy` is present at (12, 100, 240, 15).
+
+**`artifacts/tscast_stage1.pt` does not exist on this machine** — it is gitignored and never left
+your laptop, and so is `tscast_stage1_tseq31.pt`. There is no v2 checkpoint here at all. That makes
+Phase 4's retrain mandatory rather than an improvement, which is worth knowing before Monday.
+
+### 2. >>> ASK ARJHUN — two acceptance failures, neither mine, and I have not papered over either
+
+`accept.py` says **REJECTED** on this machine, failing `suite` and `features`. Both predate my work:
+
+**(a) `test_lightgbm_stays_refused_even_when_the_row_counts_match`** — the failure you already
+recorded at AGENT_SYNC §1051. Its own precondition (`local_x_train_rows != provenance_n_train`) is
+false here: both are 323028. The test asserts its own setup, so it fails on the machine it was
+written to protect. `accept.py`'s F8 check gets this right and passes. **I have not touched Unit C's
+test** — changing an acceptance test to make it green is the one edit I will not make unprompted.
+
+**(b) `per-depth n reproduces the published artifact exactly (max difference 20)`** — this compares
+tracked `tscast_baseline_metrics.json` (897 profiles matched, corrected cell lookup, your `59aa`)
+against **untracked** `artifacts/argo_error_by_depth.json` (879 profiles, restored here from
+`oceanembed_artifacts.zip`). Per-depth `n` agrees exactly at 0-20 m and diverges monotonically with
+depth (0,0,0,0,-1,-3,-4,-5,-5,-8,-11,-12,-20,-19,-11; totals 11664 vs 11763, 0.8%). RMSE agrees to
+0.0213 degC and that sub-check passes. Because the published file is untracked, your machine holds a
+different copy, which is why you never saw this. [INFERRED] the divergence is a below-seafloor /
+valid-mask difference, not collocation — collocation would move the shallow counts too, and they are
+identical. **Not fixed, because the honest fix depends on which artifact you consider canonical.**
+
+### 3. PHASE 1 — wind: the catalog picked the product, and trap #5 is real [VERIFIED]
+
+Probed every `obs-wind` dataset live. Exactly **one** gap-filled global L4 covers our window:
+`cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H`, time 2024-06-13..2026-08-27. There is **no P1D or
+P1M global L4** — both probed by dataset_id, both `DatasetNotFound`. Every other global NRT wind
+dataset is L3 `-i`, per-satellite ascending/descending swaths with daily gaps. So hourly + our own
+daily mean is the only route, not a preference.
+
+**Trap #5 confirmed and quantified.** Catalog reports the wind grid as `-89.9375..89.9375 step
+0.125`: points sit at `(k+0.5)*0.125`, i.e. **0.0625 deg off every multiple of 0.125**. No wind point
+coincides with any `config.LAT`/`config.LON` value — a positional assign would put every value ~7 km
+from where it claims to be. A live 1-day probe returned exactly **200 x 480** points over the box =
+exactly 2x2 per 0.25 deg cell, so the block mean is an exact average, not an interpolation.
+
+`regrid_to_config()` proves that instead of trusting it, and one of its guards exists because a test
+caught me: **counting 2 source points per cell does not prove they are in the right place.** A grid
+shifted a quarter-cell still yields 2 per cell, off-centre, biasing every value ~3.5 km. The
+invariant that actually pins the grid is that each block's centroid equals the target centre.
+11 tests, all asserting on coordinates rather than shape — including one showing the naive
+"take every other point" shortcut has the identical (100, 240) shape while sitting 0.0625 deg away.
+
+**Measured, not budgeted: 8.81 MB/day → ~3.4 GB for 388 days, not the 7.2 GB in the brief.**
+Download running now, ~2/13 months in. CMEMS credentials were already saved here; no login needed.
+
+**Correcting your correction:** you flagged `download_wind.py`'s docstring as wrong about a
+2019-2022 hourly L4 gap. Its NRT row is right for a different reason than it states — the *my*
+(multi-year) hourly L4 does span 2007-2026, but the *nrt* product it names really does start
+2024-06-13, so the NRT line stands. I have not touched that file; the F6 numbers rest on it.
+
+### 4. PHASE 2 — verified from your artifact, not re-run [VERIFIED]
+
+`artifacts/tseq_ablation.json` is complete and provenance-labelled: T=31 `measured` in full,
+T=1 and T=11 `declared` with their AGENT_SYNC source. Applying the frozen rule: **T_SEQ=11 at
+0.8529 degC, ahead of T=1 (0.9096) by 0.0567** — well clear of the 0.02 tie-break, so it wins
+outright and no shorter-window preference is invoked.
+
+Neither `record_tseq_ablation.py --check` nor `pick_tseq_and_retrain.py` can run here: both need
+`tscast_stage1_metrics.json` / `tseq_ablation.log`, which are machine-local to your laptop. The
+committed JSON is the authoritative record and it is sufficient. Phase 4 will launch the final run
+with the picker's own parameters (`--epochs 25 --train-samples 60000 --test-samples 12000
+--patience 5`) rather than by re-deriving them.
+
+### 5. PHASE 3 — the inference path is fixed and loads a real checkpoint [VERIFIED]
+
+Three guesses, each wrong: the predictor built FiLM unconditionally (`Missing key(s) decoder.*`),
+defaulted to the monthly bundle, and the metrics `trained_on` was boilerplate that said "monthly
+archive, T_SEQ=1" after every daily run.
+
+The trainer now saves `decoder`, `loss`, `beta_nll`, `data`, `train_period`, `test_period` and a
+`trained_on` derived from the split that actually ran. **`built_t_seq` is now saved separately from
+`T_SEQ`, because trap #11 is worse than recorded:** the model is constructed at `t_seq=1`
+(`train_stage1.py:155`) while the checkpoint stores the data window, and inference was feeding the
+stored value to *both*. It only works because cnn3d pools over time. A reader should not need to
+know that to load us, so the two numbers are now distinct and each used where it belongs.
+
+The predictor refuses three ways instead of guessing — channel mismatch, **cadence mismatch**
+(a daily model fed monthly steps returns plausible numbers from the wrong inputs, the failure with
+no symptom, so it is caught on the time axis), and weights that do not fit, quoting torch's error
+rather than dropping keys to make a load succeed.
+
+**A real record now prints end to end** from a real checkpoint: 15 depths, `sigma_t` in degC,
+per-depth `reasons` from measured quantities, `forecast` correct either side of 2026-06-23,
+provenance carrying `clim_train_years=[2019,2020,2021]` plus decoder/loss/channels/argo_table.
+
+### 6. >>> ANSWERED — D1, and the panel is no longer scientifically empty [VERIFIED]
+
+> "`CollocationEngine._argo_table()` is pinned to `artifacts/argo_test.parquet`, which is 2022 only.
+> Every v2 date is 2026. So `argo_check` matches zero floats for every v2 prediction... Recommended
+> fix (D1): an `argo_table` parameter on `CollocationEngine.__init__` defaulting to `"argo_test"`...
+> A test must assert a 2026 date returns a non-null `argo_check`."
+
+Done exactly as specified. `argo_table` defaults to `"argo_test"`, so F1's validated behaviour is
+byte-identical and every published F1 number still rests on the table it was measured on; v2 passes
+`"argo_daily_period"`. `match_argo()` is exposed as a public entry to the *same* matcher so v2
+reuses F1's rather than growing a second one that would drift.
+
+**15N 68E on 2026-05-15 now returns a real float: 13.31 km, 2 days, quality HIGH.** Both tests you
+asked for exist, plus the converse — that `argo_test` still returns `None` for a 2026 date, so a
+future crossing of the two tables fails loudly.
+
+### 7. Numbers I am deliberately NOT quoting
+
+I trained a 1-epoch / 600-sample checkpoint purely to test the load round-trip. It scores
+RMSE 1.8246. **That is a test fixture, not a result**, and it must not appear in any comparison —
+it exists only so the Phase 3 tests had a real checkpoint to load. Phase 4 replaces it.
+
+### 8. State
+
+Tests **253 passed, 1 failed, 1 skipped** (was 225 passed before this session; the 1 failure is
+(a) above). Commits: `fb6d542` wind, `e707962` inference path + D1. Pushed.
+
+Next: finish the wind download → merge `wu`/`wv` as channels 6-7 → Phase 4 retrain overnight at
+T_SEQ=11 on 7 channels → Phase 5 UI. If wind does not land, Phase 4 still runs at 5 channels and
+every number carries "5 of 7 channels, wind absent" beside it.
+
+---
+
 ## 2026-08-30 [ARJHUN] The T_SEQ sweep was already finished and I said twice that it was not. The paper's 31-day window LOSES.
 
 Correcting my own entry from three hours ago. The implementation spec is committed:

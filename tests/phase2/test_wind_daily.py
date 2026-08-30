@@ -252,3 +252,35 @@ def test_wind_covers_every_day_of_the_daily_bundle():
     have = np.array([np.datetime64(f"{s[:4]}-{s[4:6]}-{s[6:]}") for s in d])
     missing = np.setdiff1d(full, have)
     assert missing.size == 0, f"{missing.size} days missing, e.g. {missing[:5]}"
+
+
+def test_compact_date_strings_are_not_read_as_years():
+    """numpy reads "20250601" as the YEAR 20250601, silently, with a plausible dtype.
+
+    This shipped: load_wind() cast the npz's <U8 dates straight to datetime64[D], every join
+    matched nothing, and only _wind_for's refusal stopped a 1.5 h rebuild from producing a bundle
+    whose wind channels were empty.
+    """
+    from phase2.tscast_nio import daily_pipeline as P
+
+    raw = np.array(["20250601", "20250602", "20260623"], dtype="<U8")
+    out = P._parse_dates(raw, "test")
+    assert out.dtype == np.dtype("datetime64[D]")
+    assert list(out.astype(str)) == ["2025-06-01", "2025-06-02", "2026-06-23"]
+    # the naive cast is what this exists to prevent -- prove it really is wrong
+    naive = np.asarray(raw, dtype="datetime64[D]")
+    assert not np.array_equal(naive, out), "the naive cast now agrees; this guard is untested"
+
+
+def test_already_separated_dates_still_parse():
+    from phase2.tscast_nio import daily_pipeline as P
+
+    raw = np.array(["2025-06-01", "2026-06-23"], dtype="<U10")
+    assert list(P._parse_dates(raw, "test").astype(str)) == ["2025-06-01", "2026-06-23"]
+
+
+def test_dates_outside_a_real_window_are_refused():
+    from phase2.tscast_nio import daily_pipeline as P
+
+    with pytest.raises(ValueError, match="not a real window|read as a YEAR"):
+        P._parse_dates(np.array(["20250601"], dtype="<U8").astype("datetime64[D]"), "test")

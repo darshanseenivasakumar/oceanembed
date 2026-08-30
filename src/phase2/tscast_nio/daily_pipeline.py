@@ -61,8 +61,36 @@ def load_wind(path: str = WIND_NPZ) -> dict | None:
             raise ValueError(
                 f"{path} is on a different {axis} grid than config: "
                 f"{got[:3]}... vs {want[:3]}... -- refusing to merge it as a surface channel")
-    return {"dates": np.asarray(z["dates"], dtype="datetime64[D]"),
-            "wu": z["wu"], "wv": z["wv"]}
+    return {"dates": _parse_dates(z["dates"], path), "wu": z["wu"], "wv": z["wv"]}
+
+
+def _parse_dates(raw, where: str) -> np.ndarray:
+    """Compact YYYYMMDD strings -> datetime64[D], explicitly.
+
+    numpy reads `np.asarray("20250601", dtype="datetime64[D]")` as the YEAR 20250601, not as a
+    date -- silently, with no error and a plausible-looking dtype. Every subsequent join then
+    matches nothing. Insert the separators first, then assert the result actually lands in the
+    era we are working in, because a date that is off by two million years should never survive
+    to the point where it is compared against anything.
+    """
+    a = np.asarray(raw)
+    if a.dtype.kind in ("U", "S"):
+        txt = a.astype(str)
+        if txt.size and len(txt[0]) == 8 and "-" not in txt[0]:
+            txt = np.char.add(np.char.add(np.char.add(
+                np.char.add([t[:4] for t in txt], "-"), [t[4:6] for t in txt]), "-"),
+                [t[6:8] for t in txt])
+        out = txt.astype("datetime64[D]")
+    else:
+        out = a.astype("datetime64[D]")
+    years = out.astype("datetime64[Y]").astype(int) + 1970
+    if years.min() < 1990 or years.max() > 2100:
+        raise ValueError(
+            f"{where}: parsed dates span years {years.min()}..{years.max()}, which is not a real "
+            f"window. The raw values were {list(np.asarray(raw)[:3])} -- a compact YYYYMMDD string "
+            f"cast straight to datetime64 is read as a YEAR, and that is almost certainly what "
+            f"happened here.")
+    return out
 
 
 def _wind_for(wind: dict, times: np.ndarray) -> np.ndarray:

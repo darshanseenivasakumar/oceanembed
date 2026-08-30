@@ -98,6 +98,14 @@ def main():
                          "confound could say which caused the regression.")
     ap.add_argument("--loss", choices=["nll", "mse"], default="nll")
     ap.add_argument("--data", choices=["monthly", "daily"], default="monthly")
+    ap.add_argument("--daily-dir", default=None,
+                    help="which daily bundle to train on; default data/processed/daily. Lets a "
+                         "5-channel and a 7-channel run be compared with everything else held "
+                         "identical, which a rebuilt-in-place bundle cannot support.")
+    ap.add_argument("--tag", default="",
+                    help="suffix for the checkpoint and metrics filenames, e.g. --tag 7ch writes "
+                         "tscast_stage1_7ch.pt. Every leg of the T_SEQ sweep overwrote the last "
+                         "and the winning checkpoint was lost; this is how that stops happening.")
     ap.add_argument("--t-seq", type=int, default=None,
                     help="input window length. Only meaningful with --data daily; "
                          "the monthly archive has no daily neighbours.")
@@ -133,7 +141,7 @@ def main():
               "encoder sees 43x the input elements.")
 
     if a.data == "daily":
-        d = D.load_daily()
+        d = D.load_daily(a.daily_dir)
         tr_t, te_t = D.daily_split_indices(d["times"])
     else:
         d = D.load_monthly()
@@ -296,7 +304,8 @@ def main():
         print(f"calibration ratio {min(ratios):.2f}-{max(ratios):.2f}  "
               f"(1.0 = honest; >1 = overconfident. MC-dropout measured 1.56-3.54)")
 
-    ck = base.art("tscast_stage1.pt")
+    suffix = f"_{a.tag}" if a.tag else ""
+    ck = base.art(f"tscast_stage1{suffix}.pt")
     torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": base.SEED,
                 "residual": not a.no_residual, "channels": d["channels"],
                 "P": config.P, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
@@ -322,7 +331,8 @@ def main():
                       "constraint are stage 2 and start only once this is validated",
         "trained_on": trained_on,
         "train_period": list(train_period), "test_period": list(test_period),
-        "data": a.data, "T_SEQ": t_seq,
+        "data": a.data, "T_SEQ": t_seq, "tag": a.tag or None,
+        "daily_dir": a.daily_dir or ("data/processed/daily" if a.data == "daily" else None),
         "channels": d["channels"],
         "channels_note": (f"{len(d['channels'])} of the contract's 7 channels"
                           + ("" if len(d["channels"]) == 7 else "; wind (wu, wv) is ABSENT -- every "
@@ -365,7 +375,7 @@ def main():
         "code_commit": subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"], text=True).strip(),
     }
-    p = base.art("tscast_stage1_metrics.json")
+    p = base.art(f"tscast_stage1{suffix}_metrics.json")
     with open(p, "w") as f:
         json.dump(out, f, indent=1)
     print(f"\nwrote {ck}\nwrote {p}")

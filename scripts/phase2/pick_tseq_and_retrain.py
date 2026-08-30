@@ -44,20 +44,59 @@ def parse(log_path: str) -> dict[int, float]:
     return out
 
 
+def parse_recorded(spec: str) -> dict[int, float]:
+    """Parse `--recorded 1=0.9096,11=0.8529` into {1: 0.9096, 11: 0.8529}.
+
+    This exists so nobody ever hand-writes a fake console log. The T_SEQ=1 and T_SEQ=11 legs
+    really ran, but their logs were not kept and each leg overwrites the previous one's metrics
+    JSON, so the surviving record of them is the AGENT_SYNC table. Re-running two legs to
+    regenerate a log costs hours; typing their numbers into a file that LOOKS like run output is
+    manufacturing evidence. So a recorded number enters through its own flag, is labelled
+    `declared` everywhere it is printed, and can never be mistaken for something measured here.
+    """
+    out = {}
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        k, _, v = part.partition("=")
+        out[int(k)] = float(v)
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--log", required=True)
+    ap.add_argument("--recorded", default="",
+                    help="legs whose result is quoted from AGENT_SYNC rather than measured from "
+                         "this log, e.g. '1=0.9096,11=0.8529'. Printed as `declared`, with its "
+                         "source, so the provenance of every row stays visible.")
+    ap.add_argument("--recorded-source", default="docs/phase2/AGENT_SYNC.md 2026-08-29 section 5",
+                    help="where the --recorded numbers come from; printed beside them.")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
-    res = parse(a.log)
+    measured = parse(a.log)
+    declared = parse_recorded(a.recorded)
+    clash = sorted(set(measured) & set(declared))
+    if clash:
+        sys.exit(f"T_SEQ={clash} is both measured in {a.log} and passed via --recorded. "
+                 f"Refusing to guess which one you meant -- drop it from --recorded if the log "
+                 f"is the real run, and check the two agree before you do.")
+    res = {**measured, **declared}
     if len(res) < 3:
         sys.exit(f"ablation incomplete: got {sorted(res)} of [1, 11, 31]. "
                  f"Refusing to pick a winner from a partial sweep.")
 
     print("T_SEQ ablation, independent Argo RMSE (lower is better):")
     for ts in sorted(res):
-        print(f"  T_SEQ={ts:2d}  {res[ts]:.4f} degC   ({SAMPLES_FOR[ts]:,} samples in the final run)")
+        origin = (f"measured in {os.path.basename(a.log)}" if ts in measured
+                  else f"declared, from {a.recorded_source}")
+        print(f"  T_SEQ={ts:2d}  {res[ts]:.4f} degC   ({SAMPLES_FOR[ts]:,} samples in the final "
+              f"run)   [{origin}]")
+    if declared:
+        print(f"\n  {len(declared)} of {len(res)} legs are DECLARED, not measured by this script. "
+              f"Anything downstream that quotes this ranking must say so too.")
     win = min(res, key=res.get)
     second = sorted(res, key=res.get)[1]
     margin = res[second] - res[win]

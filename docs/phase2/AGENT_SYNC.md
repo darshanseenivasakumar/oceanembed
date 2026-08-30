@@ -59,6 +59,81 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-30 [ARJHUN] The T_SEQ sweep was already finished and I said twice that it was not. The paper's 31-day window LOSES.
+
+Correcting my own entry from three hours ago. The implementation spec is committed:
+`docs/phase2/DARSHAN_BUILD_SPEC.md`, 3,570 lines, 217 API signatures read off disk, 17 open
+decisions.
+
+### 1. >>> THE ABLATION IS COMPLETE. T_SEQ=11 wins. [VERIFIED]
+
+My handover entry said the T_SEQ=31 leg was "killed mid-run and never recorded". **It finished at
+13:29 today** — after the entry claiming otherwise was written. I found it by reading
+`tscast_stage1_metrics.json` instead of trusting my own log. All three legs, seed 42 / `simple`
+decoder / β-NLL 0.5 / 40,000 samples / cnn3d / 5 channels / the same 962 independent Argo profiles:
+
+| T_SEQ | Argo RMSE | bias | corr | skill_rmse_ratio | provenance |
+|---|---|---|---|---|---|
+| 1 | 0.9096 | +0.1700 | 0.894 | 0.2580 | declared — leg JSON overwritten |
+| **11** | **0.8529** | **+0.0360** | 0.889 | **0.3040** | declared — leg JSON overwritten |
+| 31 | 0.9267 | +0.2515 | 0.882 | 0.2441 | **measured, on disk** |
+
+**T_SEQ=11 by 0.0567 °C**, far outside the 0.02 tie-break, so the rule picks it outright rather
+than on the shorter-window preference.
+
+**The finding is worth a slide.** The paper's ±15-day window is the **worst of the three here —
+worse than no temporal window at all**, and the most warm-biased (+0.2515 against +0.0360). TS-Cast
+had ~155,000 in-situ profiles at 1/8°; at our sample budget ±5 days wins. That is a measured
+disagreement with the paper, not a failed reimplementation, and we should say so in those words.
+
+**Every leg was gitignored and each overwrote the last**, so this lived on one laptop. Now:
+`artifacts/tseq_ablation.json`, force-added past `.gitignore`, per-leg `source: measured|declared`,
+plus `scripts/phase2/record_tseq_ablation.py --check` which fails if leg 31 ever drifts from the
+JSON. **Phase 2 drops from ~2.5 h to ~15 min on Darshan's machine.**
+
+> **What the overwriting cost, and it is a real loss.** `artifacts/tscast_stage1.pt` is the
+> **T_SEQ=31** model — the worst leg. The winning T_SEQ=11 checkpoint **no longer exists anywhere**.
+> Phase 4 regenerates it. Copy the checkpoint pair aside before launching any run; I have preserved
+> T=31 as `tscast_stage1_tseq31.pt` so at least this one survives the next overwrite.
+
+### 2. >>> ASK DARSHAN — D1, and it would have shipped a panel that looked like it worked
+
+`CollocationEngine._argo_table()` is pinned to `artifacts/argo_test.parquet`, which is **2022 only**.
+Every v2 date is 2026. So `argo_check` matches **zero floats for every v2 prediction** and renders as
+"no independent float within range" — indistinguishable from genuinely unsampled ocean. A panel that
+is structurally correct and scientifically empty.
+
+Recommended fix in the spec (D1): an `argo_table` parameter on `CollocationEngine.__init__`
+defaulting to `"argo_test"` so F1's validated behaviour is byte-identical, with the v2 path passing
+`"argo_daily_period"`. **`collocation.py` is yours and it is VALIDATED, so I have not touched it** —
+this is the contract-first ask. A test must assert a 2026 date returns a non-null `argo_check`.
+
+### 3. Two more corrections, both to things I wrote
+
+- **plotly IS installed here** (7.0.0). My "trap #20: plotly is not in the venv" is wrong on this
+  clone. The altair-only rule still stands on `app/panels/_viz.py`'s recorded reason — the demo
+  laptop is not this laptop — but the stated justification was false.
+- **`download_wind.py`'s docstring is factually wrong.** It claims a CMEMS coverage gap across
+  2019–2022 for hourly L4 wind; the live catalog, probed today, shows
+  `cmems_obs-wind_glo_phy_my_l4_0.125deg_PT1H` spanning **2007→2026**. Its other two rows check out.
+  **Recorded, deliberately not acted on:** the F6 upwelling numbers were measured on the monthly
+  product, so re-downloading would invalidate them for no gain in this window.
+- Also answered while probing: TS-Cast's per-pixel **error channels do exist** for CMEMS wind
+  (`eastward_wind_sdd`, `eastward_wind_bias`). The 7-channel contract is frozen and we are not
+  widening it in a 24-hour window — but §5 of `tscast_data_model.md` asked the question and it now
+  has an answer.
+
+### 4. For the wind download specifically
+
+Use `cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H` **alone** for the whole window. The MY 0.125°
+product ends 2026-04-20, which is **20 days inside the test window** — splicing MY→NRT would put a
+product discontinuity exactly where the headline number is measured, and that is indistinguishable
+from a model effect. NRT carries `eastward_wind`/`northward_wind` and has **no** `*_stress` or
+`wind_speed` variables, so a copy-paste of `download_wind.VARIABLES` raises. Probe one day before
+moving 7 GB.
+
+---
+
 ## 2026-08-30 [ARJHUN] HANDOVER: Darshan's Claude drives until Mon 16:30. Branches merged, the brief is committed, and one instruction of mine was a fabrication risk.
 
 Arjhun's weekly limit is spent. Unit A hands BOTH units to Darshan's Claude until **Monday

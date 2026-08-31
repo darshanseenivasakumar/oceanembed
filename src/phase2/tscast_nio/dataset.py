@@ -54,7 +54,7 @@ class GriddedPatches(Dataset):
 
     def __init__(self, surface, temp, times, land_mask, channels,
                  t_indices, norm=None, t_seq=None, p=None, max_samples=None, seed=None,
-                 stride=1, clim=None, return_clim=False):
+                 stride=1, clim=None, return_clim=False, salinity=None, return_salinity=False):
         self.C = surface.shape[-1]
         self.T_SEQ = int(config.T_SEQ if t_seq is None else t_seq)
         self.P = int(config.P if p is None else p)
@@ -71,6 +71,13 @@ class GriddedPatches(Dataset):
         if self.return_clim and clim is None:
             raise ValueError('return_clim=True needs a climatology array; refusing to '
                              'fabricate a zero prior')
+        # Stage-2 target. OPT-IN for the same reason as return_clim: every stage-1 consumer
+        # unpacks a fixed-length tuple, so the default must leave that tuple untouched.
+        self.salinity = salinity
+        self.return_salinity = bool(return_salinity)
+        if self.return_salinity and salinity is None:
+            raise ValueError("return_salinity=True needs a salinity array; refusing to train a "
+                             "salinity head against a fabricated target")
         self.month = np.array([int(str(t)[5:7]) - 1 for t in times])
 
         # pad space with NaN so an edge patch is explicitly "missing", not fabricated
@@ -87,8 +94,29 @@ class GriddedPatches(Dataset):
             self.y_mean = np.nanmean(temp[t_indices], axis=(0, 1, 2)).astype("float32")
             self.y_std = np.nanstd(temp[t_indices], axis=(0, 1, 2)).astype("float32")
             self.y_std[self.y_std < 1e-6] = 1.0
-        else:
+            # Salinity stats, TRAIN indices only -- same rule as temperature. Computed whenever a
+            # salinity array is present so the stats travel with the checkpoint even if this
+            # particular dataset is not returning salinity.
+            if salinity is not None:
+                self.s_mean = np.nanmean(salinity[t_indices], axis=(0, 1, 2)).astype("float32")
+                self.s_std = np.nanstd(salinity[t_indices], axis=(0, 1, 2)).astype("float32")
+                self.s_std[self.s_std < 1e-6] = 1.0
+            else:
+                self.s_mean = self.s_std = None
+        elif len(norm) == 6:
+            self.mean, self.std, self.y_mean, self.y_std, self.s_mean, self.s_std = norm
+        elif len(norm) == 4:
+            # A stage-1 checkpoint's norm. Accepted so stage-1 models keep loading unchanged.
             self.mean, self.std, self.y_mean, self.y_std = norm
+            self.s_mean = self.s_std = None
+        else:
+            raise ValueError(f"norm must have 4 (stage 1) or 6 (stage 2) entries, got {len(norm)}")
+        if self.return_salinity and self.s_mean is None:
+            raise ValueError(
+                "return_salinity=True but no salinity normalisation is available: the `norm` "
+                "passed in is a 4-entry stage-1 tuple and no salinity array was given to derive "
+                "one from. Z-scoring salinity with temperature's statistics would be a silent "
+                "20x error of exactly the D-014 kind.")
 
         # valid sample positions: ocean, and a finite target at the surface level
         ok = (~land_mask)[None, :, :] & np.isfinite(temp[:, :, :, 0])
@@ -104,7 +132,10 @@ class GriddedPatches(Dataset):
 
     @property
     def norm(self):
-        return (self.mean, self.std, self.y_mean, self.y_std)
+        """4 entries at stage 1, 6 when salinity statistics exist. Length says which."""
+        if self.s_mean is None:
+            return (self.mean, self.std, self.y_mean, self.y_std)
+        return (self.mean, self.std, self.y_mean, self.y_std, self.s_mean, self.s_std)
 
     def __len__(self):
         return len(self.index)
@@ -143,7 +174,14 @@ class GriddedPatches(Dataset):
 
         cp = self.clim[:, i, j, :].astype("float32")              # (12, 15): all 12 months
         cp_z = np.where(np.isfinite(cp), (cp - self.y_mean) / self.y_std, 0.0).astype("float32")
-        return sample + (torch.from_numpy(cp_z), torch.tensor(int(self.month[t])))
+        sample = sample + (torch.from_numpy(cp_z), torch.tensor(int(self.month[t])))
+        if not self.return_salinity:
+            return sample
+
+        sal = self.salinity[t, i, j, :].astype("float32")
+        s_valid = np.isfinite(sal)
+        s_z = np.where(s_valid, (sal - self.s_mean) / self.s_std, 0.0).astype("float32")
+        return sample + (torch.from_numpy(s_z), torch.from_numpy(s_valid))
 
 
 def load_monthly(path=None):

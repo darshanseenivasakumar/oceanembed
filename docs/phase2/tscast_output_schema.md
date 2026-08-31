@@ -1,8 +1,27 @@
 # tscast_output_schema.md — what the model RETURNS and the UI SHOWS
 
 **Owner:** Unit A (Arjhun). **Branch:** `phase2-tscast-nio`.
-**Status:** CONTRACT. Stage-2 fields are present from day one, valued `None`, so adding salinity
-and density is a fill-in, **not a schema migration**.
+**Status:** CONTRACT. Stage-2 fields were present from day one valued `None`, so adding salinity
+and density was a fill-in, **not a schema migration** — which is how it actually landed.
+
+**AMENDED 2026-08-31 (stage 2 shipped).** Two keys were ADDED, `sigma_s` and `sigma_rho`. The
+schema already carried the log-variances, but every consumer wants the readable spread, and
+`sigma_t` had set that precedent — leaving stage 2 to square-root its own error bars in the UI
+would have put a computation in the one place this project forbids one. Additive only: no existing
+key changed name, type or meaning.
+
+**Three rules govern the stage-2 values.**
+1. `salinity`, `density`, `sigma_s` and `sigma_rho` are `None` wherever `valid[k]` is False. Below
+   the sea floor there is no water, so there is no salinity there either — a number would be a
+   fabrication, not a rounding artefact. The log-variances are reported at every depth because
+   they are diagnostics, exactly as `log_var_t` already was.
+2. **Density is COMPUTED, never predicted.** `density = EOS-80(salinity, temperature)` on the
+   model's own outputs, matching TS-Cast section 2.3.4 ("the network does not directly output
+   density"). `sigma_rho` IS predicted, independently, because the paper states T/S error
+   covariance is non-negligible and propagating the two variances analytically would understate it.
+3. `log_var_rho` is already in physical units (kg m-3): eq. 5 is evaluated on density directly, so
+   it is NOT rescaled by any normalisation constant. `log_var_t` and `log_var_s` ARE rescaled, from
+   z-units into degC and psu. Getting this backwards is invisible downstream.
 
 Depths are always the 15 in `config.DEPTHS`, in that order. Never a subset, never reordered.
 
@@ -21,11 +40,13 @@ One record = one reconstructed profile at one (lat, lon, date).
   "valid":        [15] bool,      # False where the sea floor is above this depth
   "seafloor_depth_m": float,
 
-  # ---- stage 2: keys exist now, values are None until stage 2 lands -------
-  "salinity":     None,           # -> [15] float, psu
-  "log_var_s":    None,           # -> [15] float
-  "density":      None,           # -> [15] float, kg m-3, from EOS-80 on predicted T,S
-  "log_var_rho":  None,           # -> [15] float
+  # ---- stage 2: None from a stage-1 checkpoint, populated by a stage-2 one -----
+  "salinity":     None,           # -> [15] float|None, psu.  None where `valid` is False
+  "log_var_s":    None,           # -> [15] float, every depth (a diagnostic, like log_var_t)
+  "sigma_s":      None,           # -> [15] float|None, psu     = sqrt(exp(log_var_s))
+  "density":      None,           # -> [15] float|None, kg m-3, EOS-80 on the PREDICTED (T,S)
+  "log_var_rho":  None,           # -> [15] float, every depth
+  "sigma_rho":    None,           # -> [15] float|None, kg m-3  = sqrt(exp(log_var_rho))
 
   # ---- required on every record, no exceptions ---------------------------
   "reasons":      [15] str,       # see section 2

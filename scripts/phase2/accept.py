@@ -598,6 +598,100 @@ def check_v2_ui() -> tuple[bool, list[str]]:
     return all(c for c, _ in checks), lines
 
 
+def check_v2_stage2() -> tuple[bool, list[str]]:
+    """Stage 2: the equation of state has one definition, and eq. 5 is evaluated in real units.
+
+    Skips cleanly when no stage-2 run exists yet. What it will NOT do is pass by importing.
+    """
+    import json
+    import os
+
+    import numpy as np
+    import torch
+
+    from oceanembed import config
+    from phase2.physics import seawater as sw
+    from phase2.tscast_nio import config as vcfg
+    from phase2.tscast_nio import ui_tables as T
+    from phase2.tscast_nio.models.tscast import TSCastNIO, density_nll
+
+    checks = []
+
+    # 1. one polynomial, two backends -- the D-014 failure mode, pre-empted
+    rng = np.random.default_rng(0)
+    S, th = rng.uniform(30, 38, 400), rng.uniform(2, 32, 400)
+    diff = float(np.max(np.abs(sw.density(S, th)
+                               - sw.density_torch(torch.tensor(S), torch.tensor(th)).numpy())))
+    checks.append((diff == 0.0,
+                   f"numpy and torch density are the SAME polynomial (max difference {diff:g})"))
+    unesco = float(sw.density(35.0, 25.0))
+    checks.append((abs(unesco - 1023.343) < 1e-3,
+                   f"still reproduces the published UNESCO check value: {unesco:.5f} vs 1023.343"))
+
+    # 2. stage 1 must be untouched -- the shipped number depends on it
+    m1 = TSCastNIO("cnn3d", 7, t_seq=1, p=vcfg.P, latent=128, decoder="simple", stage=1)
+    checks.append((m1.simple_head[-1].out_features == 2 * config.N_DEPTHS,
+                   "stage-1 head is still 2 x 15 outputs, so stage-1 checkpoints still load"))
+    ck1 = config.art("tscast_stage1.pt")
+    if os.path.exists(ck1):
+        try:
+            m1.load_state_dict(torch.load(ck1, map_location="cpu",
+                                          weights_only=False)["state_dict"])
+            ok1 = True
+        except Exception:
+            ok1 = False
+        checks.append((ok1, "the shipped stage-1 checkpoint loads into a freshly built stage-1 model"))
+
+    # 3. eq. 5 must see degC and psu, not z-scores
+    n = config.N_DEPTHS
+    z, lv, mk = torch.zeros(4, n), torch.zeros(4, n), torch.ones(4, n, dtype=torch.bool)
+    err = torch.full((4, n), 0.5)
+    ym, sm, ss = torch.full((n,), 20.0), torch.full((n,), 35.0), torch.full((n,), 0.5)
+    narrow = float(density_nll(err, z, lv, z, z, mk, ym, torch.full((n,), 1.0), sm, ss))
+    wide = float(density_nll(err, z, lv, z, z, mk, ym, torch.full((n,), 6.0), sm, ss))
+    checks.append((wide > narrow * 2,
+                   f"eq. 5 is evaluated in physical units: the same z-scored error costs "
+                   f"{narrow:.4f} at y_std=1 and {wide:.4f} at y_std=6"))
+    neg = density_nll(z, torch.full((4, n), -200.0), lv, z, z, mk, ym,
+                      torch.full((n,), 6.0), sm, ss)
+    checks.append((bool(torch.isfinite(neg)),
+                   "a negative salinity prediction does not return NaN and poison the batch"))
+
+    # 4. the trained artifact, if there is one
+    mp = config.art("tscast_stage2_s2_metrics.json")
+    if not os.path.exists(mp):
+        checks.append((True, "[skip] no stage-2 run on this machine yet"))
+    else:
+        m = json.load(open(mp, encoding="utf-8"))
+        checks.append((T.is_stage2(m), "the stage-2 artifact identifies itself as stage 2"))
+        checks.append((m.get("eos", "").startswith("EOS-80"),
+                       "records which equation of state produced its density"))
+        checks.append((m.get("salinity_is_independently_validated") is True,
+                       "salinity was scored against independent Argo PSAL, not against the "
+                       "reanalysis it was trained on"))
+        rows = T.salinity_rows(m)
+        checks.append((len(rows) == config.N_DEPTHS,
+                       f"the salinity table the UI renders has one row per depth ({len(rows)})"))
+        ms = m.get("metrics_salinity") or {}
+        bad = [r["depth (m)"] for k, r in enumerate(rows)
+               if r["RMSE (psu)"] is not None
+               and abs(float(ms["rmse"][k]) - float(r["RMSE (psu)"])) > 5e-5]
+        checks.append((not bad, "every rendered salinity RMSE equals the artifact to 4 dp"))
+        dens = T.density_summary(m)
+        checks.append((dens is not None and dens.get("RMSE (kg m⁻³)") is not None,
+                       "eq. 5's own target is MEASURED against independent floats, not assumed"))
+        if dens and dens.get("RMSE (kg m⁻³)") is not None:
+            r = float(dens["RMSE (kg m⁻³)"])
+            checks.append((0.0 < r < 10.0,
+                           f"density error {r:.4f} kg m-3 is physically plausible beside seawater's "
+                           f"~1023 kg m-3"))
+        checks.append((m.get("compare_against", {}).get("stage1_rmse") is not None,
+                       "carries the stage-1 number it must be compared against"))
+
+    lines = [("     " + ("ok   " if c else "FAIL ") + msg) for c, msg in checks]
+    return all(c for c, _ in checks), lines
+
+
 CHECKS = [
     ("F1 collocation", "phase2.data.collocation", check_f1),
     ("F2b volume", "phase2.cube.volume", check_f2b),
@@ -607,6 +701,7 @@ CHECKS = [
     ("F8 validation", "phase2.validation.lab", check_f8),
     ("v2 TS-Cast-NIO", "phase2.tscast_nio.metrics", check_v2_tscast),
     ("v2 UI", "phase2.tscast_nio.ui_tables", check_v2_ui),
+    ("v2 stage 2", "phase2.tscast_nio.train.train_stage2", check_v2_stage2),
 ]
 
 

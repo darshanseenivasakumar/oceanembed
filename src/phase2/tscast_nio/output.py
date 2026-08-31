@@ -106,6 +106,27 @@ def build_argo_check(argo_temperature, temperature, profile_id, distance_km, day
     }
 
 
+def _masked(values, valid):
+    """A 15-long list with None wherever the column is invalid, or None if there is nothing."""
+    if values is None:
+        return None
+    a = np.asarray(values, dtype="float64")
+    if a.shape != (config.N_DEPTHS,):
+        raise ValueError(f"expected {config.N_DEPTHS} depths, got {a.shape}; the output contract "
+                         "is frozen and reshaping here would misalign every depth label")
+    return [None if not valid[k] else round(float(a[k]), 4) for k in range(config.N_DEPTHS)]
+
+
+def _plain(values):
+    """Log-variances are diagnostics and are reported at every depth, valid or not, like log_var_t."""
+    if values is None:
+        return None
+    a = np.asarray(values, dtype="float64")
+    if a.shape != (config.N_DEPTHS,):
+        raise ValueError(f"expected {config.N_DEPTHS} depths, got {a.shape}")
+    return [round(float(x), 4) for x in a]
+
+
 def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
                  argo_check=None, forecast=False, salinity=None, log_var_s=None,
                  density=None, log_var_rho=None) -> dict:
@@ -122,6 +143,16 @@ def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
     t_out = [None if not v[k] else round(float(t[k]), 4) for k in range(config.N_DEPTHS)]
     s_out = [None if not v[k] else round(float(sigma[k]), 4) for k in range(config.N_DEPTHS)]
 
+    # Stage 2. The same validity mask governs salinity and density: below the sea floor there is
+    # no water, so there is no salinity there either, and a number would be a fabrication rather
+    # than a rounding artefact.
+    sal_out = _masked(salinity, v)
+    lvs_out = _plain(log_var_s)
+    rho_out = _masked(density, v)
+    lvr_out = _plain(log_var_rho)
+    sig_s = _masked(np.sqrt(np.exp(np.asarray(log_var_s, dtype="float64"))), v)         if log_var_s is not None else None
+    sig_rho = _masked(np.sqrt(np.exp(np.asarray(log_var_rho, dtype="float64"))), v)         if log_var_rho is not None else None
+
     if forecast and argo_check is not None:
         raise ValueError("a forecast cannot carry an argo_check: no ground truth exists past the "
                          "last observed date. See tscast_output_schema.md section 4.")
@@ -133,11 +164,13 @@ def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
         "sigma_t": s_out,
         "valid": [bool(x) for x in v],
         "seafloor_depth_m": float(seafloor_depth_m),
-        # stage 2 -- keys exist now, values arrive later
-        "salinity": salinity,
-        "log_var_s": log_var_s,
-        "density": density,
-        "log_var_rho": log_var_rho,
+        # stage 2 -- None at stage 1, populated by a stage-2 checkpoint
+        "salinity": sal_out,
+        "log_var_s": lvs_out,
+        "sigma_s": sig_s,
+        "density": rho_out,
+        "log_var_rho": lvr_out,
+        "sigma_rho": sig_rho,
         "reasons": build_reasons(sigma, v, seafloor_depth_m),
         "argo_check": argo_check,
         "forecast": bool(forecast),

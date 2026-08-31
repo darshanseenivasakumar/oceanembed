@@ -44,6 +44,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from phase2.physics import seawater
 from phase2.tscast_nio import config, encoders as E
 
 LOGVAR_MIN, LOGVAR_MAX = -7.0, 7.0     # sigma in roughly [0.03, 33] degC after unscaling
@@ -184,12 +185,21 @@ class ClimatologyUNet(nn.Module):
 
 
 class TSCastNIO(nn.Module):
-    """Stage 1: 7 (or 5) surface channels + climatology prior -> 15 depths + per-depth log-var."""
+    """7 (or 5) surface channels + climatology prior -> 15 depths + per-depth log-var.
+
+    stage 1 -> (mu_T, logvar_T)
+    stage 2 -> (mu_T, logvar_T, mu_S, logvar_S, logvar_rho), the paper's eq. 3/4/5 heads.
+    Stage 1's architecture is byte-identical to before stage 2 existed, so every stage-1
+    checkpoint still loads and the shipped 0.8612 degC result stays reproducible.
+    """
 
     def __init__(self, encoder_name: str, c_in: int, t_seq: int = None, p: int = None,
                  latent: int = None, residual: bool = True, unet_channels=None,
-                 decoder: str = "film"):
+                 decoder: str = "film", stage: int = 1):
         super().__init__()
+        if stage not in (1, 2):
+            raise ValueError(f"stage must be 1 or 2, got {stage!r}")
+        self.stage = int(stage)
         t_seq = int(config.T_SEQ if t_seq is None else t_seq)
         p = int(config.P if p is None else p)
         latent = int(config.LATENT_DIM if latent is None else latent)
@@ -206,10 +216,24 @@ class TSCastNIO(nn.Module):
             # bake-off model to the TS-Cast model changed both at once, and three rounds of tuning
             # inside that confound could not attribute the regression to either.
             self.decoder = None
+            # Stage 1: mu_T, logvar_T.
+            # Stage 2 adds mu_S, logvar_S and logvar_rho -- five blocks of 15.
+            # logvar_rho is its OWN output, not derived from the T and S variances, because the
+            # paper is explicit that T/S error covariance is non-negligible (2.3.4), so
+            # propagating the two variances analytically would understate the density error.
+            n_blocks = 2 if self.stage == 1 else 5
+            self.n_head_blocks = n_blocks
             self.simple_head = nn.Sequential(
-                nn.Linear(latent, 256), nn.Mish(), nn.Linear(256, 2 * config.N_DEPTHS))
+                nn.Linear(latent, 256), nn.Mish(),
+                nn.Linear(256, n_blocks * config.N_DEPTHS))
         else:
             raise ValueError(f"decoder must be 'film' or 'simple', got {decoder!r}")
+        if self.stage == 2 and decoder != "simple":
+            raise NotImplementedError(
+                "stage 2 is implemented on the 'simple' decoder only. FiLM was MEASURED to cost "
+                "~0.18 degC at our data scale under either loss (AGENT_SYNC 2026-08-29 section 1), "
+                "so it is not the head we ship, and adding three untested outputs to it would put "
+                "an unvalidated path in the checkpoint. Use --decoder simple.")
         self.residual = bool(residual)
 
         lo, hi = config.INTERNAL_DEPTH_RANGE
@@ -225,8 +249,15 @@ class TSCastNIO(nn.Module):
 
         if self.decoder is None:                                       # 'simple': the bake-off head
             out = self.simple_head(h)
-            mu, logvar = out[:, :config.N_DEPTHS], out[:, config.N_DEPTHS:]
-            return mu, logvar.clamp(LOGVAR_MIN, LOGVAR_MAX)
+            d = config.N_DEPTHS
+            blocks = out.split(d, dim=1)
+            if self.stage == 1:
+                mu, logvar = blocks
+                return mu, logvar.clamp(LOGVAR_MIN, LOGVAR_MAX)
+            mu_t, logvar_t, mu_s, logvar_s, logvar_rho = blocks
+            return (mu_t, logvar_t.clamp(LOGVAR_MIN, LOGVAR_MAX),
+                    mu_s, logvar_s.clamp(LOGVAR_MIN, LOGVAR_MAX),
+                    logvar_rho.clamp(LOGVAR_MIN, LOGVAR_MAX))
 
         c_int = torch.einsum("ls,bms->bml", self.up_M, clim)          # (B,12,64)
         mu_i, logvar_i = self.decoder(c_int, h)
@@ -272,6 +303,54 @@ def gaussian_nll(mu, logvar, y, mask, beta: float = 0.0):
     per = 0.5 * torch.exp(-logvar) * (y - mu) ** 2 + 0.5 * logvar
     if beta:
         per = per * (torch.exp(logvar).detach() ** beta)
+    return (per * m).sum() / n
+
+
+# Practical salinity floor for the density polynomial. EOS-80's S**1.5 term is NaN below zero,
+# and one NaN poisons every gradient in the batch rather than just its own element. An untrained
+# salinity head does emit negatives in the first few hundred steps, so this is not hypothetical.
+# 0 psu is the physical floor (fresh water); the UNESCO fit is quoted valid over S 0.5-43.
+S_FLOOR = 0.0
+
+
+def density_nll(mu_t, mu_s, logvar_rho, y_t, y_s, mask,
+                y_mean, y_std, s_mean, s_std, beta: float = 0.0):
+    """TS-Cast eq. 5 -- the physical constraint, as a Gaussian NLL on density.
+
+        L_rho = mean_i [ (1 / (2 sigma_rho,i^2)) (rho_i - rho_hat_i)^2 + 0.5 log sigma_rho,i^2 ]
+
+    rho_hat is EOS-80 density computed from the model's PREDICTED (T, S); rho is the same
+    polynomial on the ground truth. The network never outputs density directly -- exactly as the
+    paper states -- so gradients reach both heads only through the polynomial, which is why
+    `density_torch` exists and why nothing here round-trips through numpy.
+
+    sigma_rho is a SEPARATE predicted head, not propagated from the T and S variances. The paper
+    is explicit (2.3.4) that T/S error covariance is non-negligible, so an analytic propagation
+    would understate the density error.
+
+    UNITS -- the thing that makes this term wrong if you skip it. The heads emit z-scored values;
+    EOS-80 is a polynomial in degC and PSS-78. Feeding z-scores to it produces a number with no
+    physical meaning that still back-propagates happily. So both predictions and truth are
+    returned to physical units here, using the SAME train-only statistics the targets were scaled
+    with, before either touches the polynomial.
+
+    beta: the same beta-NLL correction as eq. 3/4. The paper uses plain NLL (beta=0), but on our
+    data that was MEASURED to collapse the variance (train NLL -1.0610 vs held-out +0.6732), so
+    the deviation is deliberate and is recorded rather than silently adopted.
+    """
+    t_pred = mu_t * y_std + y_mean
+    s_pred = (mu_s * s_std + s_mean).clamp(min=S_FLOOR)
+    t_true = y_t * y_std + y_mean
+    s_true = (y_s * s_std + s_mean).clamp(min=S_FLOOR)
+
+    rho_pred = seawater.density_torch(s_pred, t_pred)
+    rho_true = seawater.density_torch(s_true, t_true)
+
+    m = mask.float()
+    n = m.sum().clamp(min=1.0)
+    per = 0.5 * torch.exp(-logvar_rho) * (rho_true - rho_pred) ** 2 + 0.5 * logvar_rho
+    if beta:
+        per = per * (torch.exp(logvar_rho).detach() ** beta)
     return (per * m).sum() / n
 
 

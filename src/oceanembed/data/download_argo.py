@@ -36,15 +36,30 @@ _fix_ssl()
 GOOD_QC = {1, 2}  # Argo QC: 1=good, 2=probably good
 
 
-def _profiles_to_rows(ds) -> list[tuple]:
-    """argopy N_POINTS dataset -> long rows [lat, lon, date, depth_idx, temp], QC-filtered + interpolated."""
+def _profiles_to_rows(ds, with_salinity: bool = False) -> list[tuple]:
+    """argopy N_POINTS dataset -> long rows [lat, lon, date, depth_idx, temp], QC-filtered + interpolated.
+
+    with_salinity=True appends a `psal` column (PSS-78) for TS-Cast stage 2. It is OFF by default
+    so the table underwriting every published temperature number keeps its exact schema.
+
+    Salinity is added WITHOUT disturbing a single temperature row. PSAL QC is applied by masking
+    the salinity VALUE, never by dropping the row, and salinity is interpolated on its own finite
+    samples. A float that reported good temperature and bad salinity therefore still contributes
+    its temperature, exactly as before, and simply carries NaN salinity.
+    """
     df = ds.to_dataframe().reset_index()
     df = df.rename(columns={"LATITUDE": "lat", "LONGITUDE": "lon", "TIME": "date",
-                            "PRES": "pres", "TEMP": "temp"})
+                            "PRES": "pres", "TEMP": "temp", "PSAL": "psal"})
     # keep only good-QC temperature/pressure measurements
     for qc in ("TEMP_QC", "PRES_QC", "POSITION_QC"):
         if qc in df.columns:
             df = df[df[qc].isin(GOOD_QC)]
+    if with_salinity:
+        if "psal" not in df.columns:
+            raise KeyError("PSAL is absent from this argopy dataset; cannot build a salinity "
+                           "table. Do not substitute reanalysis salinity for an observation.")
+        if "PSAL_QC" in df.columns:                    # mask the value, never drop the row
+            df.loc[~df["PSAL_QC"].isin(GOOD_QC), "psal"] = np.nan
     df = df.dropna(subset=["pres", "temp", "lat", "lon", "date"])
 
     keys = [k for k in ["PLATFORM_NUMBER", "CYCLE_NUMBER"] if k in df.columns]
@@ -64,13 +79,31 @@ def _profiles_to_rows(ds) -> list[tuple]:
             continue
         lat, lon = float(prof["lat"].iloc[0]), float(prof["lon"].iloc[0])
         date = pd.to_datetime(prof["date"].iloc[0])
-        for di, v in enumerate(temps):
+
+        if not with_salinity:
+            for di, v in enumerate(temps):
+                if not np.isnan(v):
+                    rows.append((lat, lon, date, di, float(v)))
+            continue
+
+        # Salinity on its OWN finite samples and its own sampled range -- a float whose salinity
+        # sensor stopped shallower than its thermistor must not have salinity extrapolated down
+        # to match the temperature profile's depth.
+        sp = prof["psal"].to_numpy(float)
+        ok = np.isfinite(sp) & np.isfinite(p)
+        if ok.sum() >= 3:
+            sals = np.interp(config.DEPTHS, p[ok], sp[ok], left=np.nan, right=np.nan)
+            sals[np.asarray(config.DEPTHS, float) > p[ok].max()] = np.nan
+        else:
+            sals = np.full(len(config.DEPTHS), np.nan)
+        for di, (v, sv) in enumerate(zip(temps, sals)):
             if not np.isnan(v):
-                rows.append((lat, lon, date, di, float(v)))
+                rows.append((lat, lon, date, di, float(v), float(sv)))
     return rows
 
 
-def download(year: int = config.TEST_YEARS[0], out_noext: str | None = None, src: str = "erddap") -> str:
+def download(year: int = config.TEST_YEARS[0], out_noext: str | None = None, src: str = "erddap",
+             with_salinity: bool = False) -> str:
     """Fetch REAL Argo profiles in the NIO box for `year`, interpolate to config.DEPTHS, and write
     a long table [lat, lon, date, depth_idx, temp] to artifacts/argo_test.{parquet|csv}.
 
@@ -86,13 +119,14 @@ def download(year: int = config.TEST_YEARS[0], out_noext: str | None = None, src
                0.0, max(config.DEPTHS) + 50.0, m.strftime("%Y-%m"), nxt.strftime("%Y-%m")]
         try:
             ds = DataFetcher(src=src, ds="phy").region(box).load().data
-            got = _profiles_to_rows(ds)
+            got = _profiles_to_rows(ds, with_salinity=with_salinity)
             rows.extend(got)
             print(f"[argo] {m:%Y-%m}: {len(got):6d} rows  (total {len(rows)})")
         except Exception as e:  # a bad month must not kill the year
             print(f"[argo] {m:%Y-%m}: FAILED ({type(e).__name__}: {str(e)[:80]})")
 
-    out = pd.DataFrame(rows, columns=["lat", "lon", "date", "depth_idx", "temp"])
+    cols = ["lat", "lon", "date", "depth_idx", "temp"] + (["psal"] if with_salinity else [])
+    out = pd.DataFrame(rows, columns=cols)
     path = io.save_table(out, out_noext or config.art("argo_test"))
     n_prof = out.groupby(["lat", "lon", "date"]).ngroups if len(out) else 0
     print(f"[argo] wrote {len(out)} rows from ~{n_prof} profiles to {path}")

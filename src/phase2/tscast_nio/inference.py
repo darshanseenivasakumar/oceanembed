@@ -20,6 +20,7 @@ import pandas as pd
 import torch
 
 from oceanembed import config as base
+from phase2.physics import seawater
 from phase2.tscast_nio import config, dataset as D, output
 from phase2.tscast_nio.models import TSCastNIO
 
@@ -74,10 +75,12 @@ class TSCastPredictor:
         # T_SEQ is the data WINDOW; the network was constructed at `built_t_seq` (1). They differ
         # for every T_SEQ>1 run, and only cnn3d's time pooling hides it.
         built_t = int(ck.get("built_t_seq", ck["T_SEQ"]))
+        # Stage 1 checkpoints predate the field; they are stage 1 by definition.
+        self.stage = int(ck.get("stage", 1))
         self.model = TSCastNIO(ck["encoder"], len(ck["channels"]), t_seq=built_t,
                                p=ck["P"], latent=ck["latent"], residual=ck["residual"],
                                unet_channels=(tuple(ck["unet_channels"]) if ck.get("unet_channels") else None),
-                               decoder=self.decoder_name)
+                               decoder=self.decoder_name, stage=self.stage)
         try:
             self.model.load_state_dict(ck["state_dict"])
         except RuntimeError as e:
@@ -96,6 +99,12 @@ class TSCastPredictor:
         self._engine = None
 
         norm = [np.asarray(v, dtype="float32") for v in ck["norm"]]
+        if self.stage == 2 and len(norm) != 6:
+            raise ValueError(
+                f"a stage-2 checkpoint must carry 6 normalisation entries (salinity has its own "
+                f"mean and std); this one has {len(norm)}. Scaling salinity with temperature's "
+                f"statistics would be a silent ~20x error.")
+        self.s_mean, self.s_std = (norm[4], norm[5]) if len(norm) == 6 else (None, None)
         self.ds = D.GriddedPatches(
             self.data["surface"], self.data["temp"], self.data["times"],
             self.data["land_mask"], self.data["channels"],
@@ -156,11 +165,24 @@ class TSCastPredictor:
         self.ds.index = np.array([[t_idx, i, j]])
         x, g, _, _, _, cp, mo = self.ds[0]
         with torch.no_grad():
-            mu, logvar = self.model(x[None], g[None], cp[None], mo[None])
+            out = self.model(x[None], g[None], cp[None], mo[None])
+        mu, logvar = out[0], out[1]
 
         temp = mu.numpy()[0] * self.y_std + self.y_mean
         # sigma is in z-units; y_std carries it back to degC, per depth
         logvar_deg = logvar.numpy()[0] + 2.0 * np.log(self.y_std)
+
+        sal = log_var_s = density = log_var_rho = None
+        if self.stage == 2:
+            mu_s, lv_s, lv_rho = out[2], out[3], out[4]
+            sal = mu_s.numpy()[0] * self.s_std + self.s_mean
+            # the same z-to-physical rearrangement as temperature, in psu
+            log_var_s = lv_s.numpy()[0] + 2.0 * np.log(self.s_std)
+            # log_var_rho is already in physical units: eq. 5 is evaluated on kg m-3 directly,
+            # so it is NOT rescaled here. Rescaling it by s_std would be a units error that
+            # nothing downstream could detect.
+            log_var_rho = lv_rho.numpy()[0]
+            density = seawater.density(sal, temp)
 
         valid = np.isfinite(self.data["temp"][t_idx, i, j, :])
         floor = self.seafloor_depth_m(lat, lon)
@@ -181,6 +203,9 @@ class TSCastPredictor:
             "days_from_requested": days_off,
             "grid_cell": {"lat": float(base.LAT[i]), "lon": float(base.LON[j])},
             "clim_train_years": list(base.TRAIN_YEARS),
+            "stage": self.stage,
+            "eos": ("EOS-80 / UNESCO (1983); density is COMPUTED from the predicted (T, S), "
+                    "not predicted directly") if self.stage == 2 else None,
             "decoder": self.decoder_name,
             "loss": self.meta.get("loss"),
             "trained_on": self.meta.get("trained_on"),
@@ -192,7 +217,8 @@ class TSCastPredictor:
 
         return output.build_record(
             temperature=temp, log_var_t=logvar_deg, valid=valid, seafloor_depth_m=floor,
-            provenance=prov, argo_check=None if forecast else argo_check, forecast=forecast)
+            provenance=prov, argo_check=None if forecast else argo_check, forecast=forecast,
+            salinity=sal, log_var_s=log_var_s, density=density, log_var_rho=log_var_rho)
 
     def _argo_check_for(self, lat: float, lon: float, target, temp) -> dict | None:
         """Nearest INDEPENDENT float beside the prediction -- or None, meaning genuinely none near.

@@ -49,17 +49,15 @@ import numpy as np
 CP_SEAWATER = 3985.0
 
 
-def density(salinity, theta):
-    """One-atmosphere seawater density, kg m-3. EOS-80 / UNESCO (1983).
+def _density_core(S, t):
+    """The EOS-80 polynomial itself, written ONCE.
 
-    salinity : PSS-78 (practical salinity)
-    theta    : POTENTIAL temperature, degC  (GLORYS `thetao` — do not pass in-situ T)
-
-    Broadcasting, NaN-preserving. Land/no-water cells stay NaN rather than becoming a number.
+    Uses only +, -, * and ** , which numpy arrays and torch tensors evaluate identically, so
+    `density` (numpy, for analysis) and `density_torch` (autograd, for the eq. 5 loss) are the
+    SAME fifteen coefficients rather than two transcriptions that could drift. A second hand-entry
+    of these coefficients is exactly how a plausible-but-wrong number enters a pipeline, and
+    `test_seawater.py` pins the two backends to each other as well as to the published values.
     """
-    S = np.asarray(salinity, dtype="float64")
-    t = np.asarray(theta, dtype="float64")
-
     # Pure-water density (Bigg 1967, as adopted by UNESCO 1983).
     rho_w = (999.842594
              + 6.793952e-2 * t
@@ -80,8 +78,39 @@ def density(salinity, theta):
 
     # S**1.5 is NaN for negative S, which is the desired behaviour: negative salinity is
     # unphysical and must not silently produce a density.
+    return rho_w + A * S + B * S ** 1.5 + C * S ** 2
+
+
+def density(salinity, theta):
+    """One-atmosphere seawater density, kg m-3. EOS-80 / UNESCO (1983).
+
+    salinity : PSS-78 (practical salinity)
+    theta    : POTENTIAL temperature, degC  (GLORYS `thetao` — do not pass in-situ T)
+
+    Broadcasting, NaN-preserving. Land/no-water cells stay NaN rather than becoming a number.
+    """
+    S = np.asarray(salinity, dtype="float64")
+    t = np.asarray(theta, dtype="float64")
     with np.errstate(invalid="ignore"):
-        return rho_w + A * S + B * S ** 1.5 + C * S ** 2
+        return _density_core(S, t)
+
+
+def density_torch(salinity, theta):
+    """The same EOS-80 density, differentiable, for TS-Cast eq. 5.
+
+    salinity : PSS-78, torch tensor
+    theta    : POTENTIAL temperature degC, torch tensor
+
+    The paper computes density from the PREDICTED (T, S) and compares it to density from the
+    truth, so gradients must flow back through the polynomial into both heads — which is the
+    entire point of the constraint. A numpy round-trip would silently detach them and the term
+    would train nothing.
+
+    NEGATIVE SALINITY: `S ** 1.5` is NaN there under both backends, and a NaN loss poisons every
+    gradient in the batch, not just its own element. Early in training the salinity head can and
+    does emit negatives, so the caller must clamp before calling this. `density_nll` does.
+    """
+    return _density_core(salinity, theta)
 
 
 def sigma_theta(salinity, theta):

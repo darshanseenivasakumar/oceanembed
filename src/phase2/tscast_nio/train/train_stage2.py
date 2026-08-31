@@ -96,6 +96,15 @@ def main() -> None:
     tr_t, te_t = D.daily_split_indices(d["times"])
     t_seq = int(a.t_seq)
 
+    # Same embargo as stage 1: a training target within t_seq//2 of the first test day would read
+    # TEST surface fields as input, because _window clamps to the array and not to the split.
+    n_before = len(tr_t)
+    tr_t = D.embargo_indices(tr_t, t_seq, int(te_t.min()) if len(te_t) else None)
+    n_embargoed = n_before - len(tr_t)
+    if n_embargoed:
+        print(f"embargo: dropped {n_embargoed} of {n_before} training targets whose T_SEQ={t_seq} "
+              f"window would have read the test block")
+
     _t = np.asarray(d["times"], dtype="datetime64[D]")
     train_period = (str(_t[tr_t].min()), str(_t[tr_t].max()))
     test_period = (str(_t[te_t].min()), str(_t[te_t].max()))
@@ -317,6 +326,7 @@ def main() -> None:
                 "latent": latent, "unet_channels": None,
                 "decoder": "simple", "loss": "nll", "beta_nll": a.beta, "data": "daily",
                 "stage": 2, "w_density": a.w_density,
+                "protocol": "embargoed_v2", "n_targets_embargoed": int(n_embargoed),
                 "norm": [np.asarray(v).tolist() for v in ds_tr.norm],
                 "trained_on": trained_on,
                 "train_period": list(train_period), "test_period": list(test_period),
@@ -342,6 +352,11 @@ def main() -> None:
         "trained_on": trained_on,
         "train_period": list(train_period), "test_period": list(test_period),
         "data": "daily", "T_SEQ": t_seq,
+        "protocol": "embargoed_v2",
+        "protocol_note": ("training targets whose T_SEQ window would reach into the test block are "
+                          "dropped; test indices unchanged. Runs before 2026-08-31 used "
+                          "'boundary_overlap_v1' and are NOT comparable to these."),
+        "n_targets_embargoed": int(n_embargoed),
         "channels": [str(c) for c in d["channels"]],
         "device": str(dev), "latent": latent, "n_params": n_all, "seed": base.SEED,
         "epochs_requested": a.epochs, "epochs_run": len(curve), "best_epoch": best["epoch"],

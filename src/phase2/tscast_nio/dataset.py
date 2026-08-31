@@ -241,6 +241,41 @@ def daily_split_indices(times):
     return tr, te
 
 
+def embargo_indices(t_indices, t_seq, forbidden_start):
+    """Drop training targets whose T_SEQ input window would reach into the test block.
+
+    THE BUG THIS EXISTS FOR
+    `GriddedPatches._window` builds a window of `t_seq` steps centred on the target and clamps it
+    to the ARRAY bounds [0, n_t-1] -- not to the split boundary. So a training target within
+    `t_seq // 2` days of the first test day silently reads test-period SURFACE fields as input.
+    Measured on the shipped daily bundle at T_SEQ=11: the last 5 training days (1.64% of targets,
+    ~987 of 60,000 drawn samples) were affected.
+
+    It was never caught because `test_monthly_train_and_test_target_indices_never_overlap` checked only target INDEX
+    overlap, not window overlap -- and on the monthly split, not the daily one.
+
+    WHY THIS IS SOLVED HERE AND NOT IN `_window`
+    Clamping inside `_window` would silently shorten the window for boundary targets, so those
+    samples would carry a different amount of temporal context than every other sample while
+    still being trained on. Dropping the target is honest: it costs 5 of 304 days and every
+    surviving sample sees exactly `t_seq` steps.
+
+    The TEST indices are deliberately NOT embargoed. A test target reaching back into the train
+    period is not leakage -- those observations genuinely exist before the forecast date, and
+    withholding them would model an operational setting nobody runs.
+
+    t_indices      : candidate target indices (the train split)
+    t_seq          : window length; `t_seq <= 1` embargoes nothing
+    forbidden_start: first index of the block that must not be read (the first test index).
+                     None disables the embargo and returns the input unchanged.
+    """
+    t_indices = np.asarray(t_indices)
+    if forbidden_start is None or int(t_seq) <= 1:
+        return t_indices
+    h = int(t_seq) // 2
+    return t_indices[t_indices + h < int(forbidden_start)]
+
+
 def split_indices(times, train_years=None, test_years=None):
     """Temporal holdout from the frozen config. Never a random split of adjacent cells."""
     yrs = np.array([int(str(t)[:4]) for t in times])

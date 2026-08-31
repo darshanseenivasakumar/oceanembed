@@ -124,3 +124,68 @@ def headline(m: dict) -> dict:
         "skill Murphy": _r(o.get("skill_vs_climatology")),
         "climatology RMSE": _r(o.get("rmse_climatology")),
     }
+
+
+# ── stage 2: salinity and density ──────────────────────────────────────────────────────
+
+def is_stage2(m: dict) -> bool:
+    """Whether this metrics artifact came from a stage-2 run. Absent field means stage 1."""
+    return int(m.get("stage", 1)) == 2
+
+
+def salinity_rows(m: dict) -> list[dict]:
+    """Per-depth salinity metrics, or [] if this run had no independent salinity to score on.
+
+    Empty is a real answer -- it means the salinity head was never checked against an
+    observation -- and the page says so rather than showing an empty table as if it were a
+    measurement of zero.
+    """
+    ms = m.get("metrics_salinity")
+    if not ms:
+        return []
+    cal = m.get("calibration_salinity") or {}
+    rows = []
+    for k, d in enumerate(ms["depths_m"]):
+        c = cal.get(str(int(d)), {})
+        rows.append({
+            "depth (m)": int(d),
+            "RMSE (psu)": _r(ms["rmse"][k]),
+            "correlation": _r(ms["correlation"][k]),
+            "bias (psu)": _r(ms["bias"][k]),
+            "RMS σ (psu)": _r(c.get("sigma")),
+            "ratio RMSE/σ": _r(c.get("ratio")),
+            "n": int(ms["n"][k]),
+        })
+    return rows
+
+
+def density_summary(m: dict) -> dict | None:
+    """The eq. 5 target, measured: how far predicted density sits from observed density."""
+    d = m.get("density")
+    if not d:
+        return None
+    return {
+        "RMSE (kg m⁻³)": _r(d.get("rmse_kg_m3")),
+        "bias (kg m⁻³)": _r(d.get("bias_kg_m3")),
+        "predicted RMS σ (kg m⁻³)": _r(d.get("predicted_rms_sigma_kg_m3")),
+        "calibration ratio": _r(d.get("calibration_ratio")),
+        "n": d.get("n"),
+    }
+
+
+def stage2_profile_rows(record: dict) -> list[dict]:
+    """Salinity and density beside temperature, one row per depth, refusals kept as refusals."""
+    if record.get("salinity") is None:
+        return []
+    rows = []
+    for k, d in enumerate(record["depths_m"]):
+        s = record["salinity"][k]
+        rows.append({
+            "depth (m)": int(d),
+            "temperature (°C)": _r(record["temperature"][k], 2),
+            "salinity (psu)": _r(s, 3),
+            "± σ (psu)": _r((record.get("sigma_s") or [None] * len(record["depths_m"]))[k], 3),
+            "density (kg m⁻³)": _r((record.get("density") or [None] * len(record["depths_m"]))[k], 3),
+            "± σ (kg m⁻³)": _r((record.get("sigma_rho") or [None] * len(record["depths_m"]))[k], 3),
+        })
+    return rows

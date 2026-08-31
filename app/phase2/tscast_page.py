@@ -43,7 +43,20 @@ from phase2.tscast_nio import ui_tables as T  # noqa: E402
 
 st.set_page_config(page_title="OceanEmbed — TS-Cast-NIO v2", layout="wide")
 
-METRICS = config.art("tscast_stage1_metrics.json")
+def _newest_metrics() -> str:
+    """Prefer a stage-2 artifact when one exists, else the stage-1 one.
+
+    Named explicitly rather than globbed: a page that silently picks up whatever file appears in
+    artifacts/ would render an ablation run as if it were the shipped model.
+    """
+    for name in ("tscast_stage2_s2_metrics.json", "tscast_stage1_metrics.json"):
+        p = config.art(name)
+        if os.path.exists(p):
+            return p
+    return config.art("tscast_stage1_metrics.json")
+
+
+METRICS = _newest_metrics()
 CKPT = config.art("tscast_stage1.pt")
 GLORYS_VS_ARGO = config.art("glorys_vs_argo.json")
 TSEQ = config.art("tseq_ablation.json")
@@ -205,6 +218,13 @@ def render_profile_tab() -> None:
     st.markdown("#### every depth, and why its error bar is that wide")
     rows = T.profile_rows(record)
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    s2 = T.stage2_profile_rows(record)
+    if s2:
+        st.markdown("#### salinity and density at this point")
+        st.dataframe(pd.DataFrame(s2), use_container_width=True, hide_index=True)
+        st.caption("Density is not predicted: it is EOS-80 evaluated on the temperature and "
+                   "salinity above, so it can never disagree with them.")
 
     n_ref = sum(1 for r in rows if r["temperature (°C)"] is None)
     if n_ref:
@@ -453,6 +473,69 @@ def render_honesty_tab(m: dict) -> None:
                "session from the real checkpoint. There is no third category, and no demo data.")
 
 
+# ── stage 2: salinity and the density constraint ───────────────────────────────────────
+
+def render_stage2_tab(m: dict) -> None:
+    st.subheader("Salinity, and whether the physics actually holds")
+    st.caption(
+        "Stage 2 adds a salinity head and TS-Cast's eq. 5: density is computed from the predicted "
+        "(T, S) by EOS-80 and compared to density from the truth, so the constraint couples the "
+        "two heads instead of letting each be independently plausible. The network never outputs "
+        "density — only its uncertainty, which is predicted separately because the paper states "
+        "T/S error covariance is non-negligible.")
+
+    rows = T.salinity_rows(m)
+    if not rows:
+        st.warning(
+            "**Salinity was not validated against observations in this run.** "
+            f"{m.get('salinity_validation_note', '')} A salinity number scored only against the "
+            "reanalysis it was trained on is not independent, and is not shown here as if it were.")
+    else:
+        df = pd.DataFrame(rows)
+        o = (m.get("metrics_salinity") or {}).get("overall") or {}
+        c1, c2, c3 = st.columns(3)
+        c1.metric("overall salinity RMSE",
+                  "not recorded" if o.get("rmse") is None else f"{float(o['rmse']):.4f} psu")
+        c2.metric("mean correlation",
+                  "not recorded" if o.get("correlation") is None else f"{float(o['correlation']):.4f}")
+        c3.metric("independent profiles", f"{m.get('argo_profiles', '?')}")
+        st.caption(
+            f"Scored against Argo PSAL from `{m.get('argo_table', '?')}` — the same floats, the "
+            f"same collocation, the same window as temperature. TS-Cast reports 0.1 psu (south) "
+            f"to 0.2 psu (north) in the **Northwestern Pacific**: a different ocean with different "
+            f"water masses, quoted for scale only and never as a like-for-like comparison.")
+
+        chart = alt.Chart(df.dropna(subset=["RMSE (psu)"])).mark_line(point=True, color="#2ca02c").encode(
+            x=alt.X("RMSE (psu):Q", title="salinity RMSE (psu) — lower is better"),
+            y=alt.Y("depth (m):Q", title="depth (m)", scale=alt.Scale(reverse=True)),
+            tooltip=list(df.columns)).properties(height=420, title="salinity error by depth")
+        left, right = st.columns([2, 3])
+        left.altair_chart(chart, use_container_width=True)
+        right.dataframe(df, use_container_width=True, hide_index=True, height=420)
+
+    st.markdown("#### Does eq. 5 hold? — the constraint, measured")
+    dens = T.density_summary(m)
+    if dens is None:
+        st.info("No density block in this artifact: eq. 5 could not be checked without "
+                "independent salinity.")
+    else:
+        cols = st.columns(len(dens))
+        for col, (k, v) in zip(cols, dens.items()):
+            col.metric(k, "—" if v is None else f"{v}")
+        st.caption(
+            "This is EOS-80 density from our predicted (T, S) against EOS-80 density from the "
+            "independent floats' (T, S) — the exact quantity eq. 5 minimises, measured on data the "
+            "model never saw. Surface seawater is roughly 1023 kg m⁻³, so read the RMSE against "
+            "that scale. The calibration ratio is RMSE/RMS(σ): 1.0 means the predicted density "
+            "uncertainty is honest.")
+
+    w = m.get("w_density")
+    if w is not None:
+        st.caption(f"eq. 5 weight in this run: **{w}** "
+                   + ("(the paper's unweighted sum, eq. 6)" if w == 1.0 else
+                      "(**ablated** — this run trained with no physical constraint at all)"))
+
+
 # ── page ───────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -460,14 +543,20 @@ def main() -> None:
     m = load_metrics()
     provenance_banner(m)
 
-    t1, t2, t3, t4 = st.tabs(["Profile", "Benchmark", "Calibration", "Honesty"])
-    with t1:
+    names = ["Profile", "Benchmark", "Calibration", "Honesty"]
+    if T.is_stage2(m):
+        names.insert(3, "Salinity & density")
+    tabs = st.tabs(names)
+    with tabs[0]:
         render_profile_tab()
-    with t2:
+    with tabs[1]:
         render_benchmark_tab(m)
-    with t3:
+    with tabs[2]:
         render_calibration_tab(m)
-    with t4:
+    if T.is_stage2(m):
+        with tabs[3]:
+            render_stage2_tab(m)
+    with tabs[-1]:
         render_honesty_tab(m)
 
 

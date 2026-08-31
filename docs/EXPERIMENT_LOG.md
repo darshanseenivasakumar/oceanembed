@@ -155,6 +155,49 @@ checkpoint: **none survives.** Each leg overwrote `artifacts/tscast_stage1.pt`; 
 on Arjhun's machine is the T=31 leg, saved as `tscast_stage1_tseq31.pt`, and it never left that
 laptop. The winning T_SEQ=11 checkpoint does not exist anywhere.
 
+## v2-stage2  2026-08-31  — salinity + the paper's eq. 5 density constraint
+model: TSCastNIO stage 2 — cnn3d encoder + simple decoder + 5 heads (mu_T, logvar_T, mu_S, logvar_S, logvar_rho), 560,147 params
+dataset: daily bundle, **7 of 7 channels** [sst,sss,ssh,u,v,wu,wv] | P=17, T_SEQ=11
+split: train 2025-06-01..2026-03-31, held-out GLORYS 2026-04-01..2026-06-23 | seed: 42
+hyperparams: AdamW lr 1e-3, wd 1e-2, batch 256, 60,000 train / 12,000 held-out samples, up to 25 epochs, patience 5, beta-NLL 0.5
+loss: eq. 6, L_total = L_T + L_S + L_rho, unweighted (the predicted variances are the weighting — the paper's own justification)
+eos: EOS-80 / UNESCO (1983), Fofonoff & Millard — the reference the paper cites
+scored on: **962 INDEPENDENT Argo profiles**, +/-5 d, from `artifacts/argo_daily_period_ts.parquet` (T **and** PSAL)
+
+| run | eq. 5 | T RMSE degC | T skill | S RMSE psu | rho RMSE kg m-3 | predicted sigma_rho | ratio | epochs (best) |
+|---|---|---|---|---|---|---|---|---|
+| stage 1 (T only) | — | **0.861152** | +0.297518 | — | — | — | — | 8 (3) |
+| stage 2 | ON, w=1.0 | 0.886585 | +0.276771 | 0.250354 | 0.2809 | 0.1952 | 1.439 | 9 (4) |
+| stage 2 ablation | **OFF, w=0** | 0.861245 | +0.297441 | **0.243339** | **0.2796** | 1.0016 | 0.279 | 13 (8) |
+
+**Finding 1 — salinity is essentially free.** stage 1 vs stage-2-without-eq.5 differ by
+**0.000093 degC** on temperature. A whole salinity head cost nothing measurable and returned
+0.2433 psu at correlation 0.968, bias -0.0003 psu.
+
+**Finding 2 — eq. 5 does not pay for itself at this data scale.** Enabling it costs 0.0253 degC
+and 0.0070 psu, and leaves density 0.0013 kg m-3 WORSE — the quantity it optimises. Its only
+benefit is a density uncertainty that exists at all: with the term off, `logvar_rho` receives no
+gradient and sits at its initialisation (sigma 1.0016), so the 0.279 ratio is an artefact, not a
+measurement.
+LIMITATION: one seed; the constrained run early-stopped at 9 epochs (best 4) against 13 (best 8),
+same patience. Consistent with a constraint converging faster to a worse optimum, but a
+longer-patience or 3-seed run would settle it.
+
+per-depth salinity RMSE (psu): 0 m 0.333 · 50 m 0.312 · 100 m 0.221 · 200 m 0.219 · 500 m 0.077 ·
+700 m 0.066 · 1000 m **0.052**; correlation 0.95-0.99 at every level. The surface-hard /
+deep-easy gradient is what the North Indian Ocean should give (monsoon rain, Bay of Bengal river
+plumes above; near-uniform deep water below).
+
+checkpoints: `artifacts/tscast_stage2_s2.pt` (eq. 5 on, SHIPPED) ·
+`artifacts/tscast_stage2_s2_nodensity.pt` (ablation). Both gitignored — the numbers live here.
+artifacts: `tscast_stage2_s2_metrics.json`, `tscast_stage2_s2_nodensity_metrics.json`
+reproduce:
+```
+PYTHONPATH=src python -m phase2.tscast_nio.train.train_stage2     --t-seq 11 --epochs 25 --train-samples 60000 --test-samples 12000 --patience 5     --w-density 1.0 --tag s2
+```
+(`--w-density 0.0 --tag s2_nodensity` for the ablation; `--beta 0` reproduces the paper's plain NLL)
+git-commit: b5214ae (implementation), numbers measured at 0116bd1
+
 ## v2-loadpath-fixture  2026-08-30  — NOT A RESULT, do not quote
 model: cnn3d + simple + β-NLL(0.5), daily, T_SEQ=11 | seed 42 | **1 epoch, 600 train / 200 held-out samples**
 metrics: RMSE=1.8246 corr=0.6095 bias=−0.4214 skill=−0.4884 | calibration ratio 0.65–1.45

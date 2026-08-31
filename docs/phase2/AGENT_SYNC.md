@@ -59,6 +59,174 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-08-31 [DARSHAN] STAGE 2 IS IN. Salinity is nearly free; the paper's eq. 5 is not, and does not pay.
+
+Built solo — Arjhun could not pull the 0.5 GB daily bundle over his connection, so the transfer
+never happened and I took stage 2 rather than let it wait. Everything below is committed and
+pushed to `phase2-tscast-nio`.
+
+### 1. >>> THE HEADLINE, and it contains a negative result about the paper [VERIFIED]
+
+Three runs, **identical bundle, split, seed, T_SEQ, sample count and patience**. Only the loss
+differs. All scored on the **same 962 independent Argo profiles**.
+
+| run | T RMSE degC | skill | S RMSE psu | rho RMSE kg m-3 | sigma_rho | ratio |
+|---|---|---|---|---|---|---|
+| stage 1 (T only) | **0.861152** | +0.2975 | — | — | — | — |
+| stage 2 **with** eq. 5 | 0.886585 | +0.2768 | 0.250354 | 0.2809 | 0.195 | 1.44 |
+| stage 2 **without** eq. 5 | 0.861245 | +0.2974 | **0.243339** | **0.2796** | 1.002 | 0.28 |
+
+**Finding 1 — salinity is essentially free.** Stage 1 reached 0.861152 degC. Stage 2 with the
+density term switched off reached 0.861245. That is a difference of **0.000093 degC**. Adding an
+entire salinity head and three extra outputs cost temperature nothing measurable, and bought
+salinity at **0.2433 psu, correlation 0.968, bias -0.0003 psu**.
+
+**Finding 2 — the paper's eq. 5 does not pay for itself at our data scale.** Switching it on costs
+**0.0253 degC** of temperature and **0.0070 psu** of salinity, and does **not** improve density —
+the very quantity it optimises — coming out 0.0013 kg m-3 *worse* (0.2809 vs 0.2796). Every
+accuracy number moves the wrong way. This is the same shape as your FiLM finding: we implemented
+the paper faithfully and then measured that this piece of it does not hold here.
+
+**What eq. 5 DOES buy, and it is the only thing:** a density error bar that exists. With the term
+off, `sigma_rho` comes out at 1.0016 — that is the head sitting at its initialisation
+(logvar ~ 0 -> sigma ~ 1), because `logvar_rho` appears nowhere else in the loss and receives no
+gradient at all. Its ratio of 0.28 is an artefact, not a measurement. So the honest trade is:
+**eq. 5 costs 0.025 degC and buys a usable uncertainty on density, not better density.**
+
+**The limitation I am not hiding.** The constrained run stopped at epoch 9 (best 4); the
+unconstrained one ran to 13 (best 8). Same `--patience 5`, so early stopping did that, not me. The
+plain reading is that the constraint converges faster to a worse optimum — but I cannot rule out
+that it would recover with more patience, and one seed is one seed. If anyone wants to overturn
+this, more patience or a 3-seed ensemble is the experiment.
+
+Per-depth salinity is physically sensible, which is the part that makes me believe it:
+`0.33 psu at the surface -> 0.052 psu at 1000 m`, correlation 0.95-0.99 at every level. Surface
+salinity is genuinely the hard part in this basin (monsoon rain, Bay of Bengal river plumes) and
+deep water is nearly uniform. A model fitting noise would not produce that gradient.
+
+### 2. eq. 5 was read off the PDF, not remembered [VERIFIED — pages 6-7]
+
+    eq. 3  L_T     = mean_i [ (1/(2 sigma_T,i^2)) (T_i - That_i)^2 + 0.5 log sigma_T,i^2 ]
+    eq. 4  L_S     = the same on salinity
+    eq. 5  L_rho   = the same on DENSITY, rho_hat = EOS-80(That, Shat) vs rho = EOS-80(T, S)
+    eq. 6  L_total = L_T + L_S + L_rho          <- UNWEIGHTED, and the paper says why
+
+Quoting the paper on the weighting, because it matters for how we describe it: *"Instead of using
+fixed hyperparameters, the model learns the optimal, data-dependent weight for each observation
+through the predicted variance."* The predicted variances ARE the weighting — which is also how
+three terms in degC, psu and kg m-3 coexist with no pre-standardisation. Your 2.3.4 note was right
+and I have implemented it that way: **`sigma_rho` is its own head, not propagated from the T and S
+variances**, because the paper states T/S error covariance is non-negligible.
+
+We deviate in one place and it is recorded in the artifact: all three terms use beta-NLL at
+beta=0.5, not the paper's plain NLL, for the reason you measured in stage 1 (beta=0 collapsed the
+variance). `--beta 0` reproduces the paper exactly for anyone who wants to watch it fail.
+
+### 3. >>> ARGO HAD SALINITY ALL ALONG. We were throwing it away. [VERIFIED]
+
+`argopy` downloads PRES, TEMP **and PSAL**. `_profiles_to_rows` renamed TEMP and dropped PSAL on
+the floor, so `argo_daily_period.parquet` is temperature-only — and stage 2's salinity head could
+only ever have been scored against the reanalysis it was trained on. Every headline this project
+quotes is against independent floats; the salinity half had to meet the same bar.
+
+`download_argo.download(..., with_salinity=True)` now carries it. Salinity was added **without
+disturbing one temperature row**: PSAL QC masks the *value*, never drops the row, and salinity
+interpolates on its own finite samples, so a float with good T and bad S still contributes its T
+exactly as before.
+
+New table, written **beside** the old one, never over it:
+`artifacts/argo_daily_period_ts.parquet` — **4,334 profiles, 59,626 rows, 100% salinity coverage**.
+The fetch asserts `argo_test.parquet` and `argo_daily_period.parquet` are both untouched, then
+diffs the overlap: **temperature is identical to 0.000000 degC**. So stage-2 salinity sits on
+exactly the same floats stage-1 temperature was scored on, and the two are comparable.
+
+Re-fetch it with `PYTHONPATH=src python scripts/phase2/fetch_argo_ts_daily_period.py` (~10 min).
+2026-09 onward fail with FileNotFoundError — those months are in the future, which is correct.
+
+### 4. The equation of state now has ONE definition and two backends
+
+eq. 5 needs a differentiable density, and hand-entering fifteen EOS-80 coefficients a second time
+is exactly how a plausible-but-wrong number enters a pipeline. So `_density_core` holds the
+polynomial once, `density()` wraps it for numpy and `density_torch()` for autograd, and a test
+pins the two to **bit-equality** as well as to the published UNESCO value (1023.343 at S=35,
+t=25). `seawater.py` is your file — this is additive, and the numpy path is untouched.
+
+### 5. Stage 1 is provably untouched, and I mean provably
+
+The 0.8612 result had to stay reproducible, so: stage-1 head width is still 2x15, `forward` still
+returns two values at stage 1, `train_stage1.py` was not edited, and `train_stage2.py` **imports**
+its `calibration` and best-epoch rule rather than copying them. A test and an `accept.py` check
+both load the shipped stage-1 checkpoint into a freshly built stage-1 model. `--decoder film` with
+`stage=2` raises `NotImplementedError` rather than shipping an untested path.
+
+### 6. Four bugs, all of the silent kind
+
+1. **`np.asarray("20250601", dtype="datetime64[D]")` parses that as the YEAR 20250601.** Silently,
+   right dtype, ~2 million years out. Every wind join matched nothing. It surfaced only because
+   `_wind_for` refuses on a missing day instead of writing NaN — a NaN wind channel would have
+   trained perfectly well and quietly meant "no wind information".
+2. **Renaming `psal`->`temp` beside an existing `temp`** gives pandas two columns with one name and
+   it hands the pivot whichever it likes — scoring salinity against temperature or the reverse.
+   Now the temp column is dropped first and the two pivots are asserted row-aligned.
+3. **eq. 5 must see degC and psu.** The heads emit z-scores and EOS-80 accepts them happily,
+   returning a finite differentiable number with no physical meaning. A test scales `y_std` and
+   asserts the loss *moves*, which it would not if z-scores were reaching the polynomial.
+4. **The UI showed stage-2 metrics above a Profile tab reconstructing from the stage-1
+   checkpoint.** Nothing looked wrong while it happened. The page now resolves metrics and
+   checkpoint as a pair and prints both filenames.
+
+### 7. Physical checks the model passes, which is why I believe the salinity number
+
+Predicted density rises monotonically with depth **below the mixed layer** at every point tested —
+nothing in the loss guarantees that, so it means the T and S heads genuinely agree. The only
+inversions are at 5-10 m, at most 0.068 kg m-3, against a predicted `sigma_rho` of ~0.17 there;
+the mixed layer is uniform by definition (de Boyer Montegut's own criterion is 0.03 kg m-3), so
+that is inside both the physics and the model's own admitted error. Both facts are tests, and the
+second one holds any surface inversion to the model's own sigma.
+
+`density` in a record is always exactly `EOS-80(salinity, temperature)` of the values beside it —
+also a test. It is never an independent third opinion.
+
+### 8. What shipped, and the choice behind it
+
+The **eq. 5 run is the headline stage 2** (`tscast_stage2_s2.pt`), with the ablation
+(`tscast_stage2_s2_nodensity.pt`) recorded beside it. It is the faithful implementation and the
+only one with a real density error bar. **If the pitch is temperature accuracy, stage 1 is still
+the better number** and nothing about stage 2 changes it — say "0.8612 degC, and we also
+reconstruct salinity at 0.24 psu", not one at the expense of the other.
+
+UI: port 8504, a fifth tab **Salinity & density** that appears only when the artifact is stage 2,
+and states the eq. 5 weight so an ablation run can never be mistaken for a constrained one. The
+paper's 0.1-0.2 psu is labelled as the Northwestern Pacific — a different ocean — and quoted for
+scale only.
+
+### 9. >>> ASK ARJHUN
+
+1. **Do you want the ablation to be the shipped model?** It is better on every accuracy metric.
+   My call was to keep the constrained one as "the paper's method, faithfully" and show the
+   ablation as the finding — but the opposite case is defensible and it is your call as much as
+   mine.
+2. **Is one seed enough to publish finding 2?** A 3-seed run at each setting would make it solid.
+   ~3 h each on CPU. Worth it if the negative result goes in the pitch.
+3. **The two pre-existing `accept.py` failures are still open** (the LightGBM guard's own
+   precondition is false on my machine; `argo_error_by_depth.json` is untracked so our copies
+   differ). Both are recorded in the 2026-08-30 entry. Neither is mine and I have not touched them.
+
+### 10. Still open
+
+- **`argo_check` in a record checks temperature only.** Salinity is validated in aggregate
+  (0.2433 psu on 962 profiles) but the per-point panel does not yet show the float's salinity
+  beside ours. That is the "never a number without its ground-truth check" principle only
+  three-quarters kept, and it is the first thing I would do next.
+- **This machine has an RTX 3050 that torch cannot see** — the install is `2.9.1+cpu`. Every run
+  so far used 4 CPU cores while the GPU idled. `pip install --force-reinstall torch --index-url
+  https://download.pytorch.org/whl/cu121` would fix it, but I did not do it mid-project: stage 1's
+  published number was produced on CPU, and GPU float arithmetic differs slightly.
+- Stage-2 calibration: `sigma_t` ratio and coverage are in the artifact; the density ratio is 1.44,
+  overconfident in the same direction as temperature.
+
+---
+
 ## 2026-08-30 [DARSHAN] HANDBACK — Phases 0–6 all done. RMSE 0.8612 at 7 of 7 channels, and wind is worth 41% of the bias.
 
 Finished Sunday night rather than Monday afternoon. Everything is committed and pushed to

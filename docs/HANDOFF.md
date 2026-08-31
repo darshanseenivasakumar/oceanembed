@@ -1143,3 +1143,36 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - NEXT TASK: stage 2 salinity -- the daily bundle already carries the targets, the output schema has
   the keys as `None`, and F5's EOS-80 `seawater.py` provides density for the paper's eq. 5 loss.
 - BLOCKERS: none.
+
+## 2026-08-31 — Unit B (Darshan) — STAGE 2: salinity + eq. 5, and a negative result about eq. 5
+- CURRENT PHASE: v2 stage 2 complete. Branch `phase2-tscast-nio`.
+- WHAT WORKS [VERIFIED by execution, 962 independent Argo profiles, identical bundle/split/seed]:
+  - **Salinity reconstruction: 0.2433 psu, correlation 0.968, bias -0.0003 psu.** Per-depth
+    0.33 psu at the surface falling to 0.052 psu at 1000 m.
+  - **Salinity is essentially free**: stage 1 reached 0.861152 degC on temperature; stage 2 with
+    the density term off reached 0.861245 — a difference of 0.000093 degC.
+  - **The paper's eq. 5 costs more than it returns here**: enabling it costs 0.0253 degC and
+    0.0070 psu, and leaves density 0.0013 kg m-3 worse. Its only benefit is that `sigma_rho`
+    trains at all — with the term off that head never receives a gradient.
+  - Argo T+S table: `artifacts/argo_daily_period_ts.parquet`, 4,334 profiles, 100% salinity,
+    temperature identical to the stage-1 table to 0.000000 degC.
+  - UI on port 8504 gained a **Salinity & density** tab, shown only for a stage-2 artifact.
+- WHAT IS BROKEN: nothing new. The two pre-existing `accept.py` failures (LightGBM guard
+  precondition, untracked `argo_error_by_depth.json`) are unchanged and are not mine.
+- FILES MODIFIED: `src/phase2/physics/seawater.py` (+`density_torch`, one shared polynomial),
+  `src/phase2/tscast_nio/{models/tscast.py,dataset.py,inference.py,output.py,ui_tables.py}`,
+  `src/phase2/tscast_nio/train/train_stage2.py` (new), `src/oceanembed/data/download_argo.py`
+  (optional PSAL), `scripts/phase2/{fetch_argo_ts_daily_period.py,accept.py}`,
+  `app/phase2/tscast_page.py`, `docs/phase2/tscast_output_schema.md` (+sigma_s, sigma_rho).
+- TESTS RUN: 26 stage-2 tests; 14 stage-2 `accept.py` checks; full phase2 suite.
+- KNOWN ISSUES:
+  - `argo_check` in a prediction record still checks TEMPERATURE only. Salinity is validated in
+    aggregate but the per-point panel does not show the float's salinity beside ours yet. First
+    thing to do next.
+  - One seed. Finding 2 (eq. 5 does not pay) would be solid with 3 seeds per setting.
+  - torch here is `2.9.1+cpu` and this machine has an RTX 3050 it cannot see. Not switched
+    mid-project: stage 1's published number was produced on CPU.
+- NEXT TASK (B): salinity in `argo_check`; then the per-depth sigma recalibration.
+- NEXT TASK (A): decide whether the eq. 5 run or the ablation is the shipped stage 2 — the
+  ablation is better on every accuracy metric; see AGENT_SYNC 2026-08-31 section 9.
+- BLOCKERS: none.

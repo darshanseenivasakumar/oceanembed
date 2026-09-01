@@ -39,6 +39,24 @@ and Argo set; the only difference is whether channels 6–7 exist. `rmse_climato
 points. The brief's suggested comparison — 7-channel against the recorded 0.8529 — would have
 compared 60k/25ep against 40k/15ep and credited wind for three changes.
 
+> ## ⚠ SUPERSEDED RESULTS — read before quoting any number below
+>
+> **Every trained artifact produced before commit `1d3c135` (2026-09-02) came from a leaky
+> sampler.** `dataset._window()` clamped the input window to the array ends instead of to the
+> train/test split, so **5 of 304 train days (2026-03-27..31, 1.64%) read test-period surface
+> fields.** The split assert was correct; the input window was not, which is why every test
+> passed while it happened.
+>
+> Affected and **INVALID — do not quote**: `tscast_stage1_withUV_s42` (0.8612 / 0.8611),
+> `tscast_stage1_noUV_s42` (0.9024), `tscast_stage1_metrics_tseq31` (0.9267), and the wind
+> comparison derived from the first two.
+>
+> **The numbers are preserved verbatim as historical record and are not edited.** A matched
+> re-run under the embargo is the replacement; until it lands, this project has no quotable
+> headline.
+>
+> **The wind conclusion below (−0.0149 °C) rests on both legs of this comparison, and both are leaky. Its SIGN is not established.** The same effect already flipped (−0.0149 -> +0.0111) under one retrain, so it must be re-measured across ≥3 seeds under the embargo before it is stated anywhere.
+
 | | **7 ch (shipped)** | 5 ch (matched control) | delta |
 |---|---|---|---|
 | Argo RMSE °C | **0.8612** | 0.8760 | **−0.0149** |

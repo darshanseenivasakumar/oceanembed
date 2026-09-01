@@ -2,6 +2,23 @@
 
 Status vocabulary: `NOT STARTED` · `IN PROGRESS` · `IMPLEMENTED` · `TESTED` · `VALIDATED` · `DEMO READY`
 
+> ## ⚠ SUPERSEDED RESULTS — read before quoting any number below
+>
+> **Every trained artifact produced before commit `1d3c135` (2026-09-02) came from a leaky
+> sampler.** `dataset._window()` clamped the input window to the array ends instead of to the
+> train/test split, so **5 of 304 train days (2026-03-27..31, 1.64%) read test-period surface
+> fields.** The split assert was correct; the input window was not, which is why every test
+> passed while it happened.
+>
+> Affected and **INVALID — do not quote**: `tscast_stage1_withUV_s42` (0.8612 / 0.8611),
+> `tscast_stage1_noUV_s42` (0.9024), `tscast_stage1_metrics_tseq31` (0.9267), and the wind
+> comparison derived from the first two.
+>
+> **The numbers are preserved verbatim as historical record and are not edited.** A matched
+> re-run under the embargo is the replacement; until it lands, this project has no quotable
+> headline.
+
+
 **A feature is never marked VALIDATED because unit tests pass.** TESTED means the code does what the
 code intends. VALIDATED means the *science* was checked against an independent source or a
 documented physical expectation.
@@ -20,7 +37,7 @@ documented physical expectation.
 | 9 | Ocean Sentinel | Arjhun | phase2/sentinel | NOT STARTED | ☐ | ☐ | ☐ | ☐ | thresholds must be configurable |
 | 10 | Observation Priority v2 | Darshan | phase2/observation-priority | NOT STARTED | ☐ | ☐ | ☐ | ☐ | v1 heuristic already exists; not novel (JTECH 2023) |
 | 11 | **Wind input (PS req 8)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | n/a | ☑ 22 | ☑ | **0% → done.** 388 daily-mean fields from the only gap-filled global L4 covering 2025-26 (hourly, averaged by us; no P1D/P1M variant exists). Grid is offset 0.0625 deg from ours so it is block-averaged BY COORDINATE, never by position. Validated against the Findlater Jet: JJA 9.57 vs DJF 5.60 m/s over the western Arabian Sea, measured across seasons |
-| 12 | **TS-Cast-NIO v2 stage 1** | Darshan (from Arjhun) | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 36 | ☑ | **RMSE 0.8612 °C / skill +0.2975 on 962 independent Argo, 7 of 7 channels.** Skill positive at all 15 depths. Wind measured against a MATCHED 5-channel control: −0.0149 °C, warm bias −41%. Stage 1 only — salinity and the eq. 5 density loss are stage 2. Mixed layer (20–50 m) remains model-limited; thermocline error is inherited from the reanalysis |
+| 12 | **TS-Cast-NIO v2 stage 1** | Darshan (from Arjhun) | `phase2-tscast-nio` | **SUPERSEDED — INVALID** | ☑ | ☑ | ☑ 36 | ☑ | **⚠ SUPERSEDED 2026-09-02 (see banner at top): produced by the leaky T_SEQ window. The figures below are historical record, NOT a current result, and must not be quoted.** **RMSE 0.8612 °C / skill +0.2975 on 962 independent Argo, 7 of 7 channels.** Skill positive at all 15 depths. Wind measured against a MATCHED 5-channel control: −0.0149 °C, warm bias −41%. Stage 1 only — salinity and the eq. 5 density loss are stage 2. Mixed layer (20–50 m) remains model-limited; thermocline error is inherited from the reanalysis |
 | 13 | **v2 UI — explain every output** | Darshan | `phase2-tscast-nio` | **TESTED** | ☑ | ☑ | ☑ 15 | ◐ | Port 8504, four tabs, frozen demo untouched. Every rendered number is asserted equal to the metrics artifact to 4 dp by `accept.py check_v2_ui`. Marked TESTED not VALIDATED: it renders validated science correctly, which is not the same as validating anything itself |
 
 

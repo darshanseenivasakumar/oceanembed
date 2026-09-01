@@ -56,6 +56,9 @@ def main() -> None:
     df = pd.concat(frames, ignore_index=True)
     df["date"] = pd.to_datetime(df["date"])
     df = df[(df["date"] >= START) & (df["date"] <= END)]
+    # Defence in depth: download() now dedupes, but a per-year parquet cached before that fix
+    # still carries the duplicated float, and this script reads whatever is on disk.
+    df = download_argo._dedupe_rows(df)
     if "psal" not in df.columns:
         raise SystemExit("fetched table has no psal column -- refusing to write a 'T+S' file "
                          "that contains no salinity")
@@ -78,10 +81,21 @@ def main() -> None:
         old = pd.read_parquet(old_path)
         old["date"] = pd.to_datetime(old["date"])
         key = ["lat", "lon", "date", "depth_idx"]
-        j = old.merge(df[key + ["temp"]], on=key, suffixes=("_old", "_new"))
+        # Both sides must be unique on the key or the merge fans out: a duplicated float once
+        # made this print "60717 rows of 59599", an overlap larger than the table it merged
+        # into, which looks like corruption and is not. Compare distinct measurements only.
+        old_u = old.drop_duplicates(subset=key)
+        new_u = df.drop_duplicates(subset=key)
+        if len(old_u) != len(old):
+            print()
+            print(f"  note: the stage-1 table holds {len(old) - len(old_u)} duplicate-key rows "
+                  f"(it predates the dedupe and is frozen, so it is left as it is). "
+                  f"pivot_profiles averages them, and they are byte-identical, so no published "
+                  f"number moves.")
+        j = old_u.merge(new_u[key + ["temp"]], on=key, suffixes=("_old", "_new"))
         if len(j):
             d = (j["temp_new"] - j["temp_old"]).abs()
-            print(f"\n  overlap with the stage-1 table: {len(j)} rows of {len(old)}")
+            print(f"\n  overlap with the stage-1 table: {len(j)} rows of {len(old_u)} distinct")
             print(f"  temperature max |difference| {d.max():.6f} degC, mean {d.mean():.6f}")
             if d.max() > 1e-6:
                 print("  NOTE: temperature has CHANGED between fetches. Stage-1 numbers stay "

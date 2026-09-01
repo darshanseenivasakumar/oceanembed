@@ -102,6 +102,36 @@ def _profiles_to_rows(ds, with_salinity: bool = False) -> list[tuple]:
     return rows
 
 
+def _dedupe_rows(out: pd.DataFrame, key=("lat", "lon", "date", "depth_idx")) -> pd.DataFrame:
+    """Drop rows ERDDAP returned twice, and refuse to hide a real conflict.
+
+    At least one Arabian Sea float comes back duplicated for every one of its ~10-day cycles:
+    40 profiles, 559 (lat, lon, date, depth_idx) keys, byte-identical in temp AND psal. The
+    scoring path pivots with aggfunc="mean", so mean(x, x) = x and no published number was ever
+    affected -- but the profile count is inflated, and any future consumer that does not pivot
+    would double-weight that float.
+
+    Only EXACT duplicates are dropped, so nothing is chosen between. If two rows share the key
+    but disagree on a value, that is a different and worse problem -- the pivot would silently
+    average two distinct measurements into one -- so it is reported rather than swallowed.
+    """
+    key = list(key)
+    before = len(out)
+    out = out.drop_duplicates()
+    dropped = before - len(out)
+
+    conflicts = out.duplicated(subset=key, keep=False)
+    if conflicts.any():
+        n_keys = out.loc[conflicts, key].drop_duplicates().shape[0]
+        print(f"[argo] WARNING: {int(conflicts.sum())} rows across {n_keys} keys share "
+              f"(lat, lon, date, depth_idx) but DISAGREE on their values. These are not "
+              f"redundant records and are NOT removed; pivot_profiles will average them. "
+              f"Inspect before quoting any number that rests on them.")
+    if dropped:
+        print(f"[argo] removed {dropped} exactly-duplicated rows returned by the source")
+    return out
+
+
 def download(year: int = config.TEST_YEARS[0], out_noext: str | None = None, src: str = "erddap",
              with_salinity: bool = False) -> str:
     """Fetch REAL Argo profiles in the NIO box for `year`, interpolate to config.DEPTHS, and write
@@ -126,7 +156,7 @@ def download(year: int = config.TEST_YEARS[0], out_noext: str | None = None, src
             print(f"[argo] {m:%Y-%m}: FAILED ({type(e).__name__}: {str(e)[:80]})")
 
     cols = ["lat", "lon", "date", "depth_idx", "temp"] + (["psal"] if with_salinity else [])
-    out = pd.DataFrame(rows, columns=cols)
+    out = _dedupe_rows(pd.DataFrame(rows, columns=cols))
     path = io.save_table(out, out_noext or config.art("argo_test"))
     n_prof = out.groupby(["lat", "lon", "date"]).ngroups if len(out) else 0
     print(f"[argo] wrote {len(out)} rows from ~{n_prof} profiles to {path}")

@@ -1435,3 +1435,44 @@ machine. Its precondition required the row counts to DIFFER; `b83a571` made them
 failure the previous handoff entry recorded as "pre-existing F8 row-count test, unchanged".
 
 **BLOCKERS:** none. **NEXT:** A8 on argopy; D5 waits on Arjhun's A9.
+
+### 2026-09-02 (later) — the D3 duplicate-key anomaly, diagnosed and fixed
+
+**It was one Argo float, duplicated at source, and it never affected a number.**
+
+The fetch script printed `overlap with the stage-1 table: 60717 rows of 59599` — an overlap
+larger than the table it merged into, which reads as corruption. Traced:
+
+- 1,118 duplicate-key rows in **both** the T+S table and the frozen stage-1 table (identical
+  counts, so D3 did not introduce it). 559 keys, each appearing exactly twice.
+- All 559 are **byte-identical in temp AND psal**. Zero disagree.
+- They are 40 profiles from a single float: lat 13.13–15.03, lon 67.79–69.79 (Arabian Sea),
+  consecutive displacement ~0.30 deg, **time gaps median 9.79 d** — one float's ~10-day cycle,
+  every profile delivered twice by Ifremer ERDDAP.
+- Merge arithmetic reconciles exactly: 559 doubled keys x 2 extra rows = 1,118; 59,599 + 1,118
+  = 60,717.
+
+**Impact on published numbers: none.** `validate_argo.pivot_profiles` aggregates with
+`aggfunc="mean"`, and mean(x, x) = x. Verified by pivoting the table before and after the
+dedupe: keys identical, array shape (4334, 15) both times, `array_equal(..., equal_nan=True)`
+True. The artifact was only rewritten once that equality held.
+
+**Correction to the earlier entry:** I flagged that the ~4,334 profile count "may be inflated".
+It is not. `ngroups` groups by (lat, lon, date), so the duplicated profiles were already
+collapsed — 4,334 before and after. The only real cost was 559 redundant rows and a diagnostic
+that made a clean result look broken.
+
+**Fixed:**
+- `download_argo._dedupe_rows` drops EXACT duplicates only, and loudly reports any surviving
+  key-duplicates that *disagree* — those are not redundant, and pivot_profiles would silently
+  average two distinct measurements into one. Wired into `download()`.
+- The fetch script dedupes on assembly too (cached per-year parquets predate the fix) and its
+  overlap diagnostic now compares distinct rows, so it cannot fan out again.
+- `tests/phase2/test_argo_dedupe.py`, 5 tests. The one that matters asserts a *conflicting* key
+  is kept and reported, never silently collapsed.
+- `artifacts/argo_daily_period_ts.parquet` rewritten deduped: 59,626 -> 59,067 rows, 4,334
+  profiles unchanged.
+
+**`argo_daily_period.parquet` deliberately left alone** with its 1,118 rows. It is frozen and
+underwrites the 0.8793 headline; the pivot handles it, so rewriting it would churn a published
+input for no numerical gain.

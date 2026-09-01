@@ -200,16 +200,14 @@ def test_lightgbm_stays_refused_even_when_the_row_counts_match():
     it -- the pickle is unstamped (D-012). So the row count must never be the gate.
     """
     b = lab.baseline_availability()
-    # Simulate the demo machine: make the two counts agree.
-    assert b["lightgbm"]["local_x_train_rows"] != b["lightgbm"]["provenance_n_train"], (
-        "this test only proves something while the counts DIFFER here; if they now match, "
-        "the simulation below is no longer needed but the assertion still must hold"
-    )
-    matched = dict(b["lightgbm"])
-    matched["local_x_train_rows"] = matched["provenance_n_train"]
-    # The gate does not consult those numbers at all, so availability is unchanged.
-    assert b["lightgbm"]["available"] is False
-    assert b["lightgbm"]["gate"] == "a real Argo score must exist for this baseline"
+    lgbm = b["lightgbm"]
+    # The two counts agree on some machines and not others -- since the provenance fix they agree
+    # HERE, which is precisely the demo-machine condition that opened the old guard. So there is
+    # nothing left to simulate, and nothing to assert about the counts either: making their
+    # agreement a precondition just moves the vacuous pass from one machine to the other. The
+    # gate must not consult them at all, so the refusal is asserted unconditionally.
+    assert lgbm["available"] is False
+    assert lgbm["gate"] == "a real Argo score must exist for this baseline"
 
 
 def test_the_gate_would_open_if_a_real_argo_score_appeared(monkeypatch, tmp_path):

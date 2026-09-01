@@ -101,7 +101,42 @@ def rescore(tag: str, daily_dir: str, t_seq: int, test_samples: int,
 
     clim_at = clim[pd.to_datetime(keys["date"].values).month - 1, la, lo, :]
     m = metrics.per_depth(mu, truth[keep], clim=clim_at[keep], reference="argo")
-    return {"overall": m["overall"], "argo_profiles": int(keep.sum())}
+
+    # Per-basin, using the canonical phase2.basins partition -- the SAME per_depth() on each
+    # subset. lat/lon are the kept profiles' own coordinates, aligned row-for-row with mu.
+    by_basin = metrics.per_depth_by_basin(
+        mu, truth[keep], keys["lat"].values[keep], keys["lon"].values[keep],
+        clim=clim_at[keep], reference="argo")
+    return {"overall": m["overall"], "argo_profiles": int(keep.sum()), "by_basin": by_basin}
+
+
+def _print_basins(bb: dict) -> None:
+    """Show per-basin overall skill and per-depth RMSE, with the profile counts each rests on so a
+    basin with few floats is not presented as equal to one with many."""
+    from phase2.tscast_nio import config as _c
+    pf = bb["profiles"]
+    print("")
+    print("PER-BASIN (phase2.basins canonical partition)")
+    print(f"  profiles: total {pf['total']}  |  Arabian {pf['arabian_sea']}  "
+          f"Bay of Bengal {pf['bay_of_bengal']}  unassigned {pf['unassigned']}")
+    s = pf['arabian_sea'] + pf['bay_of_bengal'] + pf['unassigned']
+    print(f"  reconcile: {pf['arabian_sea']} + {pf['bay_of_bengal']} + {pf['unassigned']} "
+          f"= {s}  (== total {pf['total']}: {s == pf['total']})")
+    for name in ("arabian_sea", "bay_of_bengal"):
+        blk = bb["by_basin"][name]
+        if blk.get("n_profiles", 0) == 0:
+            print(f"  {name:14s}: no profiles")
+            continue
+        o = blk["overall"]
+        print(f"  {name:14s}: rmse={o['rmse']:.4f}  skill={o['skill_rmse_ratio']:+.4f}  "
+              f"bias={o['bias']:+.4f}  n={o['n']}")
+    a, b = bb["by_basin"]["arabian_sea"], bb["by_basin"]["bay_of_bengal"]
+    if a.get("n_profiles", 0) and b.get("n_profiles", 0):
+        print("")
+        print(f"  {'depth':>6} {'Arabian RMSE':>13} {'nA':>5} {'BoB RMSE':>10} {'nB':>5}")
+        for i, dep in enumerate(_c.DEPTHS):
+            print(f"  {dep:>6} {a['rmse'][i]:>13.3f} {a['n'][i]:>5} "
+                  f"{b['rmse'][i]:>10.3f} {b['n'][i]:>5}")
 
 
 def main() -> int:
@@ -134,10 +169,12 @@ def main() -> int:
     if diffs[worst] <= TOL and o["n"] == rec["n"]:
         print(f"\n  [ok]   AGREES to 4 dp (largest gap {worst} {diffs[worst]:.2e}). The recorded "
               f"metrics are reproducible from the checkpoint on disk.")
+        _print_basins(got["by_basin"])
         return 0
     print(f"\n  [FAIL] DIFFERS -- largest gap {worst} {diffs[worst]:.2e}, n {o['n']} vs {rec['n']}."
           f"\n         The checkpoint does not reproduce its own recorded metrics. Do not ship "
           f"this number until the cause is found.")
+    _print_basins(got["by_basin"])
     return 1
 
 

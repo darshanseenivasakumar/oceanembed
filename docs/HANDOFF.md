@@ -1347,3 +1347,36 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - NEXT TASK (B): wire these masks into `validation.metrics` so any run reports per-basin per-depth
   RMSE, then the depth diagnostics.
 - BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — per-basin metrics: Arabian Sea vs Bay of Bengal, wired into the Argo scoring
+
+- CONTEXT: sprint task, follows basins.py. Wire the canonical partition into the validation
+  metrics so evaluation reports each basin, per depth. No retrain, no architecture/dataset change,
+  headline untouched.
+- WHAT WAS BUILT: `metrics.per_depth_by_basin(pred, truth, lat, lon, clim=...)` in
+  `src/phase2/tscast_nio/metrics.py`. It routes each PROFILE through `phase2.basins.classify_points`
+  and calls the SAME `per_depth()` on each subset, so a basin number is computed identically to the
+  overall one. `per_depth()` itself is unchanged — every existing caller and the frozen numbers are
+  untouched. Returns overall + by_basin + a `profiles` reconciliation block. Draws NO new boxes; a
+  test asserts it defers to `phase2.basins`.
+- WIRED INTO: `scripts/phase2/rescore_checkpoint.py` now prints a per-basin table (overall skill +
+  per-depth RMSE for both basins, with profile counts). This is the evaluation path for the FROZEN
+  checkpoints, so basin numbers come out without retraining anything.
+- RESULT on the frozen 7ch checkpoint [VERIFIED by execution, 962 independent Argo]:
+  - reconciles exactly: Arabian 679 + BoB 283 + unassigned 0 = 962.
+  - **Arabian Sea rmse 0.8680, skill +0.3016, bias +0.076 (n=9108).**
+  - **Bay of Bengal rmse 0.9064, skill +0.2339, bias +0.261 (n=3721).** The BoB is harder and runs
+    3.4x warmer-biased; its per-depth error peaks at 75-100 m (1.42 / 1.49 degC), the
+    barrier-layer / thermocline zone this basin is known for. A real, defensible basin difference.
+  - overall 0.8793 unchanged, reproduced to 0.00e+00 — the split does not move the headline.
+- FILES: `src/phase2/tscast_nio/metrics.py` (+per_depth_by_basin), `scripts/phase2/rescore_checkpoint.py`
+  (+per-basin printout), `tests/phase2/test_metrics_by_basin.py` (new, 8 tests).
+- TESTS RUN: the 8 new tests pass (incl. a real-Argo reconciliation where a perfect reconstruction
+  gives 0 RMSE per basin). Full suite **470 passed, 1 failed, 2 skipped** — the failure is the
+  pre-existing F8 row-count test (Unit A), unchanged.
+- FOR ARJHUN: the currents ablation's per-basin reporting is now a one-liner —
+  `metrics.per_depth_by_basin(mu, truth[keep], keys['lat'].values[keep], keys['lon'].values[keep], clim=...)`.
+  Same call the rescore script uses.
+- NEXT TASK (B): depth diagnostics (pred-vs-Argo profile, error-vs-depth, uncertainty-vs-depth),
+  per basin, using these outputs.
+- BLOCKERS: none.

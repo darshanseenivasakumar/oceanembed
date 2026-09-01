@@ -63,6 +63,23 @@ class GriddedPatches(Dataset):
         self.times = times
         self.temp = temp
         self.n_t = surface.shape[0]
+
+        # --- temporal embargo on the INPUT WINDOW -------------------------------------------
+        # daily_split_indices() asserts the TARGET indices are disjoint and strictly ordered. It
+        # says nothing about the input window. At T_SEQ=11 a train sample centred within 5 days
+        # of the boundary read test-period surface fields -- future information -- on 5 of 304
+        # train days (1.64%), while every test in the suite still passed. That is why this bound
+        # is derived from the split itself rather than from the array ends.
+        ti = np.asarray(t_indices)
+        if ti.size == 0:
+            raise ValueError("t_indices is empty: a split with no timesteps cannot be sampled")
+        self.t_lo = int(ti.min())
+        self.t_hi = int(ti.max())
+        if self.t_hi - self.t_lo + 1 != ti.size:
+            raise ValueError(
+                f"t_indices spans [{self.t_lo}, {self.t_hi}] = {self.t_hi - self.t_lo + 1} steps "
+                f"but holds {ti.size}: a non-contiguous split. Clamping to min/max would let a "
+                f"context window cross the gap -- the exact leak this bound exists to stop.")
         # (12, n_lat, n_lon, 15) monthly climatology -- the physical prior the decoder adjusts.
         # MUST be built from training years only; see tscast_data_model.md section 3.
         # return_clim is OPT-IN so the 5-tuple every existing consumer unpacks is unchanged.
@@ -141,11 +158,18 @@ class GriddedPatches(Dataset):
         return len(self.index)
 
     def _window(self, t: int) -> list[int]:
-        """T_SEQ time steps centred on t, clamped at the ends (never wrapped across years)."""
+        """T_SEQ time steps centred on t, clamped to THIS dataset's own split (never wrapped
+        across years, and never across the train/test boundary).
+
+        Clamping repeats the edge frame rather than shortening the window, so the input tensor
+        keeps a fixed T. Both sides are clamped, not just the future one: a test window reaching
+        back into train is not future-leakage, but one rule is harder to get wrong than two, and
+        the cost -- a repeated frame on the first few test days -- makes the score harder rather
+        than easier."""
         if self.T_SEQ == 1:
             return [t]
         h = self.T_SEQ // 2
-        return [int(np.clip(k, 0, self.n_t - 1)) for k in range(t - h, t + h + 1)]
+        return [int(np.clip(k, self.t_lo, self.t_hi)) for k in range(t - h, t + h + 1)]
 
     def __getitem__(self, k: int):
         t, i, j = (int(v) for v in self.index[k])

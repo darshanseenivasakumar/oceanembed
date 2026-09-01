@@ -3,7 +3,50 @@
 Implementation source of truth for Arjhun's machine. Written 2026-09-01 after a forensic audit of
 **this disk only**. Companion: `DARSHAN_REVIEW_AND_TASKS.md`.
 
-**Status: MODE A complete. Awaiting `APPROVED — ENTER EXECUTION MODE`.**
+**Status: APPROVED — EXECUTION MODE. Step 0 (read the official PS) COMPLETE. P1 in progress.**
+
+**Target 2026-09-10. Binding rule from Arjhun:** *these dates are planning targets, not scientific
+acceptance criteria — never skip validation, tests, or independent verification to meet a date.*
+§10's completion gate outranks the calendar. If a phase cannot pass honestly, the date slips.
+
+---
+
+## 0. THE OFFICIAL PS — READ AND RECONCILED [VERIFIED 2026-09-01]
+
+The PDF carries no text layer (outlined vector glyphs, 0 chars from every extractor). Rendered with
+PyMuPDF at 170 dpi and read. **3 pages, not 12.** The transcription in
+`docs/phase2/V2_MASTER_PROMPT_ARJHUN.md:78-96` is **faithful — all 17 rows confirmed.**
+
+Verbatim on the points that decide the build:
+
+> "The objective is to estimate the three-dimensional ocean temperature using **only surface
+> satellite observations**." — 5°N–30°N, 45°E–105°E, 0.25°, daily.
+> **Training Target Dataset:** GLORYS Global Ocean Reanalysis `doi:10.48670/moi-00021`.
+> **In-situ Observations dataset: Gridded ARGO — INCOIS Live Access Server (LAS).**
+> **Expected Solution:** … PoC over the **Bay of Bengal / Arabian Sea**.
+> *(If a dataset is not available at required resolution, the team may select the openly available
+> product and perform appropriate spatial and temporal interpolation/regridding.)*
+
+Theme: **Disaster Management**. Category: Software. Organization: INCOIS, MoES.
+
+**Three confirmations:** (1) "only surface satellite observations" is stronger than we assumed —
+GLORYS into the encoder is a compliance failure, not a caveat; (2) GLORYS as the **target** is
+explicitly endorsed, closing that question; (3) INCOIS LAS Gridded ARGO is named outright, so it is
+a real MUST and our argopy floats are a different product class.
+
+**One correction that changes the build — currents.** The PS names PO.DAAC
+`OSCAR_L4_OC_FINAL_V2.0`, a **total** surface current. We planned DUACS `ugos/vgos`, which are
+**geostrophic only** — the wrong physical quantity, and the thing GLORYS `uo/vo` is not. OSCAR needs
+a NASA Earthdata login we lack, so a live CMEMS probe found the correct substitute:
+
+```
+cmems_obs-mob_glo_phy-cur_nrt_0.25deg_P1D-m   (MULTIOBS_GLO_PHY_MYNRT_015_003, COPERNICUS-GLOBCURRENT)
+coverage : 2022-05-01 -> 2026-08-31     our window fully inside
+grid     : NATIVE 0.25 deg              no regridding
+vars     : uo, vo = "absolute surface geostrophic + depth Ekman velocity"
+```
+
+Documented deviation, recorded in provenance, stated to the jury. See new phase **P2a**.
 
 ---
 
@@ -41,6 +84,8 @@ passing, 18 skipped.
 
 ## 3. MISSING COMPONENTS
 
+0. **PS-compliant currents — NOT ON DISK.** The 1,164 satellite files carry DUACS geostrophic
+   `ugos/vgos`, not a total current. See §0 and P2a. This is the one required input we do not hold.
 1. Satellite-input bundle (raw exists, no preprocessing)
 2. Satellite-only model
 3. Anti-GLORYS-fallback guard on the tscast path
@@ -79,6 +124,13 @@ P1 leakage-safe window  <-- blocks everything
 ### P1c — mark superseded
 `PHASE2_STATUS.md:23`, `EXPERIMENT_LOG.md:44`, and the leaky artifacts.
 - **Rule:** annotate, **never edit the numbers**.
+
+### P2a — fetch the PS-compliant currents channel **(new, from §0)**
+`cmems_obs-mob_glo_phy-cur_nrt_0.25deg_P1D-m`, vars `uo`,`vo`, 388 days 2025-06-01..2026-06-23.
+Native 0.25 deg, so no regrid. Serialise the requests — concurrent CMEMS calls previously threw
+`SSLError` / `CouldNotConnectToAuthenticationSystem`.
+- **Test:** 388/388 gap-free; `uo,vo` finite over ocean; |v| < 3 m/s.
+- **Accept:** verifier passes; provenance records the deviation from the PS's named OSCAR product.
 
 ### P2 — satellite bundle -> `data/processed/daily_sat/v001/`
 Never overwrite `data/processed/daily/`. Per channel: Kelvin->degC (`analysed_sst`), regrid

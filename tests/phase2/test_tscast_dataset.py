@@ -114,3 +114,76 @@ def test_cell_index_does_not_slip_a_cell_on_an_exact_grid_line():
     assert float(base.LAT[int(i[0])]) == pytest.approx(26.0), "slipped to the neighbouring cell"
     wrong = int(np.clip(np.searchsorted(base.LAT, 26.0) - 1, 0, base.N_LAT - 1))
     assert wrong != int(i[0]), "this test no longer distinguishes the two conventions"
+
+
+# ---------------------------------------------------------------------------
+# A1 -- temporal leakage through the INPUT WINDOW (not the split).
+# ---------------------------------------------------------------------------
+
+def _daily_calendar():
+    """The real v2 calendar: 2025-06-01 .. 2026-06-23, 388 days (verified identical to the bundle)."""
+    return np.arange(np.datetime64("2025-06-01"),
+                     np.datetime64("2026-06-24"), dtype="datetime64[D]")
+
+
+def _daily_ds(t_indices, t_seq=11):
+    times = _daily_calendar()
+    n_t, n_lat, n_lon = len(times), 6, 6
+    surface = np.zeros((n_t, n_lat, n_lon, 5), "float32")
+    temp = np.zeros((n_t, n_lat, n_lon, config.N_DEPTHS), "float32")
+    land = np.zeros((n_lat, n_lon), bool)
+    return D.GriddedPatches(surface, temp, times, land,
+                            ["sst", "sss", "ssh", "u", "v"], t_indices, t_seq=t_seq, p=3)
+
+
+def test_train_context_window_never_reaches_into_the_test_period():
+    """`daily_split_indices` asserts the INDICES are disjoint and ordered. It says nothing about
+    the INPUT WINDOW. At T_SEQ=11 a train sample centred within 5 days of the boundary reads
+    test-period surface fields -- future information -- and every other test in this suite still
+    passes while it happens. That is what made the leak survive so long.
+
+    Measured on the real calendar before the fix: 5 of 304 train days (2026-03-27..31) = 1.64%."""
+    times = _daily_calendar()
+    tr, te = D.daily_split_indices(times)
+    ds = _daily_ds(tr, t_seq=11)
+    test_ix = set(int(k) for k in te)
+    crossing = sorted({int(t) for t in tr if test_ix.intersection(ds._window(int(t)))})
+    detail = ""
+    if crossing:
+        detail = (f" -- {len(crossing)} of {len(tr)} train days "
+                  f"({100.0 * len(crossing) / len(tr):.2f}%), "
+                  f"{times[crossing[0]]}..{times[crossing[-1]]}")
+    assert crossing == [], "train input windows reach into the test period" + detail
+
+
+def test_test_context_window_stays_inside_its_own_block():
+    """The conservative half of the same rule. A test-period window reaching back into train is
+    not future-leakage, but clamping both sides keeps ONE rule instead of two and cannot be
+    argued with. It costs the first 5 test days a repeated frame, which makes the score harder,
+    never easier -- the safe direction."""
+    times = _daily_calendar()
+    tr, te = D.daily_split_indices(times)
+    ds = _daily_ds(te, t_seq=11)
+    train_ix = set(int(k) for k in tr)
+    crossing = sorted({int(t) for t in te if train_ix.intersection(ds._window(int(t)))})
+    assert crossing == [], f"{len(crossing)} test windows reach back into the train block"
+
+
+def test_the_window_keeps_its_full_length_after_clamping():
+    """Clamping must repeat edge frames, never return a short window: a ragged T would change the
+    input tensor shape and break the encoder rather than fail loudly here."""
+    times = _daily_calendar()
+    tr, _ = D.daily_split_indices(times)
+    ds = _daily_ds(tr, t_seq=11)
+    for t in (int(tr[0]), int(tr[len(tr) // 2]), int(tr[-1])):
+        w = ds._window(t)
+        assert len(w) == 11, f"window at t={t} has length {len(w)}, expected T_SEQ=11"
+
+
+def test_inference_over_the_full_range_is_not_clamped_away():
+    """Inference passes np.arange(n_t) -- the whole record is legitimately available then, so the
+    clamp must widen to the full array and not silently shorten an operational context window."""
+    times = _daily_calendar()
+    ds = _daily_ds(np.arange(len(times)), t_seq=11)
+    mid = len(times) // 2
+    assert ds._window(mid) == list(range(mid - 5, mid + 6))

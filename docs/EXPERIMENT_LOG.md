@@ -263,3 +263,47 @@ metrics[climatology]: RMSE=1.6921 MAE=1.3248 R2=0.9503 skill_vs_clim=+0.0000
 metrics[lightgbm]: RMSE=0.6329 MAE=0.3947 R2=0.9930 skill_vs_clim=+0.6260
 metrics[mlp]: RMSE=0.6323 MAE=0.4059 R2=0.9931 skill_vs_clim=+0.6263
 VERDICT: lightgbm (not conclusive) -- TIE: MLP 0.6323 vs LightGBM 0.6329 degC differ by 0.1%, under the 2% noise margin. Ship the simpler model.
+
+
+## E-EMBARGO-01  2026-09-02  — first headline measured under the temporal embargo
+
+**Status: VALIDATED (engineering + independent Argo) — but see the confound below.**
+
+The matched re-run of `tscast_stage1_withUV_s42` after the A1 leakage fix (`1d3c135`). Identical
+config: cnn3d / simple decoder / NLL beta=0.5 / T_SEQ=11 / 60k train / 12k held-out / seed 42 /
+lr 1e-3 / batch 256 / patience 5 / latent 128 / 7 channels, daily bundle, same split.
+
+| | leaky (INVALID) | **embargoed** | delta |
+|---|---|---|---|
+| Argo RMSE °C | 0.8611 | **0.8645** | **+0.0033** |
+| bias °C | +0.1247 | **+0.1105** | -0.0142 |
+| correlation (mean per depth) | 0.8893 | 0.8873 | -0.0021 |
+| skill 1−RMSE/RMSEclim | +0.2975 | +0.2948 | -0.0027 |
+| skill Murphy | +0.5065 | +0.5027 | -0.0038 |
+| climatology RMSE °C | 1.2259 | 1.2259 | 0.0000 |
+| n / profiles | 12829 / 962 | 12829 / 962 | 0 / 0 |
+
+`rmse_climatology` identical to 4 dp and n identical — that is the check that both legs were
+scored on **the same points**, so the delta is a real comparison and not a change of population.
+
+**The headline moved and it moved the right way: worse.** Removing an optimistic leak should cost
+accuracy, and it did. Best epoch 3, 8 epochs run — identical training dynamics to the leaky leg.
+
+**CONFOUND, stated plainly: two things changed, not one.** The leaky leg ran on CPU, this one on
+CUDA. Same seed, but CPU and GPU kernels are not bitwise identical, so **+0.0033 °C confounds
+the embargo with numerical nondeterminism.** The delta also sits inside the ±0.02 °C band this
+project has already shown effects can move within (wind flipped −0.0149 -> +0.0111 on one retrain).
+
+So: **the fix is proven structurally** — 0 train/test window crossings at T_SEQ 1/11/31 on the real
+388-day bundle, by a test that failed with exactly 5 crossings beforehand. **The magnitude of the
+leak's cost is NOT established at n=1**, and must not be quoted as "the leak cost 0.003 °C".
+Multi-seed characterisation is A10.
+
+**This is still a GLORYS-INPUT model.** Five of seven channels are reanalysis. It is the
+comparator for A9, **not** the PS-compliant satellite model, and must never be labelled one.
+
+checkpoint: `artifacts/tscast_stage1_embargo_withUV_s42.pt` (seed 42, code_commit `8338d14`)
+metrics:    `artifacts/tscast_stage1_embargo_withUV_s42_metrics.json`
+train:      507.1 s on RTX 4050 (CUDA) vs 5147.5 s on CPU — **10.1x**, not the
+            4.4x my 1024-sample micro-benchmark predicted. Darshan's ~9x was closer to right than
+            my number was; the micro-benchmark was dominated by fixed startup cost. [VERIFIED]

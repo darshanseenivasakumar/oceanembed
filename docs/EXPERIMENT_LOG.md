@@ -79,6 +79,17 @@ delta (0.0111 °C) is small enough that one seed cannot settle it — see the mu
 
 
 ## v2-final  2026-08-30  — the shipped stage-1 model, and the wind ablation that pays for it
+
+> ⚠ **SUPERSEDED 2026-09-01 by `v2-embargoed` above — read this as the PRE-EMBARGO record.**
+> Every number below was correct for commit `6e6ba9a` and is preserved unedited: this file is
+> append-only and a superseded result is evidence, not clutter. What changed is the *data*, not the
+> arithmetic — commit `a5cdd3a` embargoed training targets whose `T_SEQ` window reached into the test
+> block, the legs were retrained, and the comparison moved. Specifically **the wind conclusion in this
+> entry no longer holds**: 7ch 0.8612 vs 5ch 0.8760 (wind helps −0.0149) became 7ch 0.8793 vs 5ch
+> 0.8682 (wind costs +0.0111), with wind still removing 14.6% rather than 41% of the warm bias. The
+> title's claim that the ablation “pays for it” is therefore superseded too. Do not quote this entry's
+> figures as current; quote `v2-embargoed`, or the stage-2 headline 0.8548 °C.
+
 model: TSCastNIO — cnn3d encoder + simple decoder + β-NLL(β=0.5), residual, latent 128, P=17
 dataset: daily bundle, 388 days 2025-06-01..2026-06-23 | **7 of 7 contract channels**
         `["sst","sss","ssh","u","v","wu","wv"]` — wind from
@@ -109,7 +120,7 @@ compared 60k/25ep against 40k/15ep and credited wind for three changes.
 | params | 548,582 | 547,238 | — |
 | train seconds | 4,932 | 5,531 | — |
 
-**Wind helps, and the bias story is larger than the RMSE story.** RMSE improves at 11 of 15 depths;
+**Wind helps, and the bias story is larger than the RMSE story.** ⚠ _[SUPERSEDED 2026-09-01: post-embargo this reverses — wind COSTS +0.0111 °C RMSE and removes 14.6%, not 41%, of the bias. Sentence preserved verbatim as the pre-embargo record; see `v2-embargoed`.]_ RMSE improves at 11 of 15 depths;
 the overall warm bias falls **41%**. The gain concentrates at 100–200 m, exactly where wind-driven
 mixing and upwelling set the thermocline in this basin: bias at 125 m goes +0.506 → +0.190, at
 150 m +0.436 → +0.203, at 200 m +0.272 → +0.067 with RMSE −0.100. Wind *hurts* at 50 m (+0.102)

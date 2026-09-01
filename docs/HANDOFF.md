@@ -1103,6 +1103,12 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - BLOCKERS: none. A and C can start immediately against `artifacts/sample_*`.
 
 ## 2026-08-30 — Unit B (Darshan) — v2 TS-Cast-NIO: wind in, inference fixed, model retrained, UI built
+
+> ⚠ **SUPERSEDED 2026-09-01 — see the PHASE 1 entry at the end of this file.** The numbers in this
+> entry were correct for commit `6e6ba9a` and are preserved unedited as the pre-embargo record. The
+> leakage embargo (`a5cdd3a`) changed them: **0.8612 → 0.8793** for 7ch, **0.8760 → 0.8682** for the
+> matched 5ch control, so **the wind RMSE result reverses** (wind now costs +0.0111 °C) while the bias
+> benefit survives at 14.6% rather than 41%. Current shipped headline: stage-2 density-OFF, 0.8548 °C.
 - CURRENT PHASE: Phase 2 v2 (TS-Cast-NIO). Branch `phase2-tscast-nio`. Solo on both units while
   Arjhun's Claude was out of tokens; handing back Mon 16:30 IST.
 - WHAT WORKS [VERIFIED by execution]:
@@ -1113,7 +1119,8 @@ then `git add -f src/oceanembed/data/` and commit. One line.
   - **The shipped stage-1 model: Argo RMSE 0.8612 degC, skill +0.2975, bias +0.1247** on 962
     INDEPENDENT profiles, 12,829 depth comparisons. Skill positive at all 15 depths; correlation
     >= 0.787 everywhere. Full per-depth table in `docs/EXPERIMENT_LOG.md`.
-  - **Wind is worth 0.0149 degC and 41% of the warm bias**, measured against a MATCHED 5-channel
+  - ⚠ _[SUPERSEDED — post-embargo: wind COSTS +0.0111 degC and removes 14.6% of the bias.]_
+    **Wind is worth 0.0149 degC and 41% of the warm bias**, measured against a MATCHED 5-channel
     control (same seed, samples, epochs, patience, everything). Both scored on identical points --
     `rmse_climatology` comes out 1.2259 in both.
   - **The inference path loads.** It previously raised `Missing key(s) ... decoder.*` on every

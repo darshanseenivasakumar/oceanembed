@@ -104,3 +104,65 @@ def test_reasons_come_from_a_measured_artifact_not_from_adjectives():
     lines = output.build_reasons(np.full(DEP, 0.5), np.ones(DEP, bool), 2000.0, rmse=real)
     assert "weakest depth" in lines[4], "the worst depth must be named from the numbers"
     assert sum("weakest depth" in s for s in lines) == 1
+
+
+# ----------------------------------------------------- Phase 6: calibrated sigma
+
+def _cal(t_seq=31, channels=("sst", "sss", "ssh", "u", "v"), scale=2.0):
+    from phase2.tscast_nio import config as c
+    return {"T_SEQ": t_seq, "channels": list(channels), "method_used": "coverage",
+            "checkpoint": "test.pt", "n_fit_profiles": 3423,
+            "summary_after": {"cov1_mean": 0.72},
+            "scales": {str(int(d)): scale for d in c.DEPTHS}}
+
+
+def test_calibration_scales_sigma_when_the_model_matches():
+    cal = _cal()
+    r = _rec(provenance={"model": "x", "T_SEQ": 31, "channels": list(cal["channels"])},
+             calibration=cal)
+    assert r["calibration"]["applied"] is True
+    assert r["sigma_t"][5] == pytest.approx(r["sigma_t_raw"][5] * 2.0, rel=1e-6)
+
+
+def test_calibration_is_REFUSED_when_it_was_fitted_on_a_different_model():
+    """Scales come from one checkpoint's residuals. Applying a 5-channel model's scales to a
+    7-channel one rescales the error bar by a factor from a different error distribution, and it
+    looks completely normal in the output. So it must refuse, not silently apply."""
+    cal = _cal(t_seq=31, channels=("sst", "sss", "ssh", "u", "v"))
+    r = _rec(provenance={"model": "x", "T_SEQ": 11,
+                         "channels": ["sst", "sss", "ssh", "u", "v", "wu", "wv"]},
+             calibration=cal)
+    assert r["calibration"]["applied"] is False
+    assert "T_SEQ=31" in r["calibration"]["why"]
+    assert r["sigma_t"] == r["sigma_t_raw"], "sigma must be left RAW on a mismatch"
+
+
+def test_a_channel_count_mismatch_alone_is_enough_to_refuse():
+    cal = _cal(t_seq=11, channels=("sst", "sss", "ssh", "u", "v"))
+    r = _rec(provenance={"model": "x", "T_SEQ": 11,
+                         "channels": ["sst", "sss", "ssh", "u", "v", "wu", "wv"]},
+             calibration=cal)
+    assert r["calibration"]["applied"] is False and "channels" in r["calibration"]["why"]
+
+
+def test_no_calibration_artifact_leaves_sigma_raw_and_says_so():
+    r = _rec()
+    assert r["calibration"]["applied"] is False
+    assert r["sigma_t"] == r["sigma_t_raw"]
+
+
+def test_a_record_that_cannot_identify_its_model_is_not_calibrated():
+    """Provenance without T_SEQ/channels cannot be matched, so it must not be given scales."""
+    r = _rec(provenance={"model": "mystery"}, calibration=_cal())
+    assert r["calibration"]["applied"] is False
+    assert "does not say which model" in r["calibration"]["why"]
+
+
+def test_the_reason_strings_quote_the_CALIBRATED_sigma_not_the_raw_one():
+    """The UI shows sigma_t; if `reasons` quoted the raw value the two would disagree on screen."""
+    r = _rec(provenance={"model": "x", "T_SEQ": 31,
+                         "channels": ["sst", "sss", "ssh", "u", "v"]},
+             calibration=_cal(scale=3.0))
+    assert r["calibration"]["applied"] is True
+    shown = r["sigma_t"][5]
+    assert f"{shown:.2f}" in r["reasons"][5], (r["reasons"][5], shown)

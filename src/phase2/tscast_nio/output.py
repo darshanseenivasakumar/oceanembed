@@ -127,9 +127,46 @@ def _plain(values):
     return [round(float(x), 4) for x in a]
 
 
+CALIBRATION_FILE = "uncertainty_calibration.json"
+
+
+def load_calibration(path: str | None = None) -> dict | None:
+    """Per-depth sigma scale factors from Phase 6, or None if calibration was never run.
+
+    Returning None is a valid state, not a failure: an uncalibrated sigma is still the model's
+    honest output. What must never happen is applying it silently.
+    """
+    p = path or base.art(CALIBRATION_FILE)
+    if not os.path.exists(p):
+        return None
+    return json.load(open(p))
+
+
+def _calibration_applies_to(cal: dict, provenance: dict) -> tuple[bool, str]:
+    """Do these scales belong to THIS model?
+
+    Scales are fitted to one checkpoint's residuals. Applying a T_SEQ=31 5-channel model's scales
+    to a T_SEQ=11 7-channel one would rescale a sigma by a factor derived from a different error
+    distribution -- and it would look completely normal in the output. So the match is checked, and
+    a mismatch leaves sigma RAW with the reason recorded, rather than being quietly applied or
+    quietly dropped.
+    """
+    want_t, got_t = cal.get("T_SEQ"), provenance.get("T_SEQ")
+    want_c = [str(c) for c in cal.get("channels", [])]
+    got_c = [str(c) for c in provenance.get("channels", [])]
+    if got_t is None and not got_c:
+        return False, "record provenance does not say which model produced it"
+    if want_t != got_t:
+        return False, f"calibration was fitted on T_SEQ={want_t}, this record is T_SEQ={got_t}"
+    if want_c and got_c and want_c != got_c:
+        return False, (f"calibration was fitted on {len(want_c)} channels {want_c}, "
+                       f"this record has {len(got_c)} {got_c}")
+    return True, f"fitted on {cal.get('n_fit_profiles')} train-window Argo profiles"
+
+
 def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
                  argo_check=None, forecast=False, salinity=None, log_var_s=None,
-                 density=None, log_var_rho=None) -> dict:
+                 density=None, log_var_rho=None, calibration=None) -> dict:
     """The full record. Stage-2 keys are present and None so stage 2 is a fill-in, not a migration."""
     t = np.asarray(temperature, dtype="float64")
     lv = np.asarray(log_var_t, dtype="float64")
@@ -139,7 +176,23 @@ def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
             f"expected {config.N_DEPTHS} depths, got {t.shape}/{lv.shape}/{v.shape}. "
             "The output contract is frozen; reshaping here would misalign every depth label.")
 
-    sigma = np.sqrt(np.exp(lv))
+    sigma_raw = np.sqrt(np.exp(lv))
+    sigma = sigma_raw
+    cal_block = {"applied": False, "why": "no calibration artifact found", "scales": None}
+    if calibration is not None:
+        ok, why = _calibration_applies_to(calibration, dict(provenance))
+        cal_block = {"applied": bool(ok), "why": why,
+                     "method": calibration.get("method_used"),
+                     "fitted_on": calibration.get("checkpoint"),
+                     "coverage_after": (calibration.get("summary_after") or {}).get("cov1_mean"),
+                     "scales": calibration.get("scales") if ok else None}
+        if ok:
+            sc = calibration.get("scales") or {}
+            sigma = sigma_raw.copy()
+            for k, dep in enumerate(config.DEPTHS):
+                s = sc.get(str(int(dep)), sc.get(int(dep)))
+                if s is not None:
+                    sigma[k] *= float(s)
     t_out = [None if not v[k] else round(float(t[k]), 4) for k in range(config.N_DEPTHS)]
     s_out = [None if not v[k] else round(float(sigma[k]), 4) for k in range(config.N_DEPTHS)]
 
@@ -161,7 +214,12 @@ def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
         "depths_m": list(config.DEPTHS),
         "temperature": t_out,
         "log_var_t": [round(float(x), 4) for x in lv],
+        # sigma_t is the number a reader should use. sigma_t_raw is the network's uncalibrated
+        # output, kept so the two are never confused and so a calibrated run stays auditable.
         "sigma_t": s_out,
+        "sigma_t_raw": [None if not v[k] else round(float(sigma_raw[k]), 4)
+                        for k in range(config.N_DEPTHS)],
+        "calibration": cal_block,
         "valid": [bool(x) for x in v],
         "seafloor_depth_m": float(seafloor_depth_m),
         # stage 2 -- None at stage 1, populated by a stage-2 checkpoint

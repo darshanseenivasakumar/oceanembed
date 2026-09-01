@@ -71,7 +71,24 @@ class TSCastPredictor:
 
         # Build the decoder the CHECKPOINT names. Guessing `film` is what made every
         # simple-decoder checkpoint fail to load with `Missing key(s) ... decoder.*`.
-        self.decoder_name = ck.get("decoder", "film")
+        # Checkpoints written before --decoder existed carry no `decoder` field, and defaulting to
+        # "film" makes every one of them fail to load. The WEIGHTS say which decoder it is --
+        # `simple_head.*` keys exist only on the simple head, `decoder.*` only on the FiLM U-Net.
+        # Reading that is not guessing: it is the checkpoint describing itself through its own
+        # tensors instead of through a field nobody wrote. Metadata still wins when present.
+        if "decoder" in ck:
+            self.decoder_name = ck["decoder"]
+            self.decoder_source = "checkpoint metadata"
+        else:
+            keys = ck["state_dict"].keys()
+            has_simple = any(k.startswith("simple_head.") for k in keys)
+            has_film = any(k.startswith("decoder.") for k in keys)
+            if has_simple == has_film:
+                raise RuntimeError(
+                    f"{path} records no `decoder` and its weights are ambiguous "
+                    f"(simple_head={has_simple}, decoder={has_film}). Refusing to guess.")
+            self.decoder_name = "simple" if has_simple else "film"
+            self.decoder_source = "inferred from the state_dict (no `decoder` in metadata)"
         # T_SEQ is the data WINDOW; the network was constructed at `built_t_seq` (1). They differ
         # for every T_SEQ>1 run, and only cnn3d's time pooling hides it.
         built_t = int(ck.get("built_t_seq", ck["T_SEQ"]))
@@ -111,6 +128,9 @@ class TSCastPredictor:
             np.arange(len(self.data["times"])), norm=norm, t_seq=ck["T_SEQ"], p=ck["P"],
             max_samples=1, clim=self.clim, return_clim=True)
         self.y_mean, self.y_std = norm[2], norm[3]
+        # None is a valid state: an uncalibrated sigma is still the model's honest output. What
+        # must not happen is applying someone else's scales without saying so.
+        self.calibration = output.load_calibration()
 
     @property
     def engine(self):
@@ -215,10 +235,15 @@ class TSCastPredictor:
         if argo_check is None and not forecast:
             argo_check = self._argo_check_for(lat, lon, target, temp)
 
+        # Phase-6 scales, if they were fitted for THIS model. build_record checks the match and
+        # leaves sigma raw with a recorded reason if they were not -- applying another model's
+        # scales would rescale the error bar by a factor from a different error distribution and
+        # look entirely normal doing it.
         return output.build_record(
             temperature=temp, log_var_t=logvar_deg, valid=valid, seafloor_depth_m=floor,
             provenance=prov, argo_check=None if forecast else argo_check, forecast=forecast,
-            salinity=sal, log_var_s=log_var_s, density=density, log_var_rho=log_var_rho)
+            salinity=sal, log_var_s=log_var_s, density=density, log_var_rho=log_var_rho,
+            calibration=self.calibration)
 
     def _argo_check_for(self, lat: float, lon: float, target, temp) -> dict | None:
         """Nearest INDEPENDENT float beside the prediction -- or None, meaning genuinely none near.

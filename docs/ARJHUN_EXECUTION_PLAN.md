@@ -134,10 +134,27 @@ prior record.**
 
 ## 7. RESOURCES (measured)
 
-16 cores · 15.3 GB RAM · **no GPU** (`torch 2.13.0+cpu`) · **57 GB free (88% used)**.
-Per-epoch @100k: `T_SEQ=1` 1.8 min · `T_SEQ=11` **8.4 min** · `T_SEQ=31` 24.9 min.
-P2 ~30 min + 0.7 GB · P5 ~40 min · P7 ~40 min · P8 ~4 h. **Phases 2-8 ~6-8 h CPU.**
-**Disk is the binding constraint** — `daily_sat/` must be derived-only; a second raw bundle will not fit.
+16 cores · 15.3 GB RAM · **NVIDIA RTX 4050 Laptop, 6.44 GB VRAM** · **57 GB free (88% used)**.
+
+**GPU enabled 2026-09-01.** The audit recorded "no GPU" because `torch 2.13.0+cpu` was installed --
+that was an oversight, not a hardware limit. `nvidia-smi` reports driver 592.82 / CUDA 13.1.
+Installed `torch==2.13.0+cu126` (an EXACT version match -- the cu124 index tops out at 2.6.0 and
+would have been a seven-minor-version downgrade). 442 tests pass after the swap.
+
+**Measured on the real model, same script, same data, batch 256, T_SEQ=11:**
+
+| device | per 100k-sample epoch |
+|---|---|
+| CPU | 11.58 min |
+| **CUDA** | **2.65 min** (4.4x) |
+
+Not the ~9x seen elsewhere, and the reason is worth knowing: at 548k params the **CPU-side patch
+sampler is now the bottleneck**, not the GPU. `--num-workers > 0` is the next lever, not a bigger
+model.
+
+Revised budget: P5 ~12 min · P7 ~12 min · P8 (3 seeds x 2 legs) ~1.2 h. **Phases 2-8 ~2 h**, down
+from 6-8. Model + optimizer ~9 MB and a batch ~23 MB, so 6 GB VRAM is ample even at batch 512 --
+**VRAM is not a constraint; disk still is.** `daily_sat/` must be derived-only.
 
 ## 8. ROLLBACK / SAFETY
 

@@ -79,9 +79,13 @@ deep-easy), correctly stated as mechanism, not causation.
 Satellite bundle build · anti-GLORYS guard test · satellite-only model · matched sat-vs-GLORYS
 comparison · ablations (multi-seed) · uncertainty recalibration · operational loop.
 
-I own the heavy compute. **Measured on this box:** 16 cores, 15.3 GB RAM, **no GPU**, 57 GB free.
-`T_SEQ=11` costs 8.4 min/epoch @100k. Phases 2–8 ≈ **6–8 h CPU**. A GPU is not required at
-`T_SEQ=11`.
+I own the heavy compute. **Correction to the audit: this box DOES have a GPU** — an RTX 4050
+(6.4 GB VRAM). It read as "no GPU" only because `torch+cpu` was installed. Now on
+`torch 2.13.0+cu126` (exact version match, no downgrade); 442 tests pass after the swap.
+
+**Measured, real model, T_SEQ=11:** CPU 11.58 min/epoch → **CUDA 2.65 min/epoch (4.4x)**. Phases
+2–8 drop from ~6–8 h to **~2 h**. It is 4.4x rather than your ~9x because at 548k params our
+bottleneck is now the CPU-side patch sampler, not the GPU.
 
 ---
 

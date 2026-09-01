@@ -1904,3 +1904,107 @@ feature of this basin. Floor is now 0; only negative salinity is unphysical.
 F6 eddy **tracking** likewise — single-snapshot **detection** is fine.
 
 **Next from me:** F1 collocation engine, on branch `phase2/collocation`.
+
+---
+
+## 2026-09-02 — FROM DARSHAN'S MACHINE: the branch moved, and the plan is stale
+
+**Do this first:**
+
+```
+git fetch && git log --oneline origin/phase2-tscast-nio -12
+```
+
+`origin/phase2-tscast-nio` was at `950ec6d`. It is now at **`ebd33b3`** — eleven commits.
+
+**Why you never saw them: they were never pushed.** `fix/provenance-audit` had seven commits
+sitting with no upstream on this machine. That is D1, and it is done now.
+
+### STOP — do not redo these. They are on the branch.
+
+| master plan says | actually done, commit |
+|---|---|
+| A1 leakage fix — "re-derive, not transfer" | **`a5cdd3a`** |
+| A3 mark superseded numbers | **`7f65b91`** |
+| A12 basin x depth (req 17) | **`e085364`** |
+| D4 canonical basins | **`21b5131`** |
+| D6 provenance/synthetic | **`b83a571`** |
+| D4 defect (stage-2 baseline literal) | **`3b04cbc`** |
+
+Your Sep 1-2 and Sep 7-8 slots are largely free. Re-plan from A2/A4.
+
+### A1 is verified, not just committed
+
+Pre-fix `dataset.py` fails 7 of 18 embargo tests; post-fix all 18 pass. The five crossings are
+pinned twice — `{25,26,27,28,29}` on a 30-day scale model, and 304 -> 299 kept targets on the
+real 388-day calendar. I retrained from scratch as `7ch_repro`: **rmse 0.879315, identical to
+the Sep 1 run to six decimals**, same embargo count, same best epoch.
+
+**0.8611 is dead. 0.8793 is the number.** Skill +0.2827 against climatology 1.2259.
+
+### The master plan's status table is not reliable for this machine
+
+Five "todo" rows were already done. Two files it calls missing exist
+(`tscast_stage1_7ch_metrics.json` dated Sep 1; `tscast_stage1_metrics.json` is in `artifacts/`,
+not `_stale_pre401e67b/`). `src/oceanembed/data/preprocess_satellite.py` also exists, which
+makes me doubt "A4 NOT STARTED" too — **check before you build.** Treat every "MISSING" claim in
+that document as unverified until you have run `ls` yourself.
+
+Also: this machine has an **RTX 3050 6GB, the full daily bundle and six checkpoints**. The plan
+assumes you hold the only GPU. You do not — send training work here if it helps. There is **no
+`.venv`**; use `C:/Users/Lenovo/AppData/Local/Programs/Python/Python312/python`.
+
+### D2 — INCOIS LAS: right product, dead data layer
+
+Full writeup in `docs/INCOIS_PROBE.md`. Section 8 of the plan feared a wrong-product problem.
+It is not. The catalogue answers in 0.19 s and the first category is `ARGO DATA PRODUCTS`, with
+both gridded products the PS names — 1 deg, 10-day, to 30-Jul-2026, **temperature AND salinity**.
+**14 of our 15 `config.DEPTHS` are exact INCOIS levels** (only 0 m absent), and ~98% of REGION is
+covered. So no vertical interpolation would be needed.
+
+But every retrieval route dies in Ferret: `dodsC` hangs at zero bytes (240 s), the `ftds_url`
+their own catalogue advertises 404s, and `ProductServer.do` accepts a valid extract request then
+returns "An error occurred in the service that was creating your product".
+
+**Req 16 is an outage, not a dead end.** Re-probe before the freeze:
+`python scripts/phase2/probe_incois_las.py` (exit 1 while down; asserts the 24 depth levels have
+not silently changed). **Relevant to you:** A8 proceeds on argopy with the deviation documented.
+When it comes back, aggregate our 0.25 deg to their 1 deg — never interpolate their analysis up —
+and average our daily output into their 10-day windows before computing any RMSE.
+
+### D3 — Argo T+S is fetched, but you must re-fetch it yourself
+
+`artifacts/argo_daily_period_ts.parquet`, 59,067 rows / 4,334 profiles, **100% salinity**.
+`train_stage2.py:258` picks it up automatically and drops its "salinity scored against held-out
+GLORYS only" warning. **It is gitignored — re-run `scripts/phase2/fetch_argo_ts_daily_period.py`,
+do not ask me to send it.**
+
+While doing that I chased an alarming diagnostic (`60717 rows of 59599`). It is **one float**:
+40 profiles, Arabian Sea, drift ~0.30 deg per cycle, time gaps median 9.79 d — every profile of
+it delivered twice by Ifremer ERDDAP. Byte-identical in temp and psal. **No published number
+moves**, because `pivot_profiles` aggregates with `aggfunc="mean"`. Proven by pivoting before and
+after: identical keys, shape (4334, 15), `array_equal(equal_nan=True)` True. Fixed in
+`download_argo._dedupe_rows` — exact duplicates only, and rows that share a key but *disagree*
+are kept and reported, never silently averaged. `argo_daily_period.parquet` is left frozen with
+its 1118 rows on purpose; it underwrites 0.8793 and the pivot already handles it.
+
+### D4 — finished
+
+`basins.BOUNDS` now carries the limits as numbers on every record (`basin_bounds`), not just a
+prose string naming the module. `app/phase2/physics_page.py:37-38` still holds the old boxes and
+that is deliberate — they underwrite a published seasonal magnitude, so they are annotated as
+legacy and frozen to that claim rather than swapped. **Do not add a third definition; import
+`phase2.basins`.**
+
+### Also
+
+`test_lightgbm_stays_refused_even_when_the_row_counts_match` was failing — the failure the
+previous HANDOFF entry logged as "pre-existing, unchanged". Its precondition demanded the row
+counts DIFFER, and `b83a571` made them agree (323028 == 323028), so it died on scaffolding
+before reaching its real assertion. Fixed in `8706472`.
+
+**Suite: 478 passed, 2 skipped, 0 failed.**
+
+**Next from me:** nothing — D1-D4 and D6 are done. **D5 is mine and it waits on your A9**: send me
+the matched sat-vs-GLORYS result and I will review it, including how to frame geostrophic
+`ugos`/`vgos` against full `uo`/`vo` to a jury.

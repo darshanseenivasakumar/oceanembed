@@ -43,21 +43,27 @@ from phase2.tscast_nio import ui_tables as T  # noqa: E402
 
 st.set_page_config(page_title="OceanEmbed — TS-Cast-NIO v2", layout="wide")
 
-def _newest_metrics() -> str:
-    """Prefer a stage-2 artifact when one exists, else the stage-1 one.
+# The metrics file and the checkpoint must come from the SAME run. Showing stage-2 numbers above a
+# Profile tab that reconstructs from the stage-1 checkpoint is precisely the CACHED-vs-LIVE lie
+# this page exists to prevent, and nothing in the UI would look wrong while it happened.
+_RUNS = (("tscast_stage2_s2_metrics.json", "tscast_stage2_s2.pt"),
+         ("tscast_stage1_metrics.json", "tscast_stage1.pt"))
 
-    Named explicitly rather than globbed: a page that silently picks up whatever file appears in
-    artifacts/ would render an ablation run as if it were the shipped model.
+
+def _newest_run() -> tuple[str, str]:
+    """The newest run for which BOTH the metrics and its checkpoint are present.
+
+    Named explicitly rather than globbed: a page that picked up whatever appeared in artifacts/
+    would render an ablation run as if it were the shipped model.
     """
-    for name in ("tscast_stage2_s2_metrics.json", "tscast_stage1_metrics.json"):
-        p = config.art(name)
-        if os.path.exists(p):
-            return p
-    return config.art("tscast_stage1_metrics.json")
+    for mname, cname in _RUNS:
+        mp, cp = config.art(mname), config.art(cname)
+        if os.path.exists(mp) and os.path.exists(cp):
+            return mp, cp
+    return config.art("tscast_stage1_metrics.json"), config.art("tscast_stage1.pt")
 
 
-METRICS = _newest_metrics()
-CKPT = config.art("tscast_stage1.pt")
+METRICS, CHECKPOINT = _newest_run()
 GLORYS_VS_ARGO = config.art("glorys_vs_argo.json")
 TSEQ = config.art("tseq_ablation.json")
 MC_CAL = config.art("mc_calibration.json")
@@ -89,10 +95,11 @@ def load_json(path: str) -> dict | None:
 
 @st.cache_resource(show_spinner="loading the checkpoint…")
 def load_predictor():
-    """The real model. Never a stub -- an untrained network would render as a confident profile."""
+    """The real model, and the SAME run the metrics above came from. Never a stub -- an untrained
+    network would render as a perfectly confident profile."""
     from phase2.tscast_nio.inference import TSCastPredictor
 
-    return TSCastPredictor()
+    return TSCastPredictor(checkpoint=CHECKPOINT)
 
 
 def _clean(text: str) -> str:
@@ -120,7 +127,9 @@ def provenance_banner(m: dict | None) -> None:
         st.caption(f"trained on: {_clean(m.get('trained_on', 'UNRECORDED'))}")
     with right:
         st.caption(f"**CACHED** — read from `{os.path.basename(METRICS)}`, written by the training "
-                   f"run itself. Nothing on this tab is recomputed in the browser.")
+                   f"run itself. Nothing on this tab is recomputed in the browser. The Profile tab "
+                   f"is **LIVE** from `{os.path.basename(CHECKPOINT)}`, the checkpoint of that "
+                   f"same run.")
         st.caption(f"{n_ch} of 7 contract channels · {m.get('argo_profiles', '?')} independent "
                    f"Argo profiles · ±{m.get('max_days_offset', '?')} day collocation")
 

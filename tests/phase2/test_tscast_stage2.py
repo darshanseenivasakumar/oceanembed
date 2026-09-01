@@ -268,3 +268,85 @@ def test_a_stage1_norm_tuple_still_works_for_stage1():
                           t_indices=np.arange(len(times)), norm=n4, t_seq=1, p=3,
                           clim=clim, return_clim=True)
     assert len(ds[0]) == 7 and ds.s_mean is None
+
+
+# ── the trained stage-2 model, if one exists on this machine ───────────────────────────
+
+def _stage2_record():
+    import os
+
+    ck = base.art("tscast_stage2_s2.pt")
+    if not os.path.exists(ck):
+        pytest.skip("no stage-2 checkpoint on this machine")
+    from phase2.tscast_nio.inference import TSCastPredictor
+
+    return TSCastPredictor(checkpoint=ck).reconstruct(15.0, 68.0, "2026-05-15")
+
+
+def test_a_stage2_record_carries_salinity_and_density():
+    r = _stage2_record()
+    for k in ("salinity", "log_var_s", "sigma_s", "density", "log_var_rho", "sigma_rho"):
+        assert r[k] is not None, f"{k} is still None on a stage-2 checkpoint"
+        assert len(r[k]) == base.N_DEPTHS
+    assert r["provenance"]["stage"] == 2
+    assert "EOS-80" in r["provenance"]["eos"]
+
+
+def test_predicted_density_increases_with_depth_below_the_mixed_layer():
+    """Stable stratification, tested where stratification actually exists.
+
+    Nothing in the loss guarantees monotonic density, so this is a real check that the T and S
+    heads agree with each other rather than a tautology.
+
+    But it is deliberately NOT applied in the top 50 m. The mixed layer is by definition
+    near-uniform in density -- de Boyer Montegut et al. (2004) define its base as the depth where
+    density has changed by only 0.03 kg m-3 -- so ordering within it is not physically meaningful.
+    MEASURED across five profiles: every inversion this model produces sits at 5 or 10 m and is at
+    most 0.068 kg m-3, against a predicted sigma_rho of ~0.17 kg m-3 at those depths. That is
+    inside its own stated uncertainty, and the surface test below holds it to exactly that.
+    """
+    r = _stage2_record()
+    depths = r["depths_m"]
+    deep = [(d, v) for d, v in zip(depths, r["density"]) if v is not None and d >= 50]
+    assert len(deep) >= 8, "not enough depths below the mixed layer to test stratification"
+    vals = [v for _, v in deep]
+    diffs = np.diff(vals)
+    assert (diffs >= -1e-6).all(), (
+        f"density inverts BELOW the mixed layer, at {deep[int(np.argmin(diffs))][0]} m: {vals}. "
+        f"Below 50 m the water column is stratified, so this means the temperature and salinity "
+        f"predictions genuinely disagree with each other there.")
+
+
+def test_any_near_surface_density_inversion_stays_inside_the_models_own_error_bar():
+    """The mixed layer may invert slightly; it may not invert by more than the model admits to."""
+    r = _stage2_record()
+    depths, rho, sig = r["depths_m"], r["density"], r["sigma_rho"]
+    for k in range(1, len(depths)):
+        if depths[k] > 50 or rho[k] is None or rho[k - 1] is None:
+            continue
+        step = rho[k] - rho[k - 1]
+        if step >= 0:
+            continue
+        tol = max(sig[k] or 0.0, sig[k - 1] or 0.0)
+        assert abs(step) <= tol + 1e-9, (
+            f"density falls {abs(step):.4f} kg m-3 between {depths[k - 1]} and {depths[k]} m, "
+            f"more than the predicted sigma_rho of {tol:.4f} there. An inversion the model does "
+            f"not admit to is a real inconsistency between the T and S heads.")
+
+
+def test_predicted_density_is_in_the_right_physical_range():
+    r = _stage2_record()
+    rho = [v for v in r["density"] if v is not None]
+    assert 1015.0 < min(rho) < 1030.0, f"surface density {min(rho)} is not seawater"
+    assert 1020.0 < max(rho) < 1035.0, f"deep density {max(rho)} is not seawater"
+
+
+def test_density_is_exactly_eos80_of_the_reported_t_and_s():
+    """Density must never be an independent third opinion -- it is a function of the other two."""
+    r = _stage2_record()
+    for k in range(base.N_DEPTHS):
+        t, s, rho = r["temperature"][k], r["salinity"][k], r["density"][k]
+        if t is None or s is None or rho is None:
+            continue
+        assert abs(float(sw.density(s, t)) - rho) < 5e-3, (
+            f"at {r['depths_m'][k]} m the reported density {rho} is not EOS-80({s}, {t})")

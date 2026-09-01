@@ -1261,3 +1261,48 @@ then `git add -f src/oceanembed/data/` and commit. One line.
   top of a reversed wind result, so run it against the 5ch leg, not the 7ch one. Then per-depth
   sigma recalibration.
 - BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — train_stage2.py: the stale literal that travelled forward
+
+- CONTEXT: flagged at the end of the Phase-1 provenance audit and fixed as a separate code-only
+  change, after the documentation pass was committed.
+- THE BUG [VERIFIED]: `train_stage2.py` carried `"stage1_rmse": 0.8612` and
+  `"stage1_skill_rmse_ratio": 0.2975` as **float literals** inside the `compare_against` block it
+  writes into every stage-2 metrics artifact. The leakage embargo (`a5cdd3a`) retrained stage 1 to
+  0.8793 / +0.2827; the literals did not move. So every stage-2 run after 08-31 stamped a
+  SUPERSEDED number into a FRESH artifact under the name of a current one. Nothing errored — the
+  artifact looked authoritative, which is what made it worth fixing rather than noting.
+- THE TELL: the block's own `which` field already read
+  `"stage-1 7-channel run, artifacts/tscast_stage1_7ch_metrics.json"`. It named the file the
+  numbers should have come from and then hardcoded them anyway.
+- FIX: new `_stage1_comparison(tag="7ch")` reads `metrics.overall` out of that artifact at runtime
+  and returns rmse, skill_rmse_ratio and n. Verified live: it now returns **0.8793149 / +0.2827011
+  / n=12,829**, matching the artifact to 1e-12. It takes a `tag`, so a future run can score against
+  the 5ch matched control — which post-embargo is the better leg.
+- REFUSES RATHER THAN INVENTS: if the stage-1 artifact is absent the block returns `None` for all
+  three values plus a stated reason, instead of falling back to a remembered number. That path was
+  executed, not assumed.
+- DOCSTRING CORRECTED, HISTORY KEPT: the module header said stage 1 "produced the shipped result
+  (0.8612 degC)". It now says that figure is pre-embargo and superseded by 0.8793, and points at
+  `EXPERIMENT_LOG :: v2-embargoed`. The number itself is left in the prose — it is the historical
+  record, and only its status was wrong.
+- WHAT WORKS (new, [VERIFIED by execution]):
+  - `tests/phase2/test_stage2_comparison.py` — 4 tests. The load-bearing one greps the source for
+    `"stage1_*": <number>` and fails if a scored value is ever assigned as a literal again.
+    **Proven to fail**: the literal was temporarily reintroduced, the test failed at line 35, the
+    file was restored and it passed. A regression test never seen failing is not a regression test.
+- FILES MODIFIED: `src/phase2/tscast_nio/train/train_stage2.py` (docstring + new helper + one call
+  site), `tests/phase2/test_stage2_comparison.py` (new, 4 tests), `docs/HANDOFF.md`.
+- TESTS RUN: full suite **442 passed, 1 failed, 2 skipped** before adding the new file; stage-2
+  suite 30 passed after. The single failure is the pre-existing
+  `test_lightgbm_stays_refused_even_when_the_row_counts_match` in Unit A's F8 — unchanged, not mine.
+- KNOWN ISSUES:
+  - Three docstrings still mention 0.8612 as prose (`tscast.py`, `fetch_argo_ts_daily_period.py`,
+    `test_tscast_stage2.py`). They are descriptive, not values written into artifacts, so they were
+    left. Worth a sweep if anyone is in those files anyway.
+  - Existing stage-2 artifacts on disk (`tscast_stage2_s2*_metrics.json`) still carry the old
+    hardcoded pair in their `compare_against` block. They are NOT rewritten — an artifact records
+    what the run produced. Any stage-2 rerun will now write the correct value.
+- NEXT TASK (B): basin masks + per-basin metrics, then depth diagnostics.
+- NEXT TASK (A): currents ablation, 5ch vs matched 3ch.
+- BLOCKERS: none.

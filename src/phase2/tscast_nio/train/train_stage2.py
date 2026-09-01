@@ -1,8 +1,11 @@
 """Train TS-Cast-NIO stage 2: temperature AND salinity, with the paper's eq. 5 density constraint.
 
 WHAT STAGE 2 ADDS, AND WHY IT IS A SEPARATE FILE
-Stage 1 produced the shipped result (0.8612 degC, 7 channels, 962 independent Argo profiles). That
-number has to stay reproducible, so `train_stage1.py` is imported here and not edited: the loss,
+Stage 1 produced the result that was shipped at the time (0.8612 degC, 7 channels, 962
+independent Argo profiles). That figure is PRE-EMBARGO and has since been superseded: the leakage
+embargo (a5cdd3a) retrained the same leg to 0.8793 degC -- see `docs/EXPERIMENT_LOG.md ::
+v2-embargoed`. Whatever the current number is, it has to stay reproducible, so `train_stage1.py`
+is imported here and not edited: the loss,
 the calibration measurement and the best-epoch rule are the SAME functions, not copies that could
 drift from the ones that produced the published number.
 
@@ -55,6 +58,39 @@ from phase2.tscast_nio.train.train_stage1 import MAX_DAYS, calibration
 def salinity_calibration(pred, sigma, truth):
     """Per-depth RMSE / RMS(sigma) for salinity, aggregated exactly as `calibration` does for T."""
     return calibration(pred, sigma, truth)
+
+
+def _stage1_comparison(tag: str = "7ch") -> dict:
+    """Read stage 1's scored numbers OUT of its metrics artifact. Never hardcode them here.
+
+    These were two float literals (0.8612 and 0.2975) until 2026-09-01, and they went stale in
+    exactly the way literals do. The leakage embargo (a5cdd3a) retrained stage 1 to 0.8793 /
+    +0.2827, and this file went on stamping the OLD pair into every stage-2 artifact it wrote --
+    a superseded number travelling forward into new results under the name of a current one.
+
+    The `which` field always named the file the numbers should have come from. Now it reads it.
+    If that file is absent no comparison is recorded: a missing number is reported as missing,
+    never filled in from memory.
+    """
+    path = base.art(f"tscast_stage1_{tag}_metrics.json")
+    block = {
+        "which": f"stage-1 {tag} run, artifacts/tscast_stage1_{tag}_metrics.json",
+        "read_at_runtime": True,
+        "caveat": ("same bundle, same split, same T_SEQ and same seed, so the temperature "
+                   "delta is attributable to stage 2's extra heads and the eq. 5 term -- "
+                   "NOT to a different test set."),
+    }
+    if not os.path.exists(path):
+        block.update(stage1_rmse=None, stage1_skill_rmse_ratio=None, stage1_n=None,
+                     note=("stage-1 metrics artifact absent, so no comparison is recorded. "
+                           "A number is not invented to fill the gap."))
+        return block
+    with open(path, encoding="utf-8") as f:
+        overall = json.load(f).get("metrics", {}).get("overall", {})
+    block.update(stage1_rmse=overall.get("rmse"),
+                 stage1_skill_rmse_ratio=overall.get("skill_rmse_ratio"),
+                 stage1_n=overall.get("n"))
+    return block
 
 
 def main() -> None:
@@ -378,14 +414,7 @@ def main() -> None:
         "calibration": cal_t,
         "calibration_salinity": cal_s,
         "density": rho_stats,
-        "compare_against": {
-            "stage1_rmse": 0.8612,
-            "stage1_skill_rmse_ratio": 0.2975,
-            "which": "stage-1 7-channel run, artifacts/tscast_stage1_7ch_metrics.json",
-            "caveat": ("same bundle, same split, same T_SEQ and same seed, so the temperature "
-                       "delta is attributable to stage 2's extra heads and the eq. 5 term -- "
-                       "NOT to a different test set."),
-        },
+        "compare_against": _stage1_comparison(),
         "checkpoint": os.path.basename(ck),
     }
     mp = base.art(f"tscast_stage2{suffix}_metrics.json")

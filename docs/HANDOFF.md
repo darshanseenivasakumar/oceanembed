@@ -1380,3 +1380,58 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - NEXT TASK (B): depth diagnostics (pred-vs-Argo profile, error-vs-depth, uncertainty-vs-depth),
   per basin, using these outputs.
 - BLOCKERS: none.
+
+---
+
+## 2026-09-02 — D2, D3, D4 (Darshan's machine)
+
+**D1 first: the branch was never pushed.** `fix/provenance-audit` had seven commits with no
+upstream, and `origin/phase2-tscast-nio` was still at `950ec6d`. So A1 (leakage fix), A3
+(superseded numbers), A12 (per-basin metrics), D4 (basins.py) and D6 (provenance) were all
+invisible to Arjhun and scheduled to be redone. Pushed; `phase2-tscast-nio` fast-forwarded.
+**Treat every "MISSING"/"does not exist" claim in the master plan as unverified** — several were
+already false on this disk.
+
+**A1 acceptance — PASSES, and reproduced.** Pre-fix `dataset.py` makes 7 of the 18 embargo tests
+fail; post-fix all 18 pass. The 5 crossings are pinned twice: `{25,26,27,28,29}` on a 30-day
+scale model, and 304 -> 299 kept targets on the real 388-day calendar. Retrained from scratch as
+`7ch_repro`: **rmse 0.879315, identical to the Sep 1 run to six decimals**, same embargo count,
+same best epoch. 0.8611 was leaky; 0.8793 is the honest number.
+
+**D2 — INCOIS LAS: right product, dead data layer.** Full writeup in `docs/INCOIS_PROBE.md`.
+The catalogue is healthy (0.19 s) and carries exactly what the PS names: both gridded Argo
+products, 1 deg, 10-day, to 30-Jul-2026, **temperature and salinity**. 14 of our 15
+`config.DEPTHS` are exact INCOIS levels (only 0 m absent), and ~98% of our region is covered.
+But every retrieval route dies in Ferret: `dodsC` hangs at zero bytes (240 s), the advertised
+`ftds_url` 404s, and `ProductServer.do` returns "An error occurred in the service that was
+creating your product". **This is an outage, not the wrong-product problem the plan feared** —
+re-probe before the freeze with `scripts/phase2/probe_incois_las.py` (exits non-zero while down,
+and asserts the 24 depth levels have not silently changed). A8 proceeds on argopy meanwhile.
+
+**D3 — Argo T+S fetched.** `artifacts/argo_daily_period_ts.parquet`, 59,626 rows / ~4,334
+profiles in 2025-06-01..2026-06-23, **100% salinity coverage**. Both guarded tables untouched,
+and temperature is identical to the stage-1 table where they overlap (max |diff| 0.000000), so
+stage-2 salinity sits on the same profiles as the stage-1 headline. `train_stage2.py:258` picks
+this file up automatically and drops its "salinity scored against held-out GLORYS only" warning.
+**Artifact is gitignored — it must be re-fetched on Arjhun's machine, not copied.**
+CAVEAT: the script's own overlap diagnostic printed `60717 rows of 59599` — an overlap larger
+than the table it merged into means the `(lat, lon, date, depth_idx)` key matches one-to-many,
+so there are duplicate rows on that key and the profile count may be inflated. The temperature
+check is unaffected. Worth resolving before any salinity number is quoted.
+
+**D4 — basin definition finished.** `21b5131` had already done the hard part. Two gaps closed:
+- The record carried only a prose string naming the module. Added public `basins.BOUNDS` (real
+  numbers, JSON-serializable) and put it on every record as `basin_bounds`.
+- `app/phase2/physics_page.py:37-38` still held rival boxes. **Not swapped to the canonical
+  masks** — they underwrite a published seasonal magnitude, and changing them silently would
+  move a number without re-deriving it. Annotated as legacy, frozen to that one claim.
+Two new tests: the record carries numbers, and each boundary is probed from both sides
+(including 25.2 N / 56.9 E staying Arabian Sea, the Hormuz case).
+
+**Also fixed:** `test_lightgbm_stays_refused_even_when_the_row_counts_match` was failing on this
+machine. Its precondition required the row counts to DIFFER; `b83a571` made them agree
+(323028 == 323028), so it died on scaffolding before reaching its real assertion, and the
+`matched` dict it built was dead code. Now asserts the refusal unconditionally. This is the
+failure the previous handoff entry recorded as "pre-existing F8 row-count test, unchanged".
+
+**BLOCKERS:** none. **NEXT:** A8 on argopy; D5 waits on Arjhun's A9.

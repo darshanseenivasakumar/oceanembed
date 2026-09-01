@@ -292,6 +292,7 @@ def per_depth_by_basin(pred, truth, lat, lon, clim=None, reference="argo", windo
         "profiles": counts,
         "basin_definition": ("phase2.basins, the canonical Arabian Sea / Bay of Bengal partition; "
                              "no new boxes were drawn here"),
+        "basin_bounds": basins.BOUNDS,
         "reconciliation_note": (
             "profiles.arabian_sea + bay_of_bengal + unassigned == profiles.total, and `overall` "
             "scores ALL profiles (assigned or not), so overall per-depth n equals the sum of the "

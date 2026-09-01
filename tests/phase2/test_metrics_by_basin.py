@@ -128,3 +128,43 @@ def test_on_the_real_argo_set_every_profile_lands_and_counts_reconcile():
         for d, rm in enumerate(r["by_basin"][name]["rmse"]):
             if r["by_basin"][name]["n"][d] > 0:
                 assert rm == pytest.approx(0.0, abs=1e-9), f"{name} depth {d}"
+
+
+# ------------------------------------------------------- bounds on the record
+
+def test_the_record_carries_the_bounds_as_numbers_not_only_prose():
+    """D4. `basin_definition` names the module, which is not enough: a reader of a metrics file a
+    year from now cannot recover WHICH partition a per-basin number was computed over from a
+    sentence. The actual limits must travel with the numbers they qualify."""
+    pred, truth, lat, lon, clim = _synthetic()
+    rec = metrics.per_depth_by_basin(pred, truth, lat, lon)
+    b = rec["basin_bounds"]
+    assert b[basins.ARABIAN_SEA]["lon_max"] == 78.0
+    assert b[basins.ARABIAN_SEA]["excludes_persian_gulf"] == {"lat_min": 23.5, "lon_max": 56.5}
+    assert b[basins.BAY_OF_BENGAL]["lon_min"] == 80.0
+    assert b[basins.BAY_OF_BENGAL]["lon_max"] == 100.0
+    assert basins.UNASSIGNED in b, "the record must say that unassigned water exists"
+
+
+def test_the_recorded_bounds_are_the_ones_actually_in_force():
+    """A declared limit that the classifier does not honour is worse than none -- it is a number
+    on the record that reads as verified. Probe each boundary from both sides."""
+    b = basins.BOUNDS
+    as_max = b[basins.ARABIAN_SEA]["lon_max"]
+    bob_min = b[basins.BAY_OF_BENGAL]["lon_min"]
+    bob_max = b[basins.BAY_OF_BENGAL]["lon_max"]
+    pg = b[basins.ARABIAN_SEA]["excludes_persian_gulf"]
+
+    at = lambda la, lo: basins.classify_points([la], [lo])[0]  # noqa: E731
+
+    assert at(15.0, as_max - 0.5) == basins.ARABIAN_SEA
+    assert at(15.0, as_max + 0.5) != basins.ARABIAN_SEA      # the 78-80 E strip
+    assert at(15.0, bob_min + 0.5) == basins.BAY_OF_BENGAL
+    assert at(15.0, bob_min - 0.5) != basins.BAY_OF_BENGAL
+    assert at(8.0, bob_max - 0.5) == basins.BAY_OF_BENGAL
+    assert at(8.0, bob_max + 0.5) != basins.BAY_OF_BENGAL    # Malacca side
+
+    # Inside the declared Persian Gulf box -> not Arabian Sea. Outside it, past Hormuz, the
+    # Gulf of Oman IS Arabian Sea: that is why the limit is 56.5 and not 57.0.
+    assert at(pg["lat_min"] + 0.5, pg["lon_max"] - 0.5) != basins.ARABIAN_SEA
+    assert at(25.2, 56.9) == basins.ARABIAN_SEA

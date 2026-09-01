@@ -55,7 +55,7 @@ import numpy as np
 
 from oceanembed import config
 
-__all__ = ["ARABIAN_SEA", "BAY_OF_BENGAL", "UNASSIGNED", "NAMES",
+__all__ = ["ARABIAN_SEA", "BAY_OF_BENGAL", "UNASSIGNED", "NAMES", "BOUNDS",
            "grid_masks", "classify_points", "summary"]
 
 ARABIAN_SEA = "arabian_sea"
@@ -75,6 +75,28 @@ _BOB_LON_MAX = 100.0
 #: still excludes the Persian Gulf proper (319 ocean cells) and strands no float.
 _PG_LAT_MIN = 23.5
 _PG_LON_MAX = 56.5
+
+#: The same limits as machine-readable numbers, for the output record. `summary()` renders them
+#: as prose for a human report; a record needs the values themselves, or a reader a year from now
+#: cannot tell which partition a per-basin number was computed over. Both are built from the
+#: constants above, so they cannot drift apart.
+BOUNDS = {
+    ARABIAN_SEA: {
+        "rule": "ocean west of the meridian, minus the Persian Gulf",
+        "lon_max": _AS_LON_MAX,
+        "excludes_persian_gulf": {"lat_min": _PG_LAT_MIN, "lon_max": _PG_LON_MAX},
+    },
+    BAY_OF_BENGAL: {
+        "rule": "ocean between the meridians; includes the Andaman Sea, excludes Malacca "
+                "and the Gulf of Thailand",
+        "lon_min": _BOB_LON_MIN,
+        "lon_max": _BOB_LON_MAX,
+    },
+    UNASSIGNED: {
+        "rule": "ocean belonging clearly to neither: the 78-80 E strip south of Sri Lanka, "
+                "the Persian Gulf, and east of 100 E. Nothing is forced into a basin.",
+    },
+}
 
 
 def _grids() -> tuple[np.ndarray, np.ndarray]:

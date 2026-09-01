@@ -18,7 +18,7 @@ VERIFIED, NOT ASSUMED
 ---------------------
 Fifteen hand-entered coefficients are exactly how a plausible-but-wrong number enters a pipeline,
 which is the failure mode this project has hit four times. So the coefficients are checked against
-published values in `tests/phase2/test_seawater.py`, all agreeing to < 1e-3 kg m-3:
+published values in `tests/phase2/test_physics.py`, all agreeing to < 1e-3 kg m-3:
 
     rho(S=0,  t=5 )  =  999.96675
     rho(S=35, t=25)  = 1023.34300      <- the classic UNESCO check value
@@ -56,7 +56,7 @@ def _density_core(S, t):
     `density` (numpy, for analysis) and `density_torch` (autograd, for the eq. 5 loss) are the
     SAME fifteen coefficients rather than two transcriptions that could drift. A second hand-entry
     of these coefficients is exactly how a plausible-but-wrong number enters a pipeline, and
-    `test_seawater.py` pins the two backends to each other as well as to the published values.
+    `test_physics.py` pins the two backends to each other as well as to the published values.
     """
     # Pure-water density (Bigg 1967, as adopted by UNESCO 1983).
     rho_w = (999.842594

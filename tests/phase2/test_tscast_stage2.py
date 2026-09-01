@@ -82,8 +82,17 @@ def test_the_shipped_stage1_checkpoint_still_loads():
     ck = base.art("tscast_stage1.pt")
     if not os.path.exists(ck):
         pytest.skip("no stage-1 checkpoint on this machine")
-    saved = torch.load(ck, map_location="cpu", weights_only=False)["state_dict"]
-    m = TSCastNIO(saved and "cnn3d", 7, t_seq=1, p=vcfg.P, latent=128, decoder="simple", stage=1)
+    blob = torch.load(ck, map_location="cpu", weights_only=False)
+    saved = blob["state_dict"]
+
+    # Channel count and latent width come from the CHECKPOINT, not from a literal. Hardcoding 7
+    # made this fail on any 5-channel stage-1 run for a reason that has nothing to do with what
+    # the test is for -- and a backward-compatibility check that fails for the wrong reason gets
+    # deleted or skipped, which is how it stopped running in the first place.
+    c_in = len(blob["channels"])
+    latent = int(blob.get("latent", 128))
+    m = TSCastNIO("cnn3d", c_in, t_seq=1, p=int(blob.get("P", vcfg.P)), latent=latent,
+                  decoder="simple", stage=1)
     m.load_state_dict(saved)          # raises if stage 2 changed stage 1's parameter shapes
 
 
@@ -350,3 +359,185 @@ def test_density_is_exactly_eos80_of_the_reported_t_and_s():
             continue
         assert abs(float(sw.density(s, t)) - rho) < 5e-3, (
             f"at {r['depths_m'][k]} m the reported density {rho} is not EOS-80({s}, {t})")
+
+
+# ===================================================================================
+# eq. 5 tests that actually exercise eq. 5.
+#
+# The density tests above all pass logvar = zeros and beta = 0. At logvar=0,
+# 0.5*exp(-logvar) == 0.5 and 0.5*logvar == 0 -- so DELETING the 0.5*log(sigma^2) term,
+# DELETING the 1/(2 sigma^2) weighting, or breaking the beta path leaves every one of them
+# green. These use non-uniform nonzero logvar so each piece of the formula is load-bearing.
+# ===================================================================================
+
+def _eq5_reference(mu_t, mu_s, lv, y_t, y_s, mask, y_mean, y_std, s_mean, s_std, beta=0.0):
+    """Independent hand-written eq. 5, from the paper rather than from the implementation."""
+    from phase2.physics import seawater as sw
+    tp = mu_t.double() * y_std + y_mean
+    sp = np.clip((mu_s.double() * s_std + s_mean).numpy(), 1e-3, None)
+    tt = y_t.double() * y_std + y_mean
+    st = np.clip((y_s.double() * s_std + s_mean).numpy(), 1e-3, None)
+    rp = sw.density(sp, tp.numpy())
+    rt = sw.density(st, tt.numpy())
+    lvd = lv.double().numpy()
+    per = 0.5 * np.exp(-lvd) * (rt - rp) ** 2 + 0.5 * lvd
+    if beta:
+        per = per * (np.exp(lvd) ** beta)
+    m = mask.double().numpy()
+    return float((per * m).sum() / max(m.sum(), 1.0))
+
+
+@pytest.mark.parametrize("beta", [0.0, 0.5, 1.0])
+def test_density_nll_matches_a_hand_written_eq5_with_NONZERO_logvar(beta):
+    """Every term live: non-uniform logvar, a real residual, and each beta setting."""
+    torch.manual_seed(3)
+    n = vcfg.N_DEPTHS
+    # float64 throughout: the reference is computed in double, and comparing it against a float32
+    # forward pass leaves a 3e-5 relative gap that is precision, not a formula error. Matching the
+    # dtype makes the assertion about eq. 5 rather than about rounding.
+    mu_t = (torch.randn(4, n) * 0.3).double()
+    mu_s = (torch.randn(4, n) * 0.3).double()
+    y_t = mu_t + torch.randn(4, n).double() * 0.2   # nonzero residual, so the weighting matters
+    y_s = mu_s + torch.randn(4, n).double() * 0.2
+    lv = torch.linspace(-1.5, 1.5, n).repeat(4, 1).double()   # NON-UNIFORM and nonzero
+    mask = torch.ones(4, n, dtype=torch.bool)
+    y_mean, y_std, s_mean, s_std = 20.0, 5.0, 35.0, 1.5
+
+    got = float(density_nll(mu_t, mu_s, lv, y_t, y_s, mask,
+                              y_mean, y_std, s_mean, s_std, beta=beta))
+    want = _eq5_reference(mu_t, mu_s, lv, y_t, y_s, mask,
+                          y_mean, y_std, s_mean, s_std, beta=beta)
+    assert got == pytest.approx(want, rel=1e-9), f"beta={beta}: {got} vs {want}"
+
+
+def test_the_half_log_sigma_squared_term_is_actually_present():
+    """A perfect prediction should cost EXACTLY mean(0.5*logvar), not zero. The existing test
+    asserts |L| < 1e-6 at logvar=0, which a density_nll with the log term deleted also returns."""
+    n = vcfg.N_DEPTHS
+    mu_t = torch.randn(2, n) * 0.2
+    mu_s = torch.randn(2, n) * 0.2
+    lv = torch.full((2, n), 1.4)                  # sigma^2 = e^1.4, so the term is 0.7
+    mask = torch.ones(2, n, dtype=torch.bool)
+    L = float(density_nll(mu_t, mu_s, lv, mu_t, mu_s, mask, 20.0, 5.0, 35.0, 1.5))
+    assert L == pytest.approx(0.7, abs=1e-4), (
+        f"zero-residual loss is {L}, expected mean(0.5*logvar)=0.7. A missing log term gives 0.0.")
+
+
+def test_the_inverse_variance_weighting_is_actually_present():
+    """Doubling sigma^2 must QUARTER the squared-error contribution. Invisible at logvar=0."""
+    n = vcfg.N_DEPTHS
+    mu_t = torch.zeros(2, n)
+    mu_s = torch.zeros(2, n)
+    y_t = torch.full((2, n), 0.4)                 # a real residual
+    y_s = torch.zeros(2, n)
+    mask = torch.ones(2, n, dtype=torch.bool)
+    args = (20.0, 5.0, 35.0, 1.5)
+
+    lo = torch.zeros(2, n)
+    hi = torch.full((2, n), float(np.log(4.0)))   # sigma^2 x4
+    L_lo = float(density_nll(mu_t, mu_s, lo, y_t, y_s, mask, *args)) - 0.0
+    L_hi = float(density_nll(mu_t, mu_s, hi, y_t, y_s, mask, *args)) - 0.5 * float(np.log(4.0))
+    assert L_hi == pytest.approx(L_lo / 4.0, rel=1e-4), (
+        f"error term {L_hi} is not a quarter of {L_lo}; the 1/(2 sigma^2) weighting is missing")
+
+
+def test_the_beta_weight_equals_exp_logvar_to_the_beta():
+    """beta must multiply by a DETACHED sigma^(2 beta), not by anything else."""
+    n = vcfg.N_DEPTHS
+    mu_t = torch.randn(3, n) * 0.2
+    mu_s = torch.randn(3, n) * 0.2
+    y_t = mu_t + 0.3
+    y_s = mu_s + 0.1
+    mask = torch.ones(3, n, dtype=torch.bool)
+    args = (20.0, 5.0, 35.0, 1.5)
+    lv = torch.full((3, n), 0.8)                  # uniform, so the weight factors out exactly
+
+    base_L = float(density_nll(mu_t, mu_s, lv, y_t, y_s, mask, *args, beta=0.0))
+    for b in (0.5, 1.0):
+        got = float(density_nll(mu_t, mu_s, lv, y_t, y_s, mask, *args, beta=b))
+        assert got == pytest.approx(base_L * float(np.exp(0.8)) ** b, rel=1e-5), f"beta={b}"
+
+
+def test_sigma_rho_is_not_any_analytic_propagation_of_sigma_T_and_sigma_S():
+    """The existing test asserts only non-equality on a random init -- an analytic propagation
+    would also be unequal and pass. This pins the stronger property: sigma_rho responds to its
+    OWN slice of the head and is unmoved when only the T and S variance slices change."""
+    torch.manual_seed(11)
+    m = TSCastNIO("cnn3d", 5, t_seq=1, p=vcfg.P, latent=64, decoder="simple", stage=2).eval()
+    x = torch.randn(2, 5, 1, vcfg.P, vcfg.P)
+    g = torch.randn(2, 3, 1, vcfg.P, vcfg.P)
+    cp = torch.randn(2, 12, vcfg.N_DEPTHS)
+    mo = torch.randint(0, 12, (2,))
+
+    with torch.no_grad():
+        out = m(x, g, cp, mo)
+        lv_rho_before = out[4].clone()
+        # perturb ONLY the rows of the head that produce log_var_t and log_var_s
+        w = m.simple_head[-1].weight
+        n = vcfg.N_DEPTHS
+        w[2 * n:4 * n] += torch.randn_like(w[2 * n:4 * n])
+        lv_rho_after = m(x, g, cp, mo)[4]
+
+    assert torch.allclose(lv_rho_before, lv_rho_after, atol=1e-6), (
+        "log_var_rho moved when only the T/S variance rows changed -- it is not its own head")
+
+
+# ── ported from the deleted eos.py suite: end-member range, float32, clamp reporting ──
+
+def test_density_torch_matches_numpy_across_the_BASIN_END_MEMBERS():
+    """The shipped test pins S 30-38, T 2-32. This basin goes well outside that: the Ganges /
+    Meghna plume reaches 0.50 psu and the Persian Gulf 40.17 -- both MEASURED in the daily
+    bundle, not assumed. A polynomial agreeing on the open ocean and diverging in a river plume
+    would never be caught by a mid-range test."""
+    s = np.linspace(0.5, 40.2, 60)
+    t = np.linspace(1.0, 36.4, 60)
+    S, T_ = np.meshgrid(s, t)
+    ref = sw.density(S, T_)
+    got = sw.density_torch(torch.tensor(S), torch.tensor(T_)).numpy()
+    err = np.abs(got - ref).max()
+    assert err < 1e-9, f"backends diverge by {err:.3e} kg m-3 at the basin end members"
+
+
+def test_density_torch_in_float32_stays_inside_the_EOS80_fit_error():
+    """The model runs in float32, so eq. 5 computes density in float32. A constraint term only
+    means something if its own numerical error is small beside the physics it enforces: EOS-80's
+    published standard error is 3.6e-3 kg m-3 (UNESCO 1983)."""
+    s = np.linspace(0.5, 40.2, 40)
+    t = np.linspace(1.0, 36.4, 40)
+    S, T_ = np.meshgrid(s, t)
+    ref = sw.density(S, T_)
+    got32 = sw.density_torch(torch.tensor(S, dtype=torch.float32),
+                             torch.tensor(T_, dtype=torch.float32)).double().numpy()
+    err = np.abs(got32 - ref).max()
+    assert err < 3.6e-3, f"float32 error {err:.2e} exceeds EOS-80's own fit error"
+
+
+def test_negative_predicted_salinity_is_COUNTED_not_silently_clamped():
+    """The clamp is necessary (S**1.5 on a negative base is NaN) but not free: it zeroes the
+    gradient exactly, so L_rho cannot push a negative salinity back into range -- only L_S can.
+    A density term training against a pinned input is doing nothing, and the count is the only
+    way to see it."""
+    n = vcfg.N_DEPTHS
+    mask = torch.ones(2, n, dtype=torch.bool)
+    lv = torch.zeros(2, n)
+
+    ok = torch.zeros(2, n)                                   # s = s_mean = 35 psu, all fine
+    density_nll(torch.zeros(2, n), ok, lv, torch.zeros(2, n), ok, mask, 20.0, 5.0, 35.0, 1.5)
+    assert density_nll.last_n_clamped == 0
+
+    bad = torch.full((2, n), -40.0)                          # 35 + (-40 * 1.5) < 0 everywhere
+    density_nll(torch.zeros(2, n), bad, lv, torch.zeros(2, n), ok, mask, 20.0, 5.0, 35.0, 1.5)
+    assert density_nll.last_n_clamped == 2 * n, density_nll.last_n_clamped
+
+
+def test_the_clamp_really_does_kill_the_salinity_gradient():
+    """Pins the measured behaviour the counter exists to warn about."""
+    n = vcfg.N_DEPTHS
+    mask = torch.ones(1, n, dtype=torch.bool)
+    mu_t = torch.zeros(1, n, requires_grad=True)
+    mu_s = torch.full((1, n), -40.0, requires_grad=True)     # clamped everywhere
+    L = density_nll(mu_t, mu_s, torch.zeros(1, n), torch.zeros(1, n), torch.zeros(1, n),
+                    mask, 20.0, 5.0, 35.0, 1.5)
+    L.backward()
+    assert float(mu_s.grad.abs().sum()) == 0.0, "clamped salinity should carry no gradient"
+    assert float(mu_t.grad.abs().sum()) > 0.0, "temperature must still receive one"

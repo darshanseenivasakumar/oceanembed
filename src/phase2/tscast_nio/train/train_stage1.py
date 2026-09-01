@@ -72,6 +72,23 @@ def calibration(pred, sigma, truth):
     return out
 
 
+def _json_safe(o):
+    """Replace NaN/Inf with None so the output is valid JSON.
+
+    per_depth leaves skill fields NaN when no climatology is passed. Python emits those as a bare
+    `NaN` token: json.load accepts it, JSON.parse throws. Emitting null keeps "not measured"
+    distinguishable from zero on both sides.
+    """
+    import math
+    if isinstance(o, float):
+        return None if (math.isnan(o) or math.isinf(o)) else o
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs", type=int, default=20)
@@ -110,12 +127,24 @@ def main():
                     help="input window length. Only meaningful with --data daily; "
                          "the monthly archive has no daily neighbours.")
     ap.add_argument("--test-samples", type=int, default=12000)
+    ap.add_argument("--drop-channels", nargs="+", default=None,
+                    help="channel names to remove before training, e.g. --drop-channels u v for "
+                         "the currents ablation. Refuses on a name the bundle does not have, so a "
+                         "typo cannot produce a 'no effect' result from an ablation that never "
+                         "happened.")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="override config SEED. Phase 5 needs several, because an effect at "
+                         "+/-0.02 degC does not hold its sign across seeds -- wind's own result "
+                         "flipped from -0.0149 to +0.0111 under a retrain.")
     ap.add_argument("--beta", type=float, default=0.5,
                     help="beta-NLL (Seitzer 2022). 0 = the paper's plain eq. 3, which we MEASURED "
                          "collapsing variance instead of learning the mean; 1 = MSE gradient for "
                          "mu; 0.5 = recommended default.")
     a = ap.parse_args()
 
+    # One seed for EVERYTHING: sample draw, weight init, data order. A leg of an ablation
+    # that differed in any of these would not be a matched comparison.
+    seed = int(a.seed if a.seed is not None else base.SEED)
     enc, enc_why = (a.encoder, "chosen on the command line") if a.encoder else winning_encoder()
     dev = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
                        if a.device == "auto" else a.device)
@@ -146,6 +175,25 @@ def main():
     else:
         d = D.load_monthly()
         tr_t, te_t = D.split_indices(d["times"])
+    # Channel ablation. Dropped HERE, immediately after load, so the two legs of a comparison
+    # differ in exactly one thing: which columns of `surface` exist. Everything downstream --
+    # normalisation, sampling, split, seed, Argo set -- is computed from the same code on the same
+    # data afterwards, which is what makes the delta attributable to the channel rather than to
+    # some other difference that crept in.
+    if a.drop_channels:
+        have = [str(c) for c in d["channels"]]
+        unknown = [c for c in a.drop_channels if c not in have]
+        if unknown:
+            raise SystemExit(f"--drop-channels {unknown} not in the bundle, which has {have}. "
+                             "Refusing to silently drop nothing and report it as an ablation.")
+        keep = [i for i, c in enumerate(have) if c not in a.drop_channels]
+        if not keep:
+            raise SystemExit("--drop-channels would remove every channel")
+        d["surface"] = d["surface"][..., keep]
+        d["channels"] = [have[i] for i in keep]
+        print(f"ablation: dropped {list(a.drop_channels)} -> {len(keep)} channels "
+              f"{d['channels']}")
+
     t_seq = int(a.t_seq or 1)
     if a.data == "monthly" and t_seq != 1:
         raise SystemExit("--t-seq > 1 needs --data daily: the monthly archive has one sample per "
@@ -166,15 +214,15 @@ def main():
 
     ds_tr = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              tr_t, t_seq=t_seq,
-                             max_samples=a.train_samples, seed=base.SEED,
+                             max_samples=a.train_samples, seed=seed,
                              clim=clim, return_clim=True)
     ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              te_t, norm=ds_tr.norm, t_seq=t_seq,
                              max_samples=a.test_samples,
-                             seed=base.SEED + 1, clim=clim, return_clim=True)
+                             seed=seed + 1, clim=clim, return_clim=True)
     print(f"train {len(ds_tr):,} samples  |  held-out GLORYS {len(ds_te):,}")
 
-    torch.manual_seed(base.SEED)
+    torch.manual_seed(seed)
     latent = a.latent or config.LATENT_DIM
     widths = tuple(a.unet_width) if a.unet_width else tuple(config.UNET_CHANNELS)
     model = TSCastNIO(enc, len(d["channels"]), t_seq=1, p=config.P, latent=latent,
@@ -184,7 +232,7 @@ def main():
     n_dec = sum(q.numel() for q in model.parameters()) - n_enc
     print(f"params : {n_enc + n_dec:,} total  ({n_enc:,} encoder + {n_dec:,} decoder), "
           f"latent {latent}, decoder {a.decoder}, loss {a.loss}")
-    torch.manual_seed(base.SEED)                    # seed AFTER build: init consumes the RNG
+    torch.manual_seed(seed)                         # seed AFTER build: init consumes the RNG
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
     loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True,
                         num_workers=a.num_workers)
@@ -306,7 +354,7 @@ def main():
 
     suffix = f"_{a.tag}" if a.tag else ""
     ck = base.art(f"tscast_stage1{suffix}.pt")
-    torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": base.SEED,
+    torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": seed,
                 "residual": not a.no_residual, "channels": d["channels"],
                 "P": config.P, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
                 # Without these the predictor cannot rebuild the network it is loading: it guessed
@@ -337,9 +385,10 @@ def main():
         "channels_note": (f"{len(d['channels'])} of the contract's 7 channels"
                           + ("" if len(d["channels"]) == 7 else "; wind (wu, wv) is ABSENT -- every "
                              "number from this run must be quoted with that stated")),
-        "device": str(dev), "data": a.data, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
+        "device": str(dev), "data": a.data,
+        "dropped_channels": list(a.drop_channels) if a.drop_channels else [], "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
         "n_params_encoder": n_enc, "n_params_decoder": n_dec,
-        "seed": base.SEED, "epochs_requested": a.epochs, "epochs_run": len(curve),
+        "seed": seed, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
         "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta,
         "decoder": a.decoder, "loss": a.loss,
@@ -377,7 +426,10 @@ def main():
     }
     p = base.art(f"tscast_stage1{suffix}_metrics.json")
     with open(p, "w") as f:
-        json.dump(out, f, indent=1)
+        # allow_nan=False + a NaN->None pass: Python's json writes a bare `NaN` token,
+        # which json.load accepts and JSON.parse REJECTS. A metrics file the dashboard
+        # cannot read is a metrics file nobody checks the UI against.
+        json.dump(_json_safe(out), f, indent=1, allow_nan=False)
     print(f"\nwrote {ck}\nwrote {p}")
 
 

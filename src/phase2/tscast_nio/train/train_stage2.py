@@ -52,9 +52,67 @@ from phase2.physics import seawater
 from phase2.tscast_nio.train.train_stage1 import MAX_DAYS, calibration
 
 
+def _stage1_baseline(path: str) -> dict:
+    """READ the stage-1 baseline this run is compared against. Never hardcode it.
+
+    These numbers were Python literals -- 0.8612 and 0.2975 -- naming a metrics file that does not
+    exist on this disk. Two failures in one: every stage-2 artifact asserted a baseline it had
+    never opened, and re-running stage 1 would leave the literal in place while the reported delta
+    silently became wrong. A fabricated comparison is worse than a missing one, because it reads
+    as measured.
+
+    So: open the file, take the numbers, and record its hash and mtime so the pairing is provable
+    afterwards. If it is absent, FAIL -- a stage-2 result whose baseline cannot be produced is not
+    a comparison.
+    """
+    import hashlib
+
+    if not os.path.exists(path):
+        raise SystemExit(
+            f"stage-1 baseline {path} not found. Stage 2's headline is a DELTA against stage 1, "
+            f"so without it there is nothing to compare to. Run stage 1 with the matching "
+            f"--tag first, or pass --baseline-metrics pointing at the run you mean.")
+    with open(path, "rb") as f:
+        raw = f.read()
+    d = json.loads(raw)
+    o = d.get("metrics", {}).get("overall", {})
+    if "rmse" not in o:
+        raise SystemExit(f"{path} has no metrics.overall.rmse -- it is not a stage-1 metrics file.")
+    return {
+        "stage1_rmse": o["rmse"],
+        "stage1_skill_rmse_ratio": o.get("skill_rmse_ratio"),
+        "which": os.path.basename(path),
+        "read_at_runtime": True,
+        "source_sha256_16": hashlib.sha256(raw).hexdigest()[:16],
+        "source_mtime": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(path))),
+        "source_T_SEQ": d.get("T_SEQ"),
+        "source_channels": [str(c) for c in d.get("channels", [])],
+        "source_seed": d.get("seed"),
+        "caveat": ("comparable only if the bundle, split, T_SEQ and seed above match this run. "
+                   "They are recorded so that can be checked rather than assumed."),
+    }
+
+
 def salinity_calibration(pred, sigma, truth):
     """Per-depth RMSE / RMS(sigma) for salinity, aggregated exactly as `calibration` does for T."""
     return calibration(pred, sigma, truth)
+
+
+def _json_safe(o):
+    """Replace NaN/Inf with None so the output is valid JSON.
+
+    per_depth leaves skill fields NaN when no climatology is passed. Python emits those as a bare
+    `NaN` token: json.load accepts it, JSON.parse throws. Emitting null keeps "not measured"
+    distinguishable from zero on both sides.
+    """
+    import math
+    if isinstance(o, float):
+        return None if (math.isnan(o) or math.isinf(o)) else o
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
 
 
 def main() -> None:
@@ -82,6 +140,12 @@ def main() -> None:
     ap.add_argument("--daily-dir", default=None)
     ap.add_argument("--tag", default="s2",
                     help="filename suffix; writes tscast_stage2_<tag>.pt")
+    ap.add_argument("--baseline-metrics",
+                    default=base.art("tscast_stage1_7ch_metrics.json"),
+                    help="stage-1 metrics JSON this run is compared against. READ at runtime and "
+                         "hashed into the output -- the numbers used to be Python literals naming "
+                         "a file that did not exist, which made every stage-2 artifact assert a "
+                         "baseline it had never opened.")
     a = ap.parse_args()
 
     dev = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
@@ -216,9 +280,13 @@ def main() -> None:
         raise SystemExit(f"need {argo_path}; run scripts/phase2/fetch_argo_ts_daily_period.py")
     argo_df = pd.read_parquet(argo_path)
     if not has_argo_salinity:
-        print(f"\nWARNING: {os.path.basename(ts_path)} is absent, so salinity has NO independent "
-              f"check and will be scored against held-out GLORYS only -- the reanalysis it was "
-              f"trained on. Temperature is still independent. This is stated in the metrics file.")
+        print(f"\nWARNING: {os.path.basename(ts_path)} is absent, so salinity is NOT SCORED AT "
+              f"ALL.\n"
+              f"  metrics_salinity, calibration_salinity and density are ALL null in this run --\n"
+              f"  not 'scored against a weaker reference', simply absent. Nothing in it measures\n"
+              f"  eq. 5, which is the only reason stage 2 exists. Temperature remains independent.\n"
+              f"  Run scripts/phase2/fetch_argo_ts_daily_period.py before quoting any stage-2\n"
+              f"  salinity or density number.")
 
     keys, truth_t = VA.pivot_profiles(argo_df)
     truth_s = None
@@ -363,19 +431,15 @@ def main() -> None:
         "calibration": cal_t,
         "calibration_salinity": cal_s,
         "density": rho_stats,
-        "compare_against": {
-            "stage1_rmse": 0.8612,
-            "stage1_skill_rmse_ratio": 0.2975,
-            "which": "stage-1 7-channel run, artifacts/tscast_stage1_7ch_metrics.json",
-            "caveat": ("same bundle, same split, same T_SEQ and same seed, so the temperature "
-                       "delta is attributable to stage 2's extra heads and the eq. 5 term -- "
-                       "NOT to a different test set."),
-        },
+        "compare_against": _stage1_baseline(a.baseline_metrics),
         "checkpoint": os.path.basename(ck),
     }
     mp = base.art(f"tscast_stage2{suffix}_metrics.json")
     with open(mp, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=1)
+        # allow_nan=False + a NaN->None pass: Python's json writes a bare `NaN` token,
+        # which json.load accepts and JSON.parse REJECTS. A metrics file the dashboard
+        # cannot read is a metrics file nobody checks the UI against.
+        json.dump(_json_safe(out), f, indent=1, allow_nan=False)
     print(f"\nwrote {ck}\nwrote {mp}")
 
 

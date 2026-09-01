@@ -47,7 +47,12 @@ import torch.nn.functional as F
 from phase2.physics import seawater
 from phase2.tscast_nio import config, encoders as E
 
-LOGVAR_MIN, LOGVAR_MAX = -7.0, 7.0     # sigma in roughly [0.03, 33] degC after unscaling
+# Applied to log_var_t, log_var_s AND log_var_rho. The first two are in Z-SPACE (so the
+# physical sigma depends on y_std / s_std), but log_var_rho is in PHYSICAL kg m-3 because
+# eq. 5 is evaluated on unscaled density. Same bounds, different units: sigma_rho is pinned
+# to roughly [0.030, 33.1] kg m-3, which is plausible for this basin but is a different
+# quantity from the degC the T head ends up in.
+LOGVAR_MIN, LOGVAR_MAX = -7.0, 7.0
 
 
 def depth_interp_matrix(src_depths, dst_depths) -> np.ndarray:
@@ -339,9 +344,20 @@ def density_nll(mu_t, mu_s, logvar_rho, y_t, y_s, mask,
     the deviation is deliberate and is recorded rather than silently adopted.
     """
     t_pred = mu_t * y_std + y_mean
-    s_pred = (mu_s * s_std + s_mean).clamp(min=S_FLOOR)
+    s_pred_raw = mu_s * s_std + s_mean
+    s_pred = s_pred_raw.clamp(min=S_FLOOR)
     t_true = y_t * y_std + y_mean
     s_true = (y_s * s_std + s_mean).clamp(min=S_FLOOR)
+
+    # How many predicted salinities were unphysical. The clamp is necessary -- S**1.5 on a
+    # negative base is NaN and would kill the run -- but it is NOT free, and the counter is here
+    # so a run leaning on it is visible rather than silent.
+    #
+    # MEASURED: the clamp zeroes the gradient EXACTLY (grad through mu_s 0.0 vs mu_t 32.87 on a
+    # clamped batch). So L_rho cannot push a negative salinity back into range; only L_S can.
+    # A density term that appears to be training while its salinity input is pinned at the floor
+    # is doing nothing, and this number is the only way to notice.
+    density_nll.last_n_clamped = int((s_pred_raw < S_FLOOR).sum())
 
     rho_pred = seawater.density_torch(s_pred, t_pred)
     rho_true = seawater.density_torch(s_true, t_true)

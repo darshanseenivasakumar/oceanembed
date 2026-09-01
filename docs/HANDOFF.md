@@ -1306,3 +1306,44 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - NEXT TASK (B): basin masks + per-basin metrics, then depth diagnostics.
 - NEXT TASK (A): currents ablation, 5ch vs matched 3ch.
 - BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — basins.py: the canonical Arabian Sea / Bay of Bengal partition
+
+- CONTEXT: sprint task "basin masks". `AGENT_SYNC` (F5 barrier-layer check) had the two units
+  quoting BoB-vs-Arabian numbers from DIFFERENT boxes — 9.5/7.1 m vs 8.3/4.6 m — and Arjhun's own
+  note asked to "pin the boxes in config/ ... otherwise we will quote two different figures for the
+  same thing". This is that pin.
+- WHAT WAS BUILT: `src/phase2/basins.py` — `grid_masks()` (three boolean masks on the frozen
+  100×240 grid), `classify_points(lat, lon)` (labels Argo floats), `summary()` (cell counts +
+  bounds text). Existing boxes were NOT reused: the F5 boxes are small open-ocean SAMPLING boxes
+  (islands in the domain), and reporting skill by basin needs a PARTITION of it.
+- THE DEFINITION [all boundaries verified on the real land mask, True=land confirmed at 21N/78E]:
+  - Arabian Sea = ocean, lon <= 78.0E, minus the Persian Gulf. 6,877 cells.
+  - Bay of Bengal = ocean, 80.0E <= lon <= 100.0E (includes the Andaman Sea; the 100E cap excludes
+    Malacca + Gulf of Thailand, which drain to the Pacific — 439 cells a naive rule would grab).
+    4,068 cells.
+  - Unassigned = 887 cells: the 78–80E strip south of Sri Lanka, the Persian Gulf, and east of
+    100E. Nothing is forced into a basin; leftovers are reported, not hidden.
+  - North of ~8N the SUBCONTINENT separates the basins, so the land mask does the work and the
+    meridians only matter south of India.
+- REAL DATA CAUGHT A BUG, AS DESIGNED: the Persian Gulf box first used lon<=57.0E, which reached
+  past the Strait of Hormuz into the GULF OF OMAN and stranded four Argo profiles at 25.2N/56.9E as
+  `unassigned`. Tightened to the strait at 56.5E — still excludes the Persian Gulf proper (319
+  cells), strands no float. Locked by a regression test.
+- VALIDATED, not just tested:
+  - Partition is exact: zero pairwise overlap, the three masks reproduce the ocean (11,832 cells)
+    exactly once.
+  - All 4,331 Argo profiles in argo_daily_period.parquet classify (2,934 Arabian / 1,397 BoB /
+    0 unassigned).
+  - SCIENTIFIC check on the real bundle: Arabian Sea surface salinity **35.73 psu** vs Bay of
+    Bengal **31.95 psu**, a 3.78 psu freshening — the physical fact that distinguishes the basins.
+    A swapped-mask definition would fail this.
+- FILES: `src/phase2/basins.py` (new), `tests/phase2/test_basins.py` (new, 16 tests).
+- TESTS RUN: full suite **462 passed, 1 failed, 2 skipped**. The failure is the pre-existing F8
+  row-count test (Unit A), unchanged. The 1 basin skip is the salinity check on a fresh clone
+  without the data bundle; it PASSES here on the real bundle.
+- FOR ARJHUN: when you slice the currents ablation by basin, import `phase2.basins` — do not
+  re-cut boxes. `classify_points()` takes the Argo lat/lon straight from `pivot_profiles`.
+- NEXT TASK (B): wire these masks into `validation.metrics` so any run reports per-basin per-depth
+  RMSE, then the depth diagnostics.
+- BLOCKERS: none.

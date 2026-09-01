@@ -15,6 +15,9 @@
 !/artifacts/sample_y.npy
 !/artifacts/sample_meta.parquet
 !/artifacts/sample_meta.csv
+# The frozen headline's byte identity + the numbers each shipped claim rests on. Tiny, and it is
+# the only thing that lets another machine prove its checkpoints are the ones that were scored.
+!/artifacts/frozen_manifest.json
 *.pt
 *.pkl
 *.ckpt

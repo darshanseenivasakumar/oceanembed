@@ -20,6 +20,64 @@
 > Ordering note: the 2026-08-25 Phase-1 block further down runs oldest-first, against this file's
 > own "newest on top" header. Left as found — reordering another unit's rows is not a backfill.
 
+## v2-embargoed  2026-09-01  — the post-embargo re-score, and the wind result reverses
+
+> **This entry supersedes the wind conclusion in `v2-final` below. No row below is edited or
+> deleted** — this file is append-only, and a superseded result is evidence, not clutter. Read
+> `v2-final` as the pre-embargo record it is.
+
+**What happened.** Commit `a5cdd3a` embargoed the training targets whose `T_SEQ=11` window reached
+into the test block — a real leakage fix. The stage-1 legs were then retrained on 2026-08-31
+(`retrain_v2.log`), writing `artifacts/tscast_stage1_{7ch,5ch}.pt`. Those runs were never logged
+here, so this file still carried the pre-embargo numbers while the artifacts on disk carried
+different ones. Found during the Phase-1 provenance audit.
+
+model: TSCastNIO — cnn3d encoder + simple decoder + β-NLL(β=0.5), residual, latent 128, P=17
+dataset: daily bundle, 388 days | 7ch `[sst,sss,ssh,u,v,wu,wv]` vs 5ch `[sst,sss,ssh,u,v]`
+split: train 2025-06-01..2026-03-26 / held-out GLORYS 2026-04-01..2026-06-23
+seed: 42 | T_SEQ=11, 25 epochs max, patience 5, 60,000 train / 12,000 held-out, adamw lr 1e-3,
+        batch 256 | hardware: CUDA | protocol: `embargoed_v2`, 5 of 304 targets dropped in BOTH legs
+scored on: **962 INDEPENDENT Argo profiles**, ±5 day collocation, 12,829 depth comparisons
+git-commit: `a5cdd3a` | checkpoints: `artifacts/tscast_stage1_{7ch,5ch}.pt`
+        (byte identity stamped in `artifacts/frozen_manifest.json`)
+
+| | **7 ch (wind ON)** | 5 ch (matched control) | delta |
+|---|---|---|---|
+| Argo RMSE °C | 0.8793 | **0.8682** | **+0.0111 (worse with wind)** |
+| bias °C | **+0.1296** | +0.1518 | **−0.0222 (better with wind)** |
+| correlation (mean per depth) | 0.8942 | 0.8971 | −0.0029 |
+| skill 1−RMSE/RMSEclim | +0.2827 | **+0.2918** | −0.0091 |
+| climatology RMSE °C | 1.2259 | 1.2259 | 0.0000 |
+| n (depth comparisons) | 12,829 | 12,829 | — |
+
+**The legs are MATCHED.** Identical seed, T_SEQ, sample counts, epochs, patience, decoder, loss,
+encoder, embargo and Argo set; the only difference is whether channels 6–7 exist. `rmse_climatology`
+comes out **identical to 4 dp (1.2259) in both**, which is the check that they really were scored on
+the same points — the same check `v2-final` used.
+
+**The wind conclusion reverses, and the honest reading is split.** `v2-final` reported wind worth
+**−0.0149 °C** and **41%** of the warm bias. Post-embargo, wind **costs 0.0111 °C of RMSE** and
+**still removes 14.6% of the warm bias** (+0.1518 → +0.1296). So wind is no longer a free win: it
+buys bias and pays in RMSE. That the earlier gain shrank and flipped when leaked targets were
+removed is what a leakage fix is supposed to do; the pre-embargo delta was measured on a training
+set that could see the test block.
+
+**Independently confirmed before this entry was written.** Both numbers were reproduced by
+`scripts/phase2/rescore_checkpoint.py`, which reloads the saved checkpoint from disk and re-runs the
+same split/embargo/normalisation/collocation rather than trusting the training run's own printout.
+Largest gap on either leg: **0.00e+00** across rmse, bias, correlation and skill, n identical.
+A retrain was deliberately NOT used as the check — it would have proved the pipeline reproduces,
+not that *these shipped checkpoints* produce their recorded numbers.
+
+**Not comparable to** the monthly 0.9638/0.9672 Phase-1 headlines (different test set, and those are
+the SATELLITE-driven path) or to any pre-embargo v2 figure. The only fair delta in this table is
+7ch vs 5ch.
+
+**Open, and not claimed either way:** whether the RMSE cost of wind survives a second seed. The
+delta (0.0111 °C) is small enough that one seed cannot settle it — see the multi-seed rule in
+`OceanEmbed_SIH26066_Master_Build_Plan_FINAL.docx` §8. Stated as a limitation, not a finding.
+
+
 ## v2-final  2026-08-30  — the shipped stage-1 model, and the wind ablation that pays for it
 model: TSCastNIO — cnn3d encoder + simple decoder + β-NLL(β=0.5), residual, latent 128, P=17
 dataset: daily bundle, 388 days 2025-06-01..2026-06-23 | **7 of 7 contract channels**

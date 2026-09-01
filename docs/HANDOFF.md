@@ -1176,3 +1176,81 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - NEXT TASK (A): decide whether the eq. 5 run or the ablation is the shipped stage 2 — the
   ablation is better on every accuracy metric; see AGENT_SYNC 2026-08-31 section 9.
 - BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — PHASE 1: the provenance audit, and the wind result reverses
+
+- CONTEXT: Phase 1 of the SIH sprint plan was scoped as "fix the synthetic-vs-real artifact
+  mismatch and add a row-count verifier". Both halves of that scope turned out to be wrong, and
+  the audit found something more important instead. Nothing was fixed that was not first
+  reproduced.
+- FINDING 1 — THE SYNTHETIC-DATA BUG IS ALREADY FIXED [VERIFIED four ways]. The Aug-26 audit note
+  (`ASK DARSHAN (6)`) reported `X_train.npy` as the stale synthetic file with 143,514 rows against
+  `provenance.json`'s 323,028. On disk today: X_train (323028, 11), y_train (323028, 15), X_test
+  (107676, 11), y_test (107676, 15) — all four agree with provenance exactly. ssh mean **0.4463**,
+  not the synthetic 0.0017. `norm_stats.json` reproduces this array's per-column means to 6 dp, so
+  it was computed FROM it. And the LightGBM's own ssh split thresholds span **0.0 to 0.659**, which
+  is impossible for a model trained on an ssh field centred at 0.0017 — so `lgbm_model.pkl` was
+  trained on real data too. The bundle landed and replaced them; the note is stale, not the data.
+- FINDING 2 — THE PLANNED ROW-COUNT GATE WAS NOT BUILT, DELIBERATELY. It is the guard this repo
+  already tried and removed, for a reason recorded in `test_validation.py`: a row count proves the
+  training DATA is right, never that THIS CHECKPOINT was trained on it (the pickles are unstamped,
+  D-012), and it silently passed on the demo machine while rendering an empty baseline. Re-adding
+  it would reintroduce a known-bad guard. Built the narrower true thing instead — see below.
+- FINDING 3 — **THE WIND RESULT REVERSES AFTER THE LEAKAGE EMBARGO** [VERIFIED, and independently
+  reproduced]. Commit `a5cdd3a` embargoed training targets whose T_SEQ window reached into the
+  test block, the stage-1 legs were retrained on 08-31, and that run was never logged. So
+  EXPERIMENT_LOG carried pre-embargo numbers while the artifacts carried different ones:
+
+  | | 7ch (wind ON) | 5ch (matched control) | delta |
+  |---|---|---|---|
+  | logged (pre-embargo, 6e6ba9a) | 0.8612 | 0.8760 | −0.0149 wind HELPS |
+  | on disk (post-embargo, a5cdd3a) | **0.8793** | **0.8682** | **+0.0111 wind HURTS** |
+
+  Wind still removes **14.6%** of the warm bias (+0.1518 → +0.1296), so the honest reading is
+  split: wind buys bias and pays in RMSE. The legs are matched — identical seed, T_SEQ, samples,
+  epochs, patience, embargo (5 of 304 dropped in both), Argo set, and `rmse_climatology` identical
+  to 4 dp at 1.2259, which is this repo's own check that two legs scored the same points.
+- HOW FINDING 3 WAS CONFIRMED BEFORE IT WAS WRITTEN DOWN: `scripts/phase2/rescore_checkpoint.py`
+  (new) reloads the saved checkpoint from disk and re-runs the same split/embargo/normalisation/
+  collocation, reusing the trainer's own `dataset`/`metrics`/`validate_argo` modules rather than
+  reimplementing them. Both legs reproduce their recorded metrics with a largest gap of
+  **0.00e+00** across rmse, bias, correlation and skill, n identical at 12,829. A retrain was
+  deliberately NOT used as the check: that proves the pipeline reproduces, not that THESE shipped
+  checkpoints produce their recorded numbers.
+- WHAT WORKS (new, [VERIFIED by execution]):
+  - `scripts/phase2/freeze_headline.py` — SHA-256 identity for all 8 files behind the shipped
+    claims (headline + physics control + both wind legs), plus a `claims` block that copies each
+    leg's scores out of its metrics JSON. `--verify` re-checks. Proven to FAIL on a tampered file
+    (exit 1) and pass when restored — a guard never seen failing is not a guard.
+  - `artifacts/frozen_manifest.json` is the one artifact un-ignored in `.gitignore`, so another
+    machine can prove its checkpoints are the ones that were scored.
+  - `docs/EXPERIMENT_LOG.md` gained `v2-embargoed 2026-09-01`, appended above `v2-final`. **No row
+    was edited or deleted** — the file is append-only and a superseded result is evidence.
+- HEADLINE CHANGED (decision taken with Darshan): the shipped headline is now **stage-2 with the
+  density term OFF — T RMSE 0.8548, skill +0.3027, bias +0.1055**, which also ships salinity and
+  density. It beats the stage-1 7ch model on every accuracy metric. This closes the open
+  "NEXT TASK (A)" from the 08-31 entry.
+- FILES MODIFIED: `scripts/phase2/freeze_headline.py` (new), `scripts/phase2/rescore_checkpoint.py`
+  (new), `tests/phase2/test_frozen_manifest.py` (new, 4 tests), `docs/EXPERIMENT_LOG.md` (append
+  only), `.gitignore` (un-ignore the manifest), `docs/HANDOFF.md`.
+- TESTS RUN: full suite — **438 passed, 1 failed, 2 skipped**. The 4 new manifest tests pass, and
+  one of them independently re-derives that the declared headline really is the lowest RMSE we
+  ship. Nothing I changed broke anything.
+- KNOWN ISSUES:
+  - **`tests/phase2/test_validation.py::test_lightgbm_stays_refused_even_when_the_row_counts_match`
+    now FAILS: `assert 323028 != 323028`.** Its setup line asserts the counts DIFFER, so it only
+    held while the data was still wrong — fixing the data broke the test. The production gate it
+    guards is fine and needs no change. NOT TOUCHED: F8 Validation Lab is Unit A's, and the fix
+    should assert the invariant in whichever state it finds rather than depend on the machine —
+    which is the very bug the test exists to catch.
+  - Stage-2 metrics files record `code_commit: null`. Minor provenance gap; stage-1 records it.
+  - The wind RMSE cost (0.0111 degC) is ONE SEED and too small to settle. Not claimed as a
+    finding; logged as a limitation. Same caveat the eq. 5 result carries.
+  - Stage-2 legs were verified from their metrics JSONs, not yet re-scored from disk the way the
+    stage-1 legs were — `rescore_checkpoint.py` is stage-1 only so far.
+- NEXT TASK (B): basin masks (Arabian Sea / Bay of Bengal) + per-basin metrics, then the depth
+  diagnostics. Both feed the currents ablation's reporting.
+- NEXT TASK (A): the currents ablation, 5ch vs a matched 3ch `[sst,sss,ssh]`. Note it now sits on
+  top of a reversed wind result, so run it against the 5ch leg, not the 7ch one. Then per-depth
+  sigma recalibration.
+- BLOCKERS: none.

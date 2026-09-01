@@ -385,8 +385,9 @@ def main():
         "channels_note": (f"{len(d['channels'])} of the contract's 7 channels"
                           + ("" if len(d["channels"]) == 7 else "; wind (wu, wv) is ABSENT -- every "
                              "number from this run must be quoted with that stated")),
-        "device": str(dev), "data": a.data,
-        "dropped_channels": list(a.drop_channels) if a.drop_channels else [], "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
+        "device": str(dev),
+        "dropped_channels": list(a.drop_channels) if a.drop_channels else [],
+        "latent": latent, "unet_channels": list(widths),
         "n_params_encoder": n_enc, "n_params_decoder": n_dec,
         "seed": seed, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),

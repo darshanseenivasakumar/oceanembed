@@ -245,7 +245,10 @@ def check_grid(path: str, r: Result) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default=os.path.join("data", "raw", "daily"))
+    # data/raw/daily has never existed on this project; the GLORYS files land in
+    # data/raw/glorys_daily. daily_pipeline.py fixed this same stale default on its own side and
+    # not here, so the verifier's no-argument form failed on a missing directory.
+    ap.add_argument("--dir", default=os.path.join("data", "raw", "glorys_daily"))
     ap.add_argument("--full", action="store_true",
                     help="open every file, not a sample. Slow; run once before training.")
     a = ap.parse_args()

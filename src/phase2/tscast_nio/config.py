@@ -33,7 +33,20 @@ CHANNEL_UNITS = ["degC", "psu", "m", "m s-1", "m s-1", "m s-1", "m s-1"]
 N_CHANNELS = len(CHANNELS)
 
 # ---- sampling window -------------------------------------------------------
-T_SEQ = 31   # set to 1 to run on the monthly archive
+# MEASURED, not chosen. The daily T_SEQ ablation (artifacts/tseq_ablation.json):
+#     T_SEQ= 1  Argo RMSE 0.9096
+#     T_SEQ=11  Argo RMSE 0.8529   <- winner, by 0.0567 over 1 and 0.0738 over 31
+#     T_SEQ=31  Argo RMSE 0.9267   (the paper's window; worst at our data scale)
+# This constant read 31 while every real run passed --t-seq 11 on the command line, so anything
+# reading the default silently built a 31-day model that no experiment supports.
+#
+# CAVEAT [INFERRED, needs re-measuring]: all three legs predate the A1 embargo fix (1d3c135) and
+# are leaky. Leakage scales with the window -- 0/304 train days at T_SEQ=1, 5 at 11, 15 at 31 --
+# so the longer windows were the more flattered, and 31 still lost. Removing the leak should widen
+# 11's lead over 31 and narrow it over 1. 11's margin over 1 (0.0567) is an order of magnitude
+# larger than the leak effect measured so far, so the winner is expected to stand -- but that is a
+# prediction, not a result, until the ablation is re-run.
+T_SEQ = 11   # set to 1 to run on the monthly archive
 P = 17       # patch width in cells; must be odd so the target cell is the centre
 
 # ---- decoder ---------------------------------------------------------------
@@ -60,7 +73,12 @@ UNET_CHANNELS = (32, 64, 128)
 PAPER_UNET_CHANNELS = (64, 128, 256, 512)   # kept for the record, and for the daily rerun
 
 # ---- training --------------------------------------------------------------
-TRAIN = dict(epochs=250, lr=1e-5, batch_size=512, optimizer="adamw", val_fraction=0.2, n_ensemble=3)
+# There is deliberately no TRAIN dict here. One used to sit at this line reading
+# epochs=250, lr=1e-5, batch_size=512 -- values NOTHING in the codebase ever read, and which
+# matched no run ever performed (the real defaults are 25 / 1e-3 / 256, in train_stage1.py's
+# argparse). A "frozen constant" that no code imports and no experiment used is worse than an
+# absent one: it reads as the contract while the CLI quietly decides. Training hyperparameters
+# live in the training script's argparse and are recorded per-run in the metrics JSON.
 
 # ---- stage gate ------------------------------------------------------------
 # Stage 1 = temperature + log-variance. Stage 2 adds salinity + the EOS-80 density constraint.

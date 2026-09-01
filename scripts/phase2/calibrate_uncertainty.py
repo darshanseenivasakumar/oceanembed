@@ -48,7 +48,11 @@ def predict_at_argo(model, ds, keys, t_idx, keep):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--checkpoint", default=base.art("tscast_stage1_tseq31.pt"))
+    # The canonical promoted run (scripts/phase2/promote_run.py), NOT a tagged experiment.
+    # This defaulted to tscast_stage1_tseq31.pt -- a 5-channel T_SEQ=31 checkpoint -- while
+    # output._calibration_applies_to() gates on 7 channels and T_SEQ=11, so the scales it fitted
+    # were guaranteed to be refused at serving time and sigma silently stayed raw.
+    ap.add_argument("--checkpoint", default=base.art("tscast_stage1.pt"))
     ap.add_argument("--out", default=base.art("uncertainty_calibration.json"))
     a = ap.parse_args()
 

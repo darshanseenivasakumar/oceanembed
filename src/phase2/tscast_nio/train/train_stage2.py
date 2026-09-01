@@ -141,7 +141,7 @@ def main() -> None:
     ap.add_argument("--tag", default="s2",
                     help="filename suffix; writes tscast_stage2_<tag>.pt")
     ap.add_argument("--baseline-metrics",
-                    default=base.art("tscast_stage1_7ch_metrics.json"),
+                    default=base.art("tscast_stage1_metrics.json"),
                     help="stage-1 metrics JSON this run is compared against. READ at runtime and "
                          "hashed into the output -- the numbers used to be Python literals naming "
                          "a file that did not exist, which made every stage-2 artifact assert a "

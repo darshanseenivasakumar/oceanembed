@@ -509,7 +509,14 @@ def check_v2_ui() -> tuple[bool, list[str]]:
     checks = []
     mpath = config.art("tscast_stage1_metrics.json")
     if not os.path.exists(mpath):
-        return True, ["     [skip] no tscast_stage1_metrics.json -- train a model to enable this"]
+        # This used to `return True` with a [skip]. The whole point of this check is the
+        # guarantee that every number the UI renders equals its artifact to 4 dp -- so when the
+        # artifact is absent the guarantee is not satisfied, it is UNTESTABLE, and reporting pass
+        # is the most dangerous answer available. Training writes TAGGED files; promote one to the
+        # canonical name with scripts/phase2/promote_run.py.
+        return False, ["     [FAIL] no tscast_stage1_metrics.json: the UI-equals-artifact check "
+                       "cannot run, so it cannot pass. Promote a run: "
+                       "python scripts/phase2/promote_run.py --tag <tag>"]
     with open(mpath, encoding="utf-8") as f:
         m = json.load(f)
     mm = m["metrics"]

@@ -59,6 +59,85 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-09-01 [ARJHUN] FORENSIC AUDIT. This machine is a generation behind and every number on it is LEAKY.
+
+Audit only -- no training, no feature work. Full detail in `docs/ARJHUN_EXECUTION_PLAN.md`; your
+short list is `docs/DARSHAN_REVIEW_AND_TASKS.md`.
+
+### >>> ASK DARSHAN -- one true blocker
+
+**Your leakage fix `a5cdd3a` is not here and not on origin.**
+```
+git cat-file -t a5cdd3a                            -> unknown revision
+git branch -r --contains a5cdd3a                   -> not in any remote branch
+git log --oneline HEAD..origin/phase2-tscast-nio   -> empty
+```
+So **every number on this disk was produced by the leaky sampler.** Send the fix; nothing I run is
+valid until it lands.
+
+I re-derived the leak rather than trusting the report: `T_SEQ=11`, **5 of 304 train days**
+(2026-03-27..31) have windows reaching into test = **1.64%**, against your 996/60,000 = **1.66%**.
+We agree. The diagnosis is precise: the SPLIT is correctly asserted (`dataset.py:229-241`); it is
+the **T_SEQ WINDOW** that crosses it -- which is exactly why every existing test passes.
+
+### Four claims in the brief this disk contradicts
+
+Not disputing your machine -- flagging that they did not transfer.
+
+1. **Basin masks / basin x depth metrics: ABSENT.** No `basins.py`, no basin dimension in
+   `metrics.py`, no basin field in the output schema. **"BoB harder than Arabian Sea" is not a
+   model result here** -- no per-basin model error has ever been computed. What exists is a DEPTH
+   story, correctly stated as mechanism not causation.
+2. **No currents ablation exists.** The `--drop-channels` flag is mine from today. The run I
+   started was leaky and I killed it mid-flight.
+3. **No stage-2 artifact of any kind exists** -- so "density OFF, 0.8548" cannot be reproduced here.
+4. **0.8548 / 0.8682 / 0.8793 are not present.** The only greps that hit are coincidental bytes
+   inside binary `lgbm_*.pkl` weights.
+
+### Two things that are actively misleading right now
+
+1. **`PHASE2_STATUS.md:23` marks v2 `VALIDATED -- RMSE 0.8612`**, the superseded leaky number, and
+   `EXPERIMENT_LOG.md:44` still shows "wind -0.0149 helps". Nothing anywhere says superseded.
+2. **`accept.py` reports green while its most important UI check SKIPS.** Training writes tagged
+   files; the dashboard, `output.py` and `check_v2_ui` expect the unsuffixed
+   `tscast_stage1_metrics.json`, which is quarantined. `accept.py:511-512` returns `True` with a
+   `[skip]` when it is absent -- so "every number equals its artifact" is **dormant, not enforced**,
+   and the dashboard renders only its error banner (verified live on 8504).
+
+### What IS solid and should not be rebuilt
+
+EOS-80 with one polynomial and two backends, pinned to 4 UNESCO values. The bake-off. beta-NLL.
+Build-time verification (depth-extrapolation trap, Kelvin, reversed axis, missing days,
+forecast-vs-reanalysis, filename-vs-internal-time). Fail-loud ingest. The two skill definitions kept
+distinct. 461 tests.
+
+### Data state
+
+Raw satellite **1,164/1,164 complete** (sst/ssh/sss x 388 d) -- **and nothing reads it except the
+downloader that wrote it.** Wind 388 d complete. GLORYS 388 d verified. Argo T 4,331 profiles;
+**T+S table absent**, so stage-2 salinity and density are not scored at all (the code correctly
+refuses and reports nulls).
+
+### Invalid artifacts -- marked, not deleted
+
+`tscast_stage1_withUV_s42.*` (0.8611) · `tscast_stage1_noUV_s42.*` (0.9024) ·
+`tscast_stage1_metrics_tseq31.json` (0.9267).
+
+### Compute
+
+16 cores, 15.3 GB RAM, **no GPU**, **57 GB free (88%)**. `T_SEQ=11` = 8.4 min/epoch @100k.
+Phases 2-8 ~6-8 h CPU. Disk is the binding constraint.
+
+### Next, on your approval
+
+P1 re-derive the window embargo with a regression test that **fails today with exactly 5 crossings**
+-- proving it catches the real bug before the fix lands. Then satellite bundle, anti-GLORYS guard,
+satellite-only model.
+
+**Honest compliance: ~55-60%.** A finish, not a rebuild -- but the headline on record is invalid.
+
+---
+
 ## 2026-08-31 [DARSHAN] STAGE 2 IS IN. Salinity is nearly free; the paper's eq. 5 is not, and does not pay.
 
 Built solo — Arjhun could not pull the 0.5 GB daily bundle over his connection, so the transfer

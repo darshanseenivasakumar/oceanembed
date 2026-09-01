@@ -193,15 +193,18 @@ with right:
                                      for v in out["measured_error"]]
     if out["anomaly"] is not None:
         tbl["vs climatology (°C)"] = np.round(out["anomaly"], 2)
-    tbl["model spread (°C)"] = np.round(out["profile_std"], 2)
+    # The header has to carry the warning too: a reader who scrolls past the caption still sees
+    # the column, and a small number here has already been misread as "stable predictions".
+    tbl["model spread (°C, UNCALIBRATED)"] = np.round(out["profile_std"], 2)
     st.dataframe(tbl, hide_index=True, width='stretch')
     st.caption(
-        "**typical error** = the error this model actually made at that depth against "
-        "**independent Argo floats** (879 profiles, test year) — a measured number, not a "
-        "claim of confidence. "
-        "**model spread** = MC-dropout spread, shown for transparency but **not calibrated**: "
-        "at 75 m it reports ~0.3 °C while the measured error is ~1.2 °C, so it must not be "
-        "read as a confidence interval (DECISIONS D-016). "
+        "**typical error** — the error this model made at that depth against **independent "
+        "Argo floats** (879 profiles, test year). It is **basin-wide and identical at every "
+        "location**, so it is not the error *here*. **This is the number to quote.** "
+        "**model spread** — the model's own MC-dropout spread. **A narrow band is not good "
+        "news.** It is measured **1.6× to 3.5× too narrow at every depth**, worst in the "
+        "mixed layer (20–50 m): at 75 m it typically claims 0.3–0.5 °C where the real error "
+        "is ~1.2 °C. **Never read it as a confidence interval** (DECISIONS D-016). "
         "**vs climatology** uses a 3-year monthly mean, not a 30-year climatology.")
 
 # ---- optional grid maps ------------------------------------------------------

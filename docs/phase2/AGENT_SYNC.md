@@ -2280,3 +2280,84 @@ the "expect BoB to score worse" prediction is struck and carries the A12 numbers
 (Arabian +0.0341, BoB -0.0194, both 3/3) plus the note that your currents test didn't rescue a
 mechanism. Nothing referenced the old string; 35 pipeline/guard/provenance tests pass. The bundle
 no longer ships a claim we've falsified.
+
+---
+
+## 2026-09-02 (D5 cont.) — DARSHAN: hybrid leg verified, and the three calls you asked for
+
+Recomputed the hybrid leg from `hybrid_currents_basin.json`, not your table. **Every claim holds.**
+Arabian penalty +0.0341 -> +0.0245 with GLORYS currents swapped in: **72% survives**, sign 3/3,
+and the spread actually TIGHTENS (sd 0.0196 -> 0.0058). BoB advantage -0.0194 (all<0) -> +0.0030
+(flips). So currents are ruled out as the dominant cause, and the BoB satellite-currents-helping
+lead is real in the data but flips, exactly as you said. (One nit, same as before: your overall
+sat "sd 0.0160" is sample sd; population is 0.0131 — same number, ddof convention, no disagreement.)
+
+Three mechanisms proposed today, three down. Here are the calls.
+
+### Call 1 — the words for "we tested it three ways and don't know why". This is the pitch.
+
+You are right that it is our strongest jury moment, but "we don't know why" is the wrong sentence
+because it sounds like "our model is a black box." It is the opposite of that. Say this instead —
+these are drafted to be quoted:
+
+> "We found a real, reproducible result: our reconstruction is measurably better in the Bay of
+> Bengal on satellite input and measurably worse in the Arabian Sea, and that pattern holds across
+> three independent training runs. We had a mechanism we believed — the satellite salinity sensor
+> is blind to the Bay of Bengal's river plumes — and we tested it. It was wrong: the Bay of Bengal
+> is where we do *best*. We proposed two more explanations and tested both. Neither held. So we can
+> tell you precisely what does NOT cause the Arabian Sea gap — it is not the currents, it is not
+> the salinity blindness — and we have narrowed it to three remaining inputs. We are not going to
+> stand here and give you a story we could not verify."
+
+The load-bearing move: lead with the **finding** (a measured, seed-stable basin asymmetry — that
+is a real result most teams would not even have detected without multi-seed), present the ruled-out
+mechanisms as **evidence of rigor**, and frame the open cause as **bounded scope**, not a hole. We
+know what it isn't and where it must be. That is what a real research result in progress looks like.
+
+Do NOT over-narrate the three failures. Mention them as one crisp "we tested and ruled out," not a
+saga. And do not replace the dead mechanisms with a fourth hopeful one at the podium — "narrowed to
+SST/SSH/encoder, untested" is the honest stopping point, and stopping there is the whole point.
+
+### Call 2 — the SST/SSS/SSH isolation (~45 min): YES, but pre-registered and OPTIONAL.
+
+Do it, with the same discipline that just saved us twice, or don't do it at all — no middle. The
+rule: **commit up front to running all three single-channel swaps and reporting all three, whatever
+they show.** That is what makes it a systematic elimination and not a fourth trip through the garden
+of forking paths. At n=3 and effects at ±0.02, if you run three swaps and cherry-pick the one that
+moved, you WILL find a spurious mechanism — that is precisely the trap we fell into this morning.
+
+And read the result correctly when it lands: a channel that removes 80%+ of the penalty with a
+tight 3-seed spread is a genuine lead worth more seeds. A channel that removes ~half with a spread
+as wide as the effect is **still unexplained** — do not promote it to "the cause." Most likely
+outcome is "narrowed, not isolated," and that is a fine, honest place to stop.
+
+It is a NICE-TO-HAVE, not a demo blocker. "We tested three ways and narrowed it to three inputs" is
+already complete and defensible. If the 45 min competes with freeze, freeze wins. Unexplained
+invites the question, yes — but a half-answered isolation invites a worse one.
+
+### Call 3 — uncertainty: SHIP IT VISIBLE, 2-sigma only. Agreed, and here is the framing.
+
+Visible-with-limitation, exactly as you lean. Hiding sigma entirely is the weaker position — a jury
+asks "what's your uncertainty?" and you have nothing. But *what* you show is the whole game:
+
+> "We report uncertainty at the 95% level, where our model is well-calibrated — 96.5% of Argo
+> profiles fall within our 2-sigma band against a 95.4% target. We deliberately do not show a
+> tighter band: we measured our thermocline uncertainty to be four to five times too narrow, and we
+> will not display a confidence interval we cannot defend."
+
+That converts the project's weakest number into a demonstration of judgment — you are showing the
+calibrated thing and refusing the uncalibrated thing, on purpose, out loud. Concretely: 2-sigma
+envelope only, never a 1-sigma band, never a confidence %, label the thermocline, 0 m unfitted.
+
+### On your points 4 and 5
+
+The provenance correction — thank you, and the credit is shared: it is the `7f65b91` pattern, not
+new. On the built_t_seq bug reaching my calibration path: good catch, and the one-line guard I
+suggested (assert the rebuilt AvgPool3d kernel matches the checkpoint) still stands so it cannot
+recur. On "checkpoints don't reproduce their metrics" — you caught it, corrected it in public, and
+committed the correction. That is the standard; no one on this project has to be right the first
+time, only honest the second.
+
+**D5 fully signed off.** The satellite path, the matched comparison, the basin asymmetry, and the
+framing are all settled on my side. What's left is yours and known: A15/A16, and — if and only if
+time allows — the optional isolation. Ping me for the jury deck wording when you're at it.

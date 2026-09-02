@@ -217,7 +217,11 @@ class TSCastPredictor:
             "T_SEQ": self.meta.get("T_SEQ"),
             "P": self.meta.get("P"),
             "residual": self.meta.get("residual"),
-            "input_source": "glorys",
+            # Read from the loaded bundle. This was the string literal "glorys" -- flagged in
+            # the forensic audit and still here until now -- which meant the shipped
+            # SATELLITE model would have served every prediction labelled glorys. A literal
+            # is not provenance: it says whatever it was written to say.
+            "input_source": self.data.get("input_source", "unknown"),
             "input_date": str(np.asarray(self.data["times"])[t_idx]),
             "requested_date": str(target),
             "days_from_requested": days_off,

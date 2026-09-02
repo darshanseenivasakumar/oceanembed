@@ -209,8 +209,15 @@ def load_daily(d=None):
         raise FileNotFoundError(f"no daily bundle in {d}; run phase2.tscast_nio.daily_pipeline")
     times, surface, temp, sal = [], [], [], []
     land = valid = chans = None
+    prov = None
     for f in files:
         z = np.load(f, allow_pickle=True)
+        if prov is None and "provenance" in z.files:
+            import json as _json
+            try:
+                prov = _json.loads(str(z["provenance"]))
+            except Exception:
+                prov = {"raw": str(z["provenance"])}
         times.append(z["times"]); surface.append(z["surface"]); temp.append(z["temp"])
         if "salinity" in z.files:
             sal.append(z["salinity"])
@@ -223,7 +230,32 @@ def load_daily(d=None):
                times=times[order], land_mask=land, valid_mask=valid, channels=chans)
     if sal:
         out["salinity"] = np.concatenate(sal)[order]
+    out["provenance"] = prov
+    out["input_source"] = bundle_input_source(prov)
     return out
+
+
+def bundle_input_source(prov) -> str:
+    """What actually fed the encoder, read from the bundle rather than asserted.
+
+    `inference.py` hardcoded `"input_source": "glorys"` as a string literal, and the training
+    metrics carried no such field at all. Both were harmless while GLORYS was the only bundle, and
+    became a false provenance claim the moment a satellite bundle existed: the shipped
+    satellite-input model would have served every prediction labelled `glorys`.
+
+    Returns "unknown" rather than guessing when the bundle says nothing. Callers that make a
+    compliance claim on this must refuse "unknown"; silently defaulting to either source is how a
+    label stops being evidence.
+    """
+    if not isinstance(prov, dict):
+        return "unknown"
+    if prov.get("input_source"):
+        return str(prov["input_source"])
+    # The GLORYS bundle predates the field and identifies itself in `source` instead.
+    src = str(prov.get("source", "")).lower()
+    if "glorys" in src or "reanalysis" in src:
+        return "glorys"
+    return "unknown"
 
 
 # The daily split, from the v2 brief. Temporal holdout, and asserted disjoint below.

@@ -334,9 +334,13 @@ def main():
           f"(median offset {int(np.median(offs.min(axis=1)[keep]))} d)")
     ds_te.index = np.stack([t_idx[keep], la[keep], lo[keep]], axis=1)
     mus, lvs = [], []
+    _first = None
     model.eval()
     with torch.no_grad():
         for x, g, _, _, _, cp, mo in DataLoader(ds_te, batch_size=512, shuffle=False):
+            if _first is None:
+                _first = (x[0].clone().numpy(), g[0].clone().numpy(),
+                          cp[0].clone().numpy(), int(mo[0]))
             x, g, cp, mo = (t.to(dev) for t in (x, g, cp, mo))
             mu, lv = model(x, g, cp, mo)
             mus.append(mu.cpu().numpy())
@@ -345,6 +349,16 @@ def main():
     sigma = np.sqrt(np.exp(np.concatenate(lvs))) * ds_te.y_std     # sigma scales with y_std
 
     clim_at = clim[pd.to_datetime(keys["date"].values).month - 1, la, lo, :]
+    # Dump the predictions this run scored, so any later scorer can be checked against them
+    # instead of being trusted. scripts/phase2/score_by_basin.py reproduced neither of two
+    # checkpoints' recorded RMSE, and elimination could not say why -- because the one thing never
+    # compared was the predictions themselves. A recorded metric that cannot be regenerated from
+    # its own checkpoint is not reproducible, whatever else is true of it.
+    np.savez_compressed(base.art(f"tscast_stage1{'_' + a.tag if a.tag else ''}_argo_pred.npz"),
+                        mu=mu, sigma=sigma, truth=truth[keep],
+                        lat=keys["lat"].values[keep], lon=keys["lon"].values[keep],
+                        t_idx=t_idx[keep], la=la[keep], lo=lo[keep],
+                        x0=_first[0], g0=_first[1], cp0=_first[2], mo0=_first[3])
     m = metrics.per_depth(mu, truth[keep], clim=clim_at[keep], reference="argo")
     cal = calibration(mu, sigma, truth[keep])
 
@@ -396,6 +410,12 @@ def main():
         "train_period": list(train_period), "test_period": list(test_period),
         "data": a.data, "T_SEQ": t_seq, "tag": a.tag or None,
         "daily_dir": a.daily_dir or ("data/processed/daily" if a.data == "daily" else None),
+        # READ from the bundle, never asserted. This field did not exist until 2026-09-02,
+        # so every artifact before then is silent about what actually fed the encoder --
+        # which was fine while GLORYS was the only bundle and became a compliance question
+        # the moment a satellite one existed. "unknown" is a real answer and is not
+        # defaulted away.
+        "input_source": d.get("input_source", "unknown"),
         "channels": d["channels"],
         "channels_note": (f"{len(d['channels'])} of the contract's 7 channels"
                           + ("" if len(d["channels"]) == 7 else "; wind (wu, wv) is ABSENT -- every "
@@ -445,6 +465,40 @@ def main():
         "code_commit": subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"], text=True).strip(),
     }
+    # SELF-CHECK: reload what we just wrote and re-run the first scored sample through a FRESH
+    # model. If this disagrees, the checkpoint does not reproduce its own metrics, and every number
+    # in this file is unverifiable from the artifact it names.
+    _fresh = TSCastNIO(enc, c_in=len(d["channels"]), t_seq=t_seq, p=config.P, latent=latent,
+                       residual=not a.no_residual, unet_channels=tuple(widths),
+                       decoder=a.decoder, stage=1)
+    _fresh.load_state_dict(torch.load(ck, map_location="cpu", weights_only=False)["state_dict"])
+    _fresh.eval()
+    with torch.no_grad():
+        _mu, _ = _fresh(torch.from_numpy(_first[0])[None], torch.from_numpy(_first[1])[None],
+                        torch.from_numpy(_first[2])[None], torch.tensor([_first[3]]))
+    _re = _mu.numpy()[0] * ds_te.y_std + ds_te.y_mean
+    _ok = bool(np.allclose(_re, mu[0], atol=1e-4))
+    with torch.no_grad():
+        _lm, _ = model(torch.from_numpy(_first[0])[None].to(dev),
+                       torch.from_numpy(_first[1])[None].to(dev),
+                       torch.from_numpy(_first[2])[None].to(dev),
+                       torch.tensor([_first[3]]).to(dev))
+    _lv = _lm.cpu().numpy()[0] * ds_te.y_std + ds_te.y_mean
+    print(f'   LIVE model on x0 reproduces its own mu[0]: {bool(np.allclose(_lv, mu[0], atol=1e-4))}')
+    print(f'      live {np.round(_lv[:4],4)}  vs scored {np.round(mu[0][:4],4)}')
+    _live = model.state_dict()
+    _back = _fresh.state_dict()
+    _bad = [k for k in _live
+            if not torch.equal(_live[k].cpu().float(), _back[k].cpu().float())]
+    print(f'   state_dict values identical after round-trip: {not _bad}'
+          f"{'' if not _bad else '  DIFFERING: ' + str(_bad[:4])}")
+    print("")
+    print(f"checkpoint self-check: reloaded prediction "
+          f"{'MATCHES' if _ok else 'DIFFERS FROM'} the scored one")
+    if not _ok:
+        print(f"   scored   {np.round(mu[0][:4], 4)}")
+        print(f"   reloaded {np.round(_re[:4], 4)}   max|diff| {np.abs(_re - mu[0]).max():.6f}")
+
     p = base.art(f"tscast_stage1{suffix}_metrics.json")
     with open(p, "w") as f:
         # allow_nan=False + a NaN->None pass: Python's json writes a bare `NaN` token,

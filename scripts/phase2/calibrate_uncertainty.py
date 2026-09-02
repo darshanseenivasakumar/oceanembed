@@ -73,7 +73,13 @@ def main() -> None:
                           max_samples=1, clim=clim, return_clim=True)
 
     torch.manual_seed(base.SEED)
-    model = TSCastNIO(ck["encoder"], len(chans), t_seq=ck["T_SEQ"], p=ck["P"],
+    # built_t_seq, NOT T_SEQ. The encoder is CONSTRUCTED at t_seq=1 while T_SEQ is the DATA
+    # window -- cnn3d sizes its AvgPool3d from the construction value, so building at
+    # T_SEQ=11 makes a structurally different network that load_state_dict accepts without
+    # complaint (conv weights do not encode temporal extent) and that silently predicts
+    # differently. The checkpoint records built_t_seq precisely so no reader has to know.
+    model = TSCastNIO(ck["encoder"], len(chans),
+                      t_seq=int(ck.get("built_t_seq", 1)), p=ck["P"],
                       latent=ck["latent"], residual=ck["residual"],
                       unet_channels=tuple(ck.get("unet_channels", config.UNET_CHANNELS)),
                       decoder=ck.get("decoder", "simple"))

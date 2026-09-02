@@ -76,7 +76,13 @@ def score(tag: str, device: str = "cuda") -> dict:
                              seed=ck.get("seed"), clim=clim, return_clim=True)
 
     dev = torch.device(device if (device != "cuda" or torch.cuda.is_available()) else "cpu")
-    model = TSCastNIO(ck["encoder"], c_in=len(want), t_seq=ck["T_SEQ"], p=ck["P"],
+    # built_t_seq, NOT T_SEQ. The encoder is CONSTRUCTED at t_seq=1 while T_SEQ is the DATA
+    # window -- cnn3d sizes its AvgPool3d from the construction value, so building at
+    # T_SEQ=11 makes a structurally different network that load_state_dict accepts without
+    # complaint (conv weights do not encode temporal extent) and that silently predicts
+    # differently. The checkpoint records built_t_seq precisely so no reader has to know.
+    model = TSCastNIO(ck["encoder"], c_in=len(want),
+                      t_seq=int(ck.get("built_t_seq", 1)), p=ck["P"],
                       latent=ck.get("latent"), residual=ck.get("residual", True),
                       unet_channels=tuple(ck["unet_channels"]) if ck.get("unet_channels") else None,
                       decoder=ck.get("decoder", "simple"), stage=1).to(dev)

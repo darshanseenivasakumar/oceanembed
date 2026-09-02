@@ -468,7 +468,7 @@ def main():
     # SELF-CHECK: reload what we just wrote and re-run the first scored sample through a FRESH
     # model. If this disagrees, the checkpoint does not reproduce its own metrics, and every number
     # in this file is unverifiable from the artifact it names.
-    _fresh = TSCastNIO(enc, c_in=len(d["channels"]), t_seq=t_seq, p=config.P, latent=latent,
+    _fresh = TSCastNIO(enc, c_in=len(d["channels"]), t_seq=1, p=config.P, latent=latent,
                        residual=not a.no_residual, unet_channels=tuple(widths),
                        decoder=a.decoder, stage=1)
     _fresh.load_state_dict(torch.load(ck, map_location="cpu", weights_only=False)["state_dict"])
@@ -498,6 +498,56 @@ def main():
     if not _ok:
         print(f"   scored   {np.round(mu[0][:4], 4)}")
         print(f"   reloaded {np.round(_re[:4], 4)}   max|diff| {np.abs(_re - mu[0]).max():.6f}")
+
+        # LAYER BISECT: run the SAME input through the live model and the reloaded one with
+        # forward hooks on every module, and report the FIRST module whose output differs. Weights
+        # are byte-identical (torch.equal) and the input is byte-identical, so whichever module
+        # diverges first is where the non-reproducibility lives.
+        _acts = {"live": {}, "fresh": {}}
+
+        def _mk(which):
+            def _reg(name):
+                def _h(_m, _i, _o):
+                    t = _o[0] if isinstance(_o, tuple) else _o
+                    if torch.is_tensor(t):
+                        _acts[which][name] = t.detach().float().cpu().clone()
+                return _h
+            return _reg
+
+        _fresh_d = _fresh.to(dev)
+        _hs = []
+        for _n, _m in model.named_modules():
+            if _n:
+                _hs.append(_m.register_forward_hook(_mk("live")(_n)))
+        for _n, _m in _fresh_d.named_modules():
+            if _n:
+                _hs.append(_m.register_forward_hook(_mk("fresh")(_n)))
+        _args = (torch.from_numpy(_first[0])[None].to(dev),
+                 torch.from_numpy(_first[1])[None].to(dev),
+                 torch.from_numpy(_first[2])[None].to(dev),
+                 torch.tensor([_first[3]]).to(dev))
+        with torch.no_grad():
+            model(*_args)
+            _fresh_d(*_args)
+        for _h in _hs:
+            _h.remove()
+
+        _order = [n for n, _ in model.named_modules() if n and n in _acts["fresh"]]
+        print("   layer bisect (first divergence wins):")
+        _shown = 0
+        for _n in _order:
+            _a, _b = _acts["live"][_n], _acts["fresh"][_n]
+            if _a.shape != _b.shape:
+                print(f"      {_n:38} SHAPE {tuple(_a.shape)} vs {tuple(_b.shape)}")
+                break
+            _d = float((_a - _b).abs().max())
+            if _d > 1e-6:
+                print(f"      {_n:38} DIVERGES  max|diff| {_d:.6g}")
+                _shown += 1
+                if _shown >= 5:
+                    break
+            elif _shown == 0:
+                print(f"      {_n:38} ok        max|diff| {_d:.3g}")
 
     p = base.art(f"tscast_stage1{suffix}_metrics.json")
     with open(p, "w") as f:

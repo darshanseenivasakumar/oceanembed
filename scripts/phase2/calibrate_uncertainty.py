@@ -26,6 +26,7 @@ from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
 from phase2.tscast_nio import calibrate, config, dataset as D
 from phase2.tscast_nio.models import TSCastNIO
+from phase2.tscast_nio.models.tscast import assert_architecture_matches
 
 MAX_DAYS = 5
 SPLIT = np.datetime64("2026-04-01")      # train-window Argo before this, test-window on/after
@@ -83,6 +84,10 @@ def main() -> None:
                       latent=ck["latent"], residual=ck["residual"],
                       unet_channels=tuple(ck.get("unet_channels", config.UNET_CHANNELS)),
                       decoder=ck.get("decoder", "simple"))
+    # Refuse a wrongly-rebuilt architecture BEFORE loading. load_state_dict accepts a
+    # t_seq mismatch silently -- conv weights do not encode temporal extent -- and the
+    # model then predicts differently on identical input.
+    assert_architecture_matches(model, ck, 'calibrate_uncertainty')
     model.load_state_dict(ck["state_dict"])
 
     argo = pd.read_parquet(base.art("argo_daily_period.parquet"))

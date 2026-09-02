@@ -34,6 +34,7 @@ from oceanembed import config as base                       # noqa: E402
 from oceanembed.validation import validate_argo as VA       # noqa: E402
 from phase2.tscast_nio import dataset as D, eval_argo, metrics  # noqa: E402
 from phase2.tscast_nio.models import TSCastNIO              # noqa: E402
+from phase2.tscast_nio.models.tscast import assert_architecture_matches  # noqa: E402
 
 MAX_DAYS = 5
 OUT = base.art("basin_by_depth.json")
@@ -86,6 +87,10 @@ def score(tag: str, device: str = "cuda") -> dict:
                       latent=ck.get("latent"), residual=ck.get("residual", True),
                       unet_channels=tuple(ck["unet_channels"]) if ck.get("unet_channels") else None,
                       decoder=ck.get("decoder", "simple"), stage=1).to(dev)
+    # Refuse a wrongly-rebuilt architecture BEFORE loading. load_state_dict accepts a
+    # t_seq mismatch silently -- conv weights do not encode temporal extent -- and the
+    # model then predicts differently on identical input.
+    assert_architecture_matches(model, ck, 'score_by_basin')
     model.load_state_dict(ck["state_dict"])
 
     keys, truth, keep, t_idx, la, lo = eval_argo.collocate(d, te_t, verbose=False)

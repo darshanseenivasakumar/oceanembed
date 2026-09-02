@@ -36,6 +36,7 @@ from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
 from phase2.tscast_nio import config, dataset as D, metrics
 from phase2.tscast_nio.models import TSCastNIO, gaussian_nll
+from phase2.tscast_nio.models.tscast import temporal_pool_signature as TSCastNIO_pool_sig
 
 MAX_DAYS = 5
 
@@ -393,6 +394,10 @@ def main():
                 # different numbers and only coincide at T_SEQ=1; cnn3d pools over time so its
                 # shapes do not change, but a reader must not have to know that to load us.
                 "built_t_seq": 1,
+                # The temporal pooling this network was built with. A consumer that rebuilds
+                # wrongly is refused by models.assert_architecture_matches instead of
+                # silently predicting differently -- see that function for what happened.
+                "pool_signature": TSCastNIO_pool_sig(model),
                 "trained_on": trained_on,
                 "train_period": list(train_period), "test_period": list(test_period),
                 "norm": [v.tolist() for v in ds_tr.norm],

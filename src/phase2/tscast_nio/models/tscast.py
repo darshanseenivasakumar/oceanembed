@@ -206,6 +206,10 @@ class TSCastNIO(nn.Module):
             raise ValueError(f"stage must be 1 or 2, got {stage!r}")
         self.stage = int(stage)
         t_seq = int(config.T_SEQ if t_seq is None else t_seq)
+        # The value this network was BUILT with, kept so a checkpoint can be checked against
+        # it exactly. The pool signature alone cannot separate t_seq=11 from t_seq=31 -- both
+        # pool [2,2,2] -- so the signature is the fallback and this is the precise test.
+        self.built_t_seq = int(t_seq)
         p = int(config.P if p is None else p)
         latent = int(config.LATENT_DIM if latent is None else latent)
 
@@ -372,3 +376,58 @@ def density_nll(mu_t, mu_s, logvar_rho, y_t, y_s, mask,
 
 def build(encoder_name: str, c_in: int, **kw) -> TSCastNIO:
     return TSCastNIO(encoder_name, c_in, **kw)
+
+
+def temporal_pool_signature(model: nn.Module) -> list[int]:
+    """The TIME-axis kernel of every 3-D pool in the model, in order.
+
+    THE BUG THIS EXISTS TO CATCH
+    `cnn3d` sizes its `AvgPool3d` from the `t_seq` passed at CONSTRUCTION, not from the input it
+    receives. Building with the wrong `t_seq` therefore produces a structurally different network
+    that `load_state_dict` accepts WITHOUT COMPLAINT -- conv weights do not encode temporal extent,
+    so no shape mismatch is raised -- and that then predicts differently on identical input.
+
+    That happened. `score_by_basin` and `calibrate_uncertainty` both rebuilt with `ck["T_SEQ"]`
+    (the DATA window) instead of `built_t_seq` (the construction value). The scorer disagreed with
+    a checkpoint's own recorded RMSE by 0.02 degC, and the uncertainty scales in
+    `uncertainty_calibration.json` were fitted through a model the project does not ship. Neither
+    failed loudly; both produced plausible numbers.
+
+    A pool signature separates the two architectures where a state_dict cannot. Built at t_seq=11
+    the kernels read [2, 2, 2]; at t_seq=1 they read [1, 1, 1].
+    """
+    sig: list[int] = []
+    for m in model.modules():
+        if isinstance(m, (nn.AvgPool3d, nn.MaxPool3d)):
+            k = m.kernel_size
+            sig.append(int(k[0] if isinstance(k, (tuple, list)) else k))
+    return sig
+
+
+def assert_architecture_matches(model: nn.Module, ck: dict, where: str = "") -> None:
+    """Refuse a model whose temporal pooling differs from the checkpoint being loaded into it.
+
+    Checkpoints written before 2026-09-02 carry no `pool_signature`; there is nothing to compare
+    against, so this passes rather than inventing a constraint. Silence there is honest -- the
+    field's absence is why the bug went unnoticed, and back-filling a guess would hide that.
+    """
+    built = ck.get("built_t_seq")
+    if built is not None and getattr(model, "built_t_seq", None) is not None:
+        if int(model.built_t_seq) != int(built):
+            raise ValueError(
+                f"architecture mismatch{' in ' + where if where else ''}: this model was built with "
+                f"t_seq={model.built_t_seq}, the checkpoint was trained at built_t_seq={built}. "
+                f"load_state_dict would ACCEPT this silently. Note T_SEQ={ck.get('T_SEQ')} is the "
+                f"DATA window and is NOT the construction value.")
+
+    want = ck.get("pool_signature")
+    if want is None:
+        return
+    got = temporal_pool_signature(model)
+    if list(want) != list(got):
+        raise ValueError(
+            f"architecture mismatch{' in ' + where if where else ''}: this model pools time as "
+            f"{got}, the checkpoint was trained as {list(want)}. load_state_dict would ACCEPT this "
+            f"silently and the model would predict differently on identical input. Rebuild with "
+            f"t_seq=ck['built_t_seq'] ({ck.get('built_t_seq')}), not ck['T_SEQ'] "
+            f"({ck.get('T_SEQ')}) -- T_SEQ is the DATA window, not the construction value.")

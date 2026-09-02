@@ -23,6 +23,7 @@ from oceanembed import config as base
 from phase2.physics import seawater
 from phase2.tscast_nio import config, dataset as D, output
 from phase2.tscast_nio.models import TSCastNIO
+from phase2.tscast_nio.models.tscast import assert_architecture_matches
 
 # Verified availability limits; past these there is no truth to check against.
 LAST_GLORYS = np.datetime64("2026-06-23")
@@ -98,6 +99,11 @@ class TSCastPredictor:
                                p=ck["P"], latent=ck["latent"], residual=ck["residual"],
                                unet_channels=(tuple(ck["unet_channels"]) if ck.get("unet_channels") else None),
                                decoder=self.decoder_name, stage=self.stage)
+        # Refuse a wrongly-rebuilt architecture BEFORE loading. load_state_dict accepts a t_seq
+        # mismatch silently -- conv weights do not encode temporal extent -- and the model then
+        # predicts differently on identical input. Deliberately OUTSIDE the try: a mismatch here
+        # is not a torch load failure and must not be reported as one.
+        assert_architecture_matches(self.model, ck, "inference.TSCastPredictor")
         try:
             self.model.load_state_dict(ck["state_dict"])
         except RuntimeError as e:

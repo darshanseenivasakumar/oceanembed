@@ -2084,3 +2084,72 @@ before reaching its real assertion. Fixed in `8706472`.
 **Next from me:** nothing — D1-D4 and D6 are done. **D5 is mine and it waits on your A9**: send me
 the matched sat-vs-GLORYS result and I will review it, including how to frame geostrophic
 `ugos`/`vgos` against full `uo`/`vo` to a jury.
+
+---
+
+## 2026-09-02 (D5, PARTIAL) — DARSHAN'S REVIEW of the satellite-vs-GLORYS result
+
+Reviewed at `5b9615a`. Scope: A4-A7 (bundle + guard + first satellite result). A9 proper
+(per-basin split + multi-seed) is not done yet, so this is a partial review.
+
+**VERDICT: the comparison is sound and the framing is right. The most important scientific claim
+is not yet measured. Two smaller fixes. Nothing here is wrong — the gap is that the headline
+story is still a hypothesis.**
+
+### Checked independently (metrics JSON on disk, not the commit text)
+
+```
+SATELLITE   rmse 0.9078  skill +0.2595  bias +0.1003  rmse_clim 1.2259  n 12829
+GLORYS      rmse 0.8789  skill +0.2831  bias +0.1263  rmse_clim 1.2259  n 12829
+```
+
+`rmse_climatology` identical to 4 dp AND n identical on both legs — the proof they were scored on
+the same 962 profiles. It holds. This is a real matched comparison, not a change of population.
+
+### Solid — no change needed
+
+1. **The matched comparison is valid.** Identical config, seed, split, embargo, depths, 962
+   profiles; only input source differs. Exactly the control the plan asked for.
+2. **The deliverable framing is correct, and it is the most important call made here.**
+   Deliverable = 0.9078 (satellite), NOT 0.8548 (stage-2 GLORYS). The PS says "using only surface
+   satellite observations"; quoting a reanalysis-fed 0.8548 as the answer would present the wrong
+   quantity as PS-compliant. Annotated rather than rewritten, so 0.8548 survives as a legitimate
+   comparator. Hold this line if anyone pushes the smaller number at the demo.
+3. **Geostrophic question retired.** GLOBCURRENT is total current (geostrophic + Ekman), not
+   ugos/vgos. My original D5 framing worry is moot. Correct switch.
+4. **"Cost is variance, not offset" is true.** Satellite bias +0.1003 is BETTER than GLORYS
+   +0.1263 while RMSE is worse, so the penalty is spread, not a shift. Honest framing.
+
+### The one gap that matters — the BoB/SSS story is asserted, not measured
+
+The claim: satellite scores worse mainly in the Bay of Bengal, because satellite SSS floors at
+30.78 psu and cannot see the Meghna/Ganges plume (F5: 6.43 psu at 22.50N 91.25E). Mechanistically
+I believe it. But **neither metrics file has a `by_basin` block**, so on the satellite model this
+is a hypothesis with no number under it.
+
+To make it evidence, the satellite penalty must be shown to **concentrate** in the BoB:
+- satellite-minus-GLORYS RMSE much larger in the Bay of Bengal than the Arabian Sea → the
+  SSS-blindness story is demonstrated.
+- penalty basin-flat → the story is wrong and +0.0289 is something else (resolution, datum, noise).
+
+This is A12 on the satellite model. Until it exists, A9 is not finished and I cannot sign off the
+physical claim. It is also the single most jury-legible result in the project — "our model is
+honest about where the sensor is blind" beats any single RMSE. From the GLORYS-input split
+(Arabian 0.868 / BoB 0.906, BoB peaking 1.42/1.49 at 75-100 m, the barrier layer) I expect the
+BoB gap to widen more than the Arabian on satellite input. Confirm or break that.
+
+### Two smaller fixes
+
+5. **`input_source` is None in BOTH metrics JSONs.** For the deliverable this is THE PS-compliance
+   label. It is carried in the record and the docs, but the metrics artifact cannot tell the two
+   legs apart except by filename + code_commit. Same field the old plan flagged
+   (`inference.py:220` hardcoded "glorys"); None is not the fix. Populate it from the bundle so a
+   satellite metrics file literally says "satellite".
+6. **n=1, everything at ±0.02-0.03, delta +0.0289.** Wind flipped sign on one retrain. Agreeing,
+   not correcting: +0.0289 is directional now, a magnitude only after A10's 3 seeds. Don't let the
+   deck quote "costs 0.029 degC" yet — "retains ~92% of skill on real observations" is the safe
+   and strong framing.
+
+**Bottom line: method sound, framing honest, headline claim not yet measured. Send A9 with the
+per-basin satellite split and I'll finish the review and help word the BoB/SSS finding for the
+jury — that's the part worth getting right.**

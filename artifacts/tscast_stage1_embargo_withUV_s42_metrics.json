@@ -1,397 +1,399 @@
 {
- "model": "tscast-nio-stage1",
- "encoder": "cnn3d",
- "encoder_selected_by": "chosen on the command line",
- "residual": true,
- "stage": 1,
- "stage_note": "temperature + log-variance only; salinity and the eq. 5 density constraint are stage 2 and start only once this is validated",
- "trained_on": "daily bundle, T_SEQ=11, train 2025-06-01..2026-03-31, held-out GLORYS 2026-04-01..2026-06-23, 7 channels ['sst', 'sss', 'ssh', 'u', 'v', 'wu', 'wv']",
- "train_period": [
-  "2025-06-01",
-  "2026-03-31"
- ],
- "test_period": [
-  "2026-04-01",
-  "2026-06-23"
- ],
- "data": "daily",
- "T_SEQ": 11,
- "tag": "embargo_withUV_s42",
- "daily_dir": "data/processed/daily",
- "channels": [
-  "sst",
-  "sss",
-  "ssh",
-  "u",
-  "v",
-  "wu",
-  "wv"
- ],
- "channels_note": "7 of the contract's 7 channels",
- "device": "cuda",
- "dropped_channels": [],
- "latent": 128,
- "unet_channels": [
-  32,
-  64,
-  128
- ],
- "n_params_encoder": 507848,
- "n_params_decoder": 40734,
- "seed": 42,
- "epochs_requested": 25,
- "epochs_run": 8,
- "best_epoch": 3,
- "best_heldout_nll": -0.643,
- "patience": 5,
- "weight_decay": 0.01,
- "beta_nll": 0.5,
- "decoder": "simple",
- "loss": "nll",
- "beta_nll_why": "plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0.",
- "training_curve": [
-  {
-   "epoch": 1,
-   "train_nll": -0.0773,
-   "heldout_nll": -0.4696
-  },
-  {
-   "epoch": 2,
-   "train_nll": -0.1655,
-   "heldout_nll": -0.5466
-  },
-  {
-   "epoch": 3,
-   "train_nll": -0.1786,
-   "heldout_nll": -0.643
-  },
-  {
-   "epoch": 4,
-   "train_nll": -0.1848,
-   "heldout_nll": -0.5617
-  },
-  {
-   "epoch": 5,
-   "train_nll": -0.1883,
-   "heldout_nll": -0.5823
-  },
-  {
-   "epoch": 6,
-   "train_nll": -0.1907,
-   "heldout_nll": -0.5651
-  },
-  {
-   "epoch": 7,
-   "train_nll": -0.1922,
-   "heldout_nll": -0.5647
-  },
-  {
-   "epoch": 8,
-   "train_nll": -0.1932,
-   "heldout_nll": -0.5674
-  }
- ],
- "checkpoint_is": "the BEST held-out epoch, not the last -- this run overfits after a handful of epochs",
- "lr": 0.001,
- "batch_size": 256,
- "train_samples": 60000,
- "train_seconds": 507.1,
- "train_years": [
-  2019,
-  2020,
-  2021
- ],
- "test_years": [
-  2022
- ],
- "argo_profiles": 962,
- "max_days_offset": 5,
- "metrics": {
-  "depths_m": [
-   0,
-   5,
-   10,
-   20,
-   30,
-   50,
-   75,
-   100,
-   125,
-   150,
-   200,
-   300,
-   500,
-   700,
-   1000
+  "model": "tscast-nio-stage1",
+  "encoder": "cnn3d",
+  "encoder_selected_by": "chosen on the command line",
+  "residual": true,
+  "stage": 1,
+  "stage_note": "temperature + log-variance only; salinity and the eq. 5 density constraint are stage 2 and start only once this is validated",
+  "trained_on": "daily bundle, T_SEQ=11, train 2025-06-01..2026-03-31, held-out GLORYS 2026-04-01..2026-06-23, 7 channels ['sst', 'sss', 'ssh', 'u', 'v', 'wu', 'wv']",
+  "train_period": [
+    "2025-06-01",
+    "2026-03-31"
   ],
-  "rmse": [
-   0.407434270764613,
-   0.4282099903048401,
-   0.4625644023547172,
-   0.7419028628586102,
-   0.965086919836059,
-   1.1366014757417175,
-   0.9956637391461401,
-   1.1696205452310875,
-   1.1754013616109575,
-   1.0656372830512701,
-   0.9335680437554396,
-   0.9032821270090524,
-   0.5638071692230193,
-   0.37897177228490847,
-   0.2272244813446976
+  "test_period": [
+    "2026-04-01",
+    "2026-06-23"
   ],
-  "correlation": [
-   0.7871983804227104,
-   0.9478410491625965,
-   0.9391701834005455,
-   0.8882013620606353,
-   0.8804819819019543,
-   0.8543825605644019,
-   0.8413480269889716,
-   0.7872076234179651,
-   0.8283371772014483,
-   0.874354683698915,
-   0.9290666029777245,
-   0.9088537854280423,
-   0.9192945930647466,
-   0.9512885969498736,
-   0.9720047245286998
+  "data": "daily",
+  "T_SEQ": 11,
+  "tag": "embargo_withUV_s42",
+  "daily_dir": "data/processed/daily",
+  "channels": [
+    "sst",
+    "sss",
+    "ssh",
+    "u",
+    "v",
+    "wu",
+    "wv"
   ],
-  "bias": [
-   0.002596900576636905,
-   -0.06782288496636002,
-   0.016100271542867025,
-   0.21102937493508253,
-   0.4357880104072897,
-   0.5226156836013953,
-   0.15227888222776026,
-   0.09050275886233017,
-   0.09311474638841347,
-   0.09254508269460578,
-   0.005893639468271798,
-   -0.10913395714145634,
-   0.009717756960572315,
-   0.004620226291531951,
-   0.01577597626416502
+  "channels_note": "7 of the contract's 7 channels",
+  "device": "cuda",
+  "dropped_channels": [],
+  "latent": 128,
+  "unet_channels": [
+    32,
+    64,
+    128
   ],
-  "skill_vs_climatology": [
-   0.7048905344396471,
-   0.817930324783023,
-   0.7835986391388037,
-   0.5679504564754936,
-   0.4555987631399495,
-   0.2296121781802145,
-   0.4309097350573835,
-   0.4306833069523217,
-   0.47887012917494587,
-   0.5148926266423652,
-   0.6559719905118284,
-   0.4923614508637919,
-   0.22994679915829253,
-   0.2301897403452834,
-   0.3977698884166688
+  "n_params_encoder": 507848,
+  "n_params_decoder": 40734,
+  "seed": 42,
+  "epochs_requested": 25,
+  "epochs_run": 8,
+  "best_epoch": 3,
+  "best_heldout_nll": -0.643,
+  "patience": 5,
+  "weight_decay": 0.01,
+  "beta_nll": 0.5,
+  "decoder": "simple",
+  "loss": "nll",
+  "beta_nll_why": "plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0.",
+  "training_curve": [
+    {
+      "epoch": 1,
+      "train_nll": -0.0773,
+      "heldout_nll": -0.4696
+    },
+    {
+      "epoch": 2,
+      "train_nll": -0.1655,
+      "heldout_nll": -0.5466
+    },
+    {
+      "epoch": 3,
+      "train_nll": -0.1786,
+      "heldout_nll": -0.643
+    },
+    {
+      "epoch": 4,
+      "train_nll": -0.1848,
+      "heldout_nll": -0.5617
+    },
+    {
+      "epoch": 5,
+      "train_nll": -0.1883,
+      "heldout_nll": -0.5823
+    },
+    {
+      "epoch": 6,
+      "train_nll": -0.1907,
+      "heldout_nll": -0.5651
+    },
+    {
+      "epoch": 7,
+      "train_nll": -0.1922,
+      "heldout_nll": -0.5647
+    },
+    {
+      "epoch": 8,
+      "train_nll": -0.1932,
+      "heldout_nll": -0.5674
+    }
   ],
-  "skill_rmse_ratio": [
-   0.4567602135701464,
-   0.5733037670461842,
-   0.5348104033179628,
-   0.3426952430382797,
-   0.2621644920037729,
-   0.12228260708825789,
-   0.24561928382108256,
-   0.24546922326012555,
-   0.27810674554678516,
-   0.3035035008288737,
-   0.4134609906509443,
-   0.28751242176708225,
-   0.12247324779143776,
-   0.12261168251753174,
-   0.22396513507231441
+  "checkpoint_is": "the BEST held-out epoch, not the last -- this run overfits after a handful of epochs",
+  "lr": 0.001,
+  "batch_size": 256,
+  "train_samples": 60000,
+  "train_seconds": 507.1,
+  "train_years": [
+    2019,
+    2020,
+    2021
   ],
-  "rmse_climatology": [
-   0.7500081565127105,
-   1.0035476229554345,
-   0.9943567217623865,
-   1.1287045392580608,
-   1.3079973915283485,
-   1.2949515241701577,
-   1.3198425116025863,
-   1.5501296716943804,
-   1.6282204527610447,
-   1.5299966106354361,
-   1.591655506070293,
-   1.2677864914492059,
-   0.642495704893358,
-   0.4319316370342268,
-   0.2928018979738383
+  "test_years": [
+    2022
   ],
-  "n": [
-   21,
-   959,
-   960,
-   959,
-   959,
-   958,
-   958,
-   958,
-   958,
-   950,
-   872,
-   854,
-   833,
-   827,
-   803
-  ],
-  "overall": {
-   "rmse": 0.8644973142396644,
-   "bias": 0.11050445833324374,
-   "correlation_pooled": 0.9936581103472774,
-   "correlation": 0.8872687554512821,
-   "skill_vs_climatology": 0.5026767738533325,
-   "skill_rmse_ratio": 0.2947885238124187,
-   "rmse_climatology": 1.2258696056864993,
-   "rmse_climatology_note": "Measured on the points `skill_rmse_ratio` uses (finite in pred AND truth AND clim), so 1 - RMSE/RMSE_clim reproduces the published skill exactly. `rmse` above masks on pred and truth only; where climatology is also finite everywhere the two masks coincide, and where it is not, the skill figure -- not this division -- is the one to quote.",
-   "skill_note": "TWO DEFINITIONS, both returned because they are not interchangeable. `skill_rmse_ratio` = 1 - RMSE/RMSE_clim is what the FROZEN Phase-1 headline (+0.387) uses -- compare against that one. `skill_vs_climatology` = 1 - MSE/MSE_clim is the Murphy score, standard in the literature. On the same real Argo predictions they read 0.39 and 0.63. Never quote one beside the other.",
-   "n": 12829,
-   "correlation_note": "`correlation` is the mean of the per-depth values -- quote THIS one. `correlation_pooled` mixes all 15 depths into one cloud, so it mostly measures that deep water is cold and surface water is warm, which no model deserves credit for. Measured on real Argo it reads 0.99 pooled against 0.83-0.98 per depth. Do not quote the pooled figure."
+  "argo_profiles": 962,
+  "max_days_offset": 5,
+  "metrics": {
+    "depths_m": [
+      0,
+      5,
+      10,
+      20,
+      30,
+      50,
+      75,
+      100,
+      125,
+      150,
+      200,
+      300,
+      500,
+      700,
+      1000
+    ],
+    "rmse": [
+      0.407434270764613,
+      0.4282099903048401,
+      0.4625644023547172,
+      0.7419028628586102,
+      0.965086919836059,
+      1.1366014757417175,
+      0.9956637391461401,
+      1.1696205452310875,
+      1.1754013616109575,
+      1.0656372830512701,
+      0.9335680437554396,
+      0.9032821270090524,
+      0.5638071692230193,
+      0.37897177228490847,
+      0.2272244813446976
+    ],
+    "correlation": [
+      0.7871983804227104,
+      0.9478410491625965,
+      0.9391701834005455,
+      0.8882013620606353,
+      0.8804819819019543,
+      0.8543825605644019,
+      0.8413480269889716,
+      0.7872076234179651,
+      0.8283371772014483,
+      0.874354683698915,
+      0.9290666029777245,
+      0.9088537854280423,
+      0.9192945930647466,
+      0.9512885969498736,
+      0.9720047245286998
+    ],
+    "bias": [
+      0.002596900576636905,
+      -0.06782288496636002,
+      0.016100271542867025,
+      0.21102937493508253,
+      0.4357880104072897,
+      0.5226156836013953,
+      0.15227888222776026,
+      0.09050275886233017,
+      0.09311474638841347,
+      0.09254508269460578,
+      0.005893639468271798,
+      -0.10913395714145634,
+      0.009717756960572315,
+      0.004620226291531951,
+      0.01577597626416502
+    ],
+    "skill_vs_climatology": [
+      0.7048905344396471,
+      0.817930324783023,
+      0.7835986391388037,
+      0.5679504564754936,
+      0.4555987631399495,
+      0.2296121781802145,
+      0.4309097350573835,
+      0.4306833069523217,
+      0.47887012917494587,
+      0.5148926266423652,
+      0.6559719905118284,
+      0.4923614508637919,
+      0.22994679915829253,
+      0.2301897403452834,
+      0.3977698884166688
+    ],
+    "skill_rmse_ratio": [
+      0.4567602135701464,
+      0.5733037670461842,
+      0.5348104033179628,
+      0.3426952430382797,
+      0.2621644920037729,
+      0.12228260708825789,
+      0.24561928382108256,
+      0.24546922326012555,
+      0.27810674554678516,
+      0.3035035008288737,
+      0.4134609906509443,
+      0.28751242176708225,
+      0.12247324779143776,
+      0.12261168251753174,
+      0.22396513507231441
+    ],
+    "rmse_climatology": [
+      0.7500081565127105,
+      1.0035476229554345,
+      0.9943567217623865,
+      1.1287045392580608,
+      1.3079973915283485,
+      1.2949515241701577,
+      1.3198425116025863,
+      1.5501296716943804,
+      1.6282204527610447,
+      1.5299966106354361,
+      1.591655506070293,
+      1.2677864914492059,
+      0.642495704893358,
+      0.4319316370342268,
+      0.2928018979738383
+    ],
+    "n": [
+      21,
+      959,
+      960,
+      959,
+      959,
+      958,
+      958,
+      958,
+      958,
+      950,
+      872,
+      854,
+      833,
+      827,
+      803
+    ],
+    "overall": {
+      "rmse": 0.8644973142396644,
+      "bias": 0.11050445833324374,
+      "correlation_pooled": 0.9936581103472774,
+      "correlation": 0.8872687554512821,
+      "skill_vs_climatology": 0.5026767738533325,
+      "skill_rmse_ratio": 0.2947885238124187,
+      "rmse_climatology": 1.2258696056864993,
+      "rmse_climatology_note": "Measured on the points `skill_rmse_ratio` uses (finite in pred AND truth AND clim), so 1 - RMSE/RMSE_clim reproduces the published skill exactly. `rmse` above masks on pred and truth only; where climatology is also finite everywhere the two masks coincide, and where it is not, the skill figure -- not this division -- is the one to quote.",
+      "skill_note": "TWO DEFINITIONS, both returned because they are not interchangeable. `skill_rmse_ratio` = 1 - RMSE/RMSE_clim is what the FROZEN Phase-1 headline (+0.387) uses -- compare against that one. `skill_vs_climatology` = 1 - MSE/MSE_clim is the Murphy score, standard in the literature. On the same real Argo predictions they read 0.39 and 0.63. Never quote one beside the other.",
+      "n": 12829,
+      "correlation_note": "`correlation` is the mean of the per-depth values -- quote THIS one. `correlation_pooled` mixes all 15 depths into one cloud, so it mostly measures that deep water is cold and surface water is warm, which no model deserves credit for. Measured on real Argo it reads 0.99 pooled against 0.83-0.98 per depth. Do not quote the pooled figure."
+    },
+    "reference": "argo",
+    "window": null,
+    "bias_convention": "model - truth; POSITIVE means the model runs warm",
+    "not_to_be_confused_with": "artifacts/satellite_bias.json, which is a calibration correction and NOT this metric"
   },
-  "reference": "argo",
-  "window": null,
-  "bias_convention": "model - truth; POSITIVE means the model runs warm",
-  "not_to_be_confused_with": "artifacts/satellite_bias.json, which is a calibration correction and NOT this metric"
- },
- "calibration": {
-  "5": {
-   "n": 959,
-   "rmse": 0.4282,
-   "sigma": 0.3255,
-   "ratio": 1.316,
-   "coverage_1sigma": 0.5746,
-   "coverage_2sigma": 0.8697
+  "calibration": {
+    "5": {
+      "n": 959,
+      "rmse": 0.4282,
+      "sigma": 0.3255,
+      "ratio": 1.316,
+      "coverage_1sigma": 0.5746,
+      "coverage_2sigma": 0.8697
+    },
+    "10": {
+      "n": 960,
+      "rmse": 0.4626,
+      "sigma": 0.3373,
+      "ratio": 1.372,
+      "coverage_1sigma": 0.6146,
+      "coverage_2sigma": 0.9042
+    },
+    "20": {
+      "n": 959,
+      "rmse": 0.7419,
+      "sigma": 0.4751,
+      "ratio": 1.562,
+      "coverage_1sigma": 0.5579,
+      "coverage_2sigma": 0.8352
+    },
+    "30": {
+      "n": 959,
+      "rmse": 0.9651,
+      "sigma": 0.6357,
+      "ratio": 1.518,
+      "coverage_1sigma": 0.4546,
+      "coverage_2sigma": 0.7331
+    },
+    "50": {
+      "n": 958,
+      "rmse": 1.1366,
+      "sigma": 0.7912,
+      "ratio": 1.436,
+      "coverage_1sigma": 0.4384,
+      "coverage_2sigma": 0.7704
+    },
+    "75": {
+      "n": 958,
+      "rmse": 0.9957,
+      "sigma": 0.781,
+      "ratio": 1.275,
+      "coverage_1sigma": 0.6106,
+      "coverage_2sigma": 0.8977
+    },
+    "100": {
+      "n": 958,
+      "rmse": 1.1696,
+      "sigma": 0.7961,
+      "ratio": 1.469,
+      "coverage_1sigma": 0.5303,
+      "coverage_2sigma": 0.8486
+    },
+    "125": {
+      "n": 958,
+      "rmse": 1.1754,
+      "sigma": 0.8027,
+      "ratio": 1.464,
+      "coverage_1sigma": 0.524,
+      "coverage_2sigma": 0.8319
+    },
+    "150": {
+      "n": 950,
+      "rmse": 1.0656,
+      "sigma": 0.7721,
+      "ratio": 1.38,
+      "coverage_1sigma": 0.5432,
+      "coverage_2sigma": 0.9011
+    },
+    "200": {
+      "n": 872,
+      "rmse": 0.9336,
+      "sigma": 0.6522,
+      "ratio": 1.432,
+      "coverage_1sigma": 0.6445,
+      "coverage_2sigma": 0.9323
+    },
+    "300": {
+      "n": 854,
+      "rmse": 0.9033,
+      "sigma": 0.4742,
+      "ratio": 1.905,
+      "coverage_1sigma": 0.6347,
+      "coverage_2sigma": 0.9286
+    },
+    "500": {
+      "n": 833,
+      "rmse": 0.5638,
+      "sigma": 0.2949,
+      "ratio": 1.912,
+      "coverage_1sigma": 0.6891,
+      "coverage_2sigma": 0.9304
+    },
+    "700": {
+      "n": 827,
+      "rmse": 0.379,
+      "sigma": 0.3156,
+      "ratio": 1.201,
+      "coverage_1sigma": 0.7606,
+      "coverage_2sigma": 0.9613
+    },
+    "1000": {
+      "n": 803,
+      "rmse": 0.2272,
+      "sigma": 0.3227,
+      "ratio": 0.704,
+      "coverage_1sigma": 0.8294,
+      "coverage_2sigma": 0.99
+    }
   },
-  "10": {
-   "n": 960,
-   "rmse": 0.4626,
-   "sigma": 0.3373,
-   "ratio": 1.372,
-   "coverage_1sigma": 0.6146,
-   "coverage_2sigma": 0.9042
+  "coverage_targets": {
+    "1sigma": 0.683,
+    "2sigma": 0.954,
+    "note": "Gaussian targets. Below = the band is too narrow at that depth; well above = too wide, which is also not honest."
   },
-  "20": {
-   "n": 959,
-   "rmse": 0.7419,
-   "sigma": 0.4751,
-   "ratio": 1.562,
-   "coverage_1sigma": 0.5579,
-   "coverage_2sigma": 0.8352
+  "calibration_method": "RMSE(pred-argo) / RMS(sigma), aggregated per depth THEN divided -- identical to artifacts/mc_calibration.json so the comparison against MC-dropout's 1.56-3.54 is like for like",
+  "mc_dropout_for_comparison": {
+    "worst": 3.54,
+    "best": 1.56,
+    "source": "artifacts/mc_calibration.json (D-016)"
   },
-  "30": {
-   "n": 959,
-   "rmse": 0.9651,
-   "sigma": 0.6357,
-   "ratio": 1.518,
-   "coverage_1sigma": 0.4546,
-   "coverage_2sigma": 0.7331
+  "compare_against": {
+    "incumbent_rmse": 0.9736,
+    "incumbent_skill_rmse_ratio": 0.3809,
+    "which": "GLORYS-driven incumbent, argo_error_by_depth.json -> overall.glorys",
+    "why_not_the_headline_0_9638": "grids.npz surface fields ARE GLORYS, so this model is GLORYS-driven. The famous +0.387 / 0.9638 headline is the SATELLITE-driven path. Comparing a GLORYS-driven model against the satellite-driven headline would be scoring two different input pipelines against each other and calling the difference model skill."
   },
-  "50": {
-   "n": 958,
-   "rmse": 1.1366,
-   "sigma": 0.7912,
-   "ratio": 1.436,
-   "coverage_1sigma": 0.4384,
-   "coverage_2sigma": 0.7704
-  },
-  "75": {
-   "n": 958,
-   "rmse": 0.9957,
-   "sigma": 0.781,
-   "ratio": 1.275,
-   "coverage_1sigma": 0.6106,
-   "coverage_2sigma": 0.8977
-  },
-  "100": {
-   "n": 958,
-   "rmse": 1.1696,
-   "sigma": 0.7961,
-   "ratio": 1.469,
-   "coverage_1sigma": 0.5303,
-   "coverage_2sigma": 0.8486
-  },
-  "125": {
-   "n": 958,
-   "rmse": 1.1754,
-   "sigma": 0.8027,
-   "ratio": 1.464,
-   "coverage_1sigma": 0.524,
-   "coverage_2sigma": 0.8319
-  },
-  "150": {
-   "n": 950,
-   "rmse": 1.0656,
-   "sigma": 0.7721,
-   "ratio": 1.38,
-   "coverage_1sigma": 0.5432,
-   "coverage_2sigma": 0.9011
-  },
-  "200": {
-   "n": 872,
-   "rmse": 0.9336,
-   "sigma": 0.6522,
-   "ratio": 1.432,
-   "coverage_1sigma": 0.6445,
-   "coverage_2sigma": 0.9323
-  },
-  "300": {
-   "n": 854,
-   "rmse": 0.9033,
-   "sigma": 0.4742,
-   "ratio": 1.905,
-   "coverage_1sigma": 0.6347,
-   "coverage_2sigma": 0.9286
-  },
-  "500": {
-   "n": 833,
-   "rmse": 0.5638,
-   "sigma": 0.2949,
-   "ratio": 1.912,
-   "coverage_1sigma": 0.6891,
-   "coverage_2sigma": 0.9304
-  },
-  "700": {
-   "n": 827,
-   "rmse": 0.379,
-   "sigma": 0.3156,
-   "ratio": 1.201,
-   "coverage_1sigma": 0.7606,
-   "coverage_2sigma": 0.9613
-  },
-  "1000": {
-   "n": 803,
-   "rmse": 0.2272,
-   "sigma": 0.3227,
-   "ratio": 0.704,
-   "coverage_1sigma": 0.8294,
-   "coverage_2sigma": 0.99
-  }
- },
- "coverage_targets": {
-  "1sigma": 0.683,
-  "2sigma": 0.954,
-  "note": "Gaussian targets. Below = the band is too narrow at that depth; well above = too wide, which is also not honest."
- },
- "calibration_method": "RMSE(pred-argo) / RMS(sigma), aggregated per depth THEN divided -- identical to artifacts/mc_calibration.json so the comparison against MC-dropout's 1.56-3.54 is like for like",
- "mc_dropout_for_comparison": {
-  "worst": 3.54,
-  "best": 1.56,
-  "source": "artifacts/mc_calibration.json (D-016)"
- },
- "compare_against": {
-  "incumbent_rmse": 0.9736,
-  "incumbent_skill_rmse_ratio": 0.3809,
-  "which": "GLORYS-driven incumbent, argo_error_by_depth.json -> overall.glorys",
-  "why_not_the_headline_0_9638": "grids.npz surface fields ARE GLORYS, so this model is GLORYS-driven. The famous +0.387 / 0.9638 headline is the SATELLITE-driven path. Comparing a GLORYS-driven model against the satellite-driven headline would be scoring two different input pipelines against each other and calling the difference model skill."
- },
- "checkpoint": "tscast_stage1_embargo_withUV_s42.pt",
- "code_commit": "8338d14"
+  "checkpoint": "tscast_stage1_embargo_withUV_s42.pt",
+  "code_commit": "8338d14",
+  "input_source": "glorys",
+  "input_source_note": "BACKFILLED 2026-09-02 from the bundle this run names in daily_dir (data/processed/daily), which declares it. train_stage1 did not write this field until today, so runs before then are silent about what fed the encoder. Derived from the artifact, not remembered."
 }

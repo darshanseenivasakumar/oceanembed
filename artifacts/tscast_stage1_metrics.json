@@ -405,5 +405,7 @@
   "promoted_from": "sat_7ch_s42",
   "promoted_at": "2026-09-02T10:46:37",
   "checkpoint_sha256": "53848bb52533752d15a4e25f6e0fb038297bd32671606b290dd0260e991441ae",
-  "promotion_note": "This is the SHIPPED model. It is a copy of the tagged experiment named in `promoted_from`, which remains on disk unchanged. Retraining does NOT update this file: promote again to ship a new run."
+  "promotion_note": "This is the SHIPPED model. It is a copy of the tagged experiment named in `promoted_from`, which remains on disk unchanged. Retraining does NOT update this file: promote again to ship a new run.",
+  "input_source": "satellite",
+  "input_source_note": "BACKFILLED 2026-09-02 from the bundle this run names in daily_dir (data/processed/daily_sat/v001), which declares it. train_stage1 did not write this field until today, so runs before then are silent about what fed the encoder. Derived from the artifact, not remembered."
 }

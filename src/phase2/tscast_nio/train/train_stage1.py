@@ -195,6 +195,17 @@ def main():
               f"{d['channels']}")
 
     t_seq = int(a.t_seq or 1)
+
+    # A training target within t_seq//2 of the first test day reads TEST surface fields as input,
+    # because _window clamps to the array, not to the split. Drop those targets. Test indices are
+    # untouched: a test target reaching BACK into train is not leakage, it is what an operational
+    # run would legitimately have.
+    n_before = len(tr_t)
+    tr_t = D.embargo_indices(tr_t, t_seq, int(te_t.min()) if len(te_t) else None)
+    n_embargoed = n_before - len(tr_t)
+    if n_embargoed:
+        print(f"embargo: dropped {n_embargoed} of {n_before} training targets whose T_SEQ={t_seq} "
+              f"window would have read the test block")
     if a.data == "monthly" and t_seq != 1:
         raise SystemExit("--t-seq > 1 needs --data daily: the monthly archive has one sample per "
                          "month, so a window of 31 steps would span 31 MONTHS, not 31 days.")
@@ -360,6 +371,10 @@ def main():
                 # Without these the predictor cannot rebuild the network it is loading: it guessed
                 # `film` and died with "Missing key(s) decoder.*" on every simple-decoder run.
                 "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "data": a.data,
+                # Which temporal protocol produced these weights. Nothing in a checkpoint used to
+                # distinguish the boundary-overlap runs from the embargoed ones, so a stale
+                # checkpoint could not be told apart from a clean one.
+                "protocol": "embargoed_v2", "n_targets_embargoed": int(n_embargoed),
                 # The model is CONSTRUCTED at t_seq=1 above while T_SEQ is the DATA window. They are
                 # different numbers and only coincide at T_SEQ=1; cnn3d pools over time so its
                 # shapes do not change, but a reader must not have to know that to load us.
@@ -391,6 +406,11 @@ def main():
         "n_params_encoder": n_enc, "n_params_decoder": n_dec,
         "seed": seed, "epochs_requested": a.epochs, "epochs_run": len(curve),
         "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
+        "protocol": "embargoed_v2",
+        "protocol_note": ("training targets whose T_SEQ window would reach into the test block are "
+                          "dropped; test indices unchanged. Runs before 2026-08-31 used "
+                          "'boundary_overlap_v1' and are NOT comparable to these."),
+        "n_targets_embargoed": int(n_embargoed),
         "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta,
         "decoder": a.decoder, "loss": a.loss,
         "beta_nll_why": ("plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0."),

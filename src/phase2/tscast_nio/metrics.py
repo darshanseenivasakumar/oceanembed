@@ -22,6 +22,7 @@ from __future__ import annotations
 import numpy as np
 
 from phase2.tscast_nio import config
+from phase2 import basins
 
 MIN_N = 3               # below this, correlation is meaningless
 MIN_STD = 1e-6          # below this, a series is constant and r is undefined
@@ -224,4 +225,76 @@ def per_depth(pred, truth, clim=None, reference: str = "argo", window=None) -> d
         "not_to_be_confused_with": (
             "artifacts/satellite_bias.json, which is a calibration correction and NOT this metric"
         ),
+    }
+
+
+def per_depth_by_basin(pred, truth, lat, lon, clim=None, reference="argo", window=None) -> dict:
+    """Per-depth metrics for the whole set AND for each canonical basin.
+
+    pred/truth/clim : (N, 15) -- ONE PROFILE PER ROW, depth last. The leading axis is the profile
+                      axis and must line up with lat/lon, because a basin is decided per profile.
+    lat/lon         : (N,) -- the location of each profile.
+
+    Basins come from `phase2.basins`, the single canonical definition. This function draws NO new
+    boxes: it routes each profile to the basin that module assigns, then calls the SAME
+    `per_depth()` on each subset, so a basin's number is computed identically to the overall one
+    and the two are directly comparable.
+
+    Returns
+        {
+          "overall":   per_depth(all profiles),
+          "by_basin":  {"arabian_sea": {...per_depth}, "bay_of_bengal": {...per_depth}},
+          "profiles":  {"total", "arabian_sea", "bay_of_bengal", "unassigned"},
+          ...
+        }
+    A basin with no profiles is reported with null metrics and n_profiles 0, never dropped.
+    Unassigned profiles are counted so the per-basin counts reconcile with the total, and are
+    still included in `overall` -- overall is every profile, exactly as `per_depth` alone would be.
+    """
+    pred = np.asarray(pred, dtype="float64")
+    truth = np.asarray(truth, dtype="float64")
+    if pred.ndim != 2 or pred.shape[-1] != config.N_DEPTHS:
+        raise ValueError(
+            f"per_depth_by_basin needs (N, {config.N_DEPTHS}); got {pred.shape}. Basin membership "
+            "is per profile, so the leading axis must be the profile axis -- a gridded field would "
+            "have to be flattened to (cell, depth) with matching lat/lon first.")
+    if truth.shape != pred.shape:
+        raise ValueError(f"truth {truth.shape} does not match pred {pred.shape}")
+    lat = np.asarray(lat, dtype="float64").ravel()
+    lon = np.asarray(lon, dtype="float64").ravel()
+    if not (lat.shape[0] == lon.shape[0] == pred.shape[0]):
+        raise ValueError(
+            f"lat {lat.shape}, lon {lon.shape} and pred {pred.shape} disagree on profile count; "
+            "they must be aligned or a profile is scored under the wrong basin.")
+    if clim is not None:
+        clim = np.asarray(clim, dtype="float64")
+        if clim.shape != pred.shape:
+            raise ValueError(f"clim {clim.shape} does not match pred {pred.shape}")
+
+    labels = basins.classify_points(lat, lon)
+    by_basin: dict = {}
+    counts = {"total": int(pred.shape[0])}
+    for name in basins.NAMES:                      # arabian_sea, bay_of_bengal -- the two we report
+        sel = labels == name
+        k = int(sel.sum())
+        counts[name] = k
+        if k == 0:
+            by_basin[name] = {"n_profiles": 0, "note": "no profiles fall in this basin"}
+            continue
+        block = per_depth(pred[sel], truth[sel],
+                          clim[sel] if clim is not None else None, reference, window)
+        by_basin[name] = {"n_profiles": k, **block}
+    counts["unassigned"] = int((labels == basins.UNASSIGNED).sum())
+
+    return {
+        "overall": per_depth(pred, truth, clim, reference, window),
+        "by_basin": by_basin,
+        "profiles": counts,
+        "basin_definition": ("phase2.basins, the canonical Arabian Sea / Bay of Bengal partition; "
+                             "no new boxes were drawn here"),
+        "basin_bounds": basins.BOUNDS,
+        "reconciliation_note": (
+            "profiles.arabian_sea + bay_of_bengal + unassigned == profiles.total, and `overall` "
+            "scores ALL profiles (assigned or not), so overall per-depth n equals the sum of the "
+            "two basins' n plus the unassigned profiles' finite count at that depth."),
     }

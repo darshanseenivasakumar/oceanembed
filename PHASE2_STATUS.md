@@ -17,6 +17,14 @@ Status vocabulary: `NOT STARTED` · `IN PROGRESS` · `IMPLEMENTED` · `TESTED` �
 > **The numbers are preserved verbatim as historical record and are not edited.** A matched
 > re-run under the embargo is the replacement; until it lands, this project has no quotable
 > headline.
+>
+> **UPDATE 2026-09-02, after merging `a5cdd3a`:** two embargo fixes were written independently.
+> Darshan's DROPS the 5 boundary training targets; mine CLAMPED their input window. **His is the
+> better protocol and is now canonical** -- clamping silently shortened the context for boundary
+> samples while still counting them as full ones, and it embargoed the TEST side too, which models
+> an operational setting nobody runs. **So `0.8645`, from my clamped re-run, is ALSO superseded:
+> right conclusion, wrong protocol.** The numbers to quote are **stage 1 0.8793** and **stage 2
+> 0.8548**, both measured under the canonical embargo.
 
 
 **A feature is never marked VALIDATED because unit tests pass.** TESTED means the code does what the
@@ -37,8 +45,10 @@ documented physical expectation.
 | 9 | Ocean Sentinel | Arjhun | phase2/sentinel | NOT STARTED | ☐ | ☐ | ☐ | ☐ | thresholds must be configurable |
 | 10 | Observation Priority v2 | Darshan | phase2/observation-priority | NOT STARTED | ☐ | ☐ | ☐ | ☐ | v1 heuristic already exists; not novel (JTECH 2023) |
 | 11 | **Wind input (PS req 8)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | n/a | ☑ 22 | ☑ | **0% → done.** 388 daily-mean fields from the only gap-filled global L4 covering 2025-26 (hourly, averaged by us; no P1D/P1M variant exists). Grid is offset 0.0625 deg from ours so it is block-averaged BY COORDINATE, never by position. Validated against the Findlater Jet: JJA 9.57 vs DJF 5.60 m/s over the western Arabian Sea, measured across seasons |
-| 12 | **TS-Cast-NIO v2 stage 1** | Darshan (from Arjhun) | `phase2-tscast-nio` | **SUPERSEDED — INVALID** | ☑ | ☑ | ☑ 36 | ☑ | **⚠ SUPERSEDED 2026-09-02 (see banner at top): produced by the leaky T_SEQ window. The figures below are historical record, NOT a current result, and must not be quoted.** **RMSE 0.8612 °C / skill +0.2975 on 962 independent Argo, 7 of 7 channels.** Skill positive at all 15 depths. Wind measured against a MATCHED 5-channel control: −0.0149 °C, warm bias −41%. Stage 1 only — salinity and the eq. 5 density loss are stage 2. Mixed layer (20–50 m) remains model-limited; thermocline error is inherited from the reanalysis |
+| 12 | **TS-Cast-NIO v2 stage 1** | Darshan (from Arjhun) | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 36 | ☑ | ⚠ **SUPERSEDED 2026-09-01 — see row 14 and `EXPERIMENT_LOG :: v2-embargoed`.** As measured pre-embargo: ~~RMSE 0.8612 °C / skill +0.2975, wind −0.0149 °C and −41% warm bias~~. Those numbers were correct for commit `6e6ba9a` and are kept as the historical record; the leakage embargo (`a5cdd3a`) changed them. Post-embargo the same matched pair reads **7ch 0.8793 vs 5ch 0.8682 — wind COSTS +0.0111 °C** while still removing 14.6% of the warm bias. Skill still positive at all 15 depths. Stage 1 only — salinity and the eq. 5 density loss are stage 2. Mixed layer (20–50 m) remains model-limited; thermocline error is inherited from the reanalysis |
 | 13 | **v2 UI — explain every output** | Darshan | `phase2-tscast-nio` | **TESTED** | ☑ | ☑ | ☑ 15 | ◐ | Port 8504, four tabs, frozen demo untouched. Every rendered number is asserted equal to the metrics artifact to 4 dp by `accept.py check_v2_ui`. Marked TESTED not VALIDATED: it renders validated science correctly, which is not the same as validating anything itself |
+| 14 | **Stage 2 — salinity + density (CURRENT HEADLINE)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 26 | ☑ | **T RMSE 0.8548 °C / skill +0.3027 / bias +0.1055 on the same 962 independent Argo (n=12,829)**, plus salinity 0.2450 psu and density 0.2841 kg m⁻³. Beats stage-1 7ch on every accuracy metric, so this is the shipped headline as of 2026-09-01. The paper's eq. 5 density loss is OFF: with it ON the same run reads 0.8593 / +0.2990 / bias +0.1598, i.e. it costs accuracy — reported as a negative result, not hidden. Byte identity in `artifacts/frozen_manifest.json` |
+| 15 | **Phase 1 — provenance audit + freeze** | Darshan | `fix/provenance-audit` | **VALIDATED** | ☑ | n/a | ☑ 4 | ☑ | Three findings. (1) The Aug-26 synthetic-`X_train` alarm is STALE — verified four ways (row counts match provenance exactly; ssh mean 0.4463 not 0.0017; `norm_stats` derived from it; LightGBM ssh splits span 0.0–0.659). (2) The planned row-count gate was NOT built — it is the guard this repo already removed for cause (D-012). (3) **The wind result reverses post-embargo** and was independently re-scored from disk at a 0.00e+00 gap before being written down. `freeze_headline.py` proven to fail on a tampered file |
 
 
 ## F5 — detail (Arjhun, `phase2-physics`)

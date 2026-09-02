@@ -63,23 +63,6 @@ class GriddedPatches(Dataset):
         self.times = times
         self.temp = temp
         self.n_t = surface.shape[0]
-
-        # --- temporal embargo on the INPUT WINDOW -------------------------------------------
-        # daily_split_indices() asserts the TARGET indices are disjoint and strictly ordered. It
-        # says nothing about the input window. At T_SEQ=11 a train sample centred within 5 days
-        # of the boundary read test-period surface fields -- future information -- on 5 of 304
-        # train days (1.64%), while every test in the suite still passed. That is why this bound
-        # is derived from the split itself rather than from the array ends.
-        ti = np.asarray(t_indices)
-        if ti.size == 0:
-            raise ValueError("t_indices is empty: a split with no timesteps cannot be sampled")
-        self.t_lo = int(ti.min())
-        self.t_hi = int(ti.max())
-        if self.t_hi - self.t_lo + 1 != ti.size:
-            raise ValueError(
-                f"t_indices spans [{self.t_lo}, {self.t_hi}] = {self.t_hi - self.t_lo + 1} steps "
-                f"but holds {ti.size}: a non-contiguous split. Clamping to min/max would let a "
-                f"context window cross the gap -- the exact leak this bound exists to stop.")
         # (12, n_lat, n_lon, 15) monthly climatology -- the physical prior the decoder adjusts.
         # MUST be built from training years only; see tscast_data_model.md section 3.
         # return_clim is OPT-IN so the 5-tuple every existing consumer unpacks is unchanged.
@@ -158,18 +141,11 @@ class GriddedPatches(Dataset):
         return len(self.index)
 
     def _window(self, t: int) -> list[int]:
-        """T_SEQ time steps centred on t, clamped to THIS dataset's own split (never wrapped
-        across years, and never across the train/test boundary).
-
-        Clamping repeats the edge frame rather than shortening the window, so the input tensor
-        keeps a fixed T. Both sides are clamped, not just the future one: a test window reaching
-        back into train is not future-leakage, but one rule is harder to get wrong than two, and
-        the cost -- a repeated frame on the first few test days -- makes the score harder rather
-        than easier."""
+        """T_SEQ time steps centred on t, clamped at the ends (never wrapped across years)."""
         if self.T_SEQ == 1:
             return [t]
         h = self.T_SEQ // 2
-        return [int(np.clip(k, self.t_lo, self.t_hi)) for k in range(t - h, t + h + 1)]
+        return [int(np.clip(k, 0, self.n_t - 1)) for k in range(t - h, t + h + 1)]
 
     def __getitem__(self, k: int):
         t, i, j = (int(v) for v in self.index[k])
@@ -263,6 +239,41 @@ def daily_split_indices(times):
     assert len(np.intersect1d(tr, te)) == 0, "daily train and test windows overlap"
     assert t[tr].max() < t[te].min(), "test window must start after train ends: no future leakage"
     return tr, te
+
+
+def embargo_indices(t_indices, t_seq, forbidden_start):
+    """Drop training targets whose T_SEQ input window would reach into the test block.
+
+    THE BUG THIS EXISTS FOR
+    `GriddedPatches._window` builds a window of `t_seq` steps centred on the target and clamps it
+    to the ARRAY bounds [0, n_t-1] -- not to the split boundary. So a training target within
+    `t_seq // 2` days of the first test day silently reads test-period SURFACE fields as input.
+    Measured on the shipped daily bundle at T_SEQ=11: the last 5 training days (1.64% of targets,
+    ~987 of 60,000 drawn samples) were affected.
+
+    It was never caught because `test_monthly_train_and_test_target_indices_never_overlap` checked only target INDEX
+    overlap, not window overlap -- and on the monthly split, not the daily one.
+
+    WHY THIS IS SOLVED HERE AND NOT IN `_window`
+    Clamping inside `_window` would silently shorten the window for boundary targets, so those
+    samples would carry a different amount of temporal context than every other sample while
+    still being trained on. Dropping the target is honest: it costs 5 of 304 days and every
+    surviving sample sees exactly `t_seq` steps.
+
+    The TEST indices are deliberately NOT embargoed. A test target reaching back into the train
+    period is not leakage -- those observations genuinely exist before the forecast date, and
+    withholding them would model an operational setting nobody runs.
+
+    t_indices      : candidate target indices (the train split)
+    t_seq          : window length; `t_seq <= 1` embargoes nothing
+    forbidden_start: first index of the block that must not be read (the first test index).
+                     None disables the embargo and returns the input unchanged.
+    """
+    t_indices = np.asarray(t_indices)
+    if forbidden_start is None or int(t_seq) <= 1:
+        return t_indices
+    h = int(t_seq) // 2
+    return t_indices[t_indices + h < int(forbidden_start)]
 
 
 def split_indices(times, train_years=None, test_years=None):

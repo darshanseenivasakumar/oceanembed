@@ -1,0 +1,184 @@
+{
+  "what": "Byte identity of the frozen v2 headline. Proves a checkpoint is the file that produced the recorded numbers -- NOT that it was trained on any given data (unknowable from the file, D-012).",
+  "frozen_at": "2026-09-01T06:42:37+00:00",
+  "git_commit": "a5cdd3a9c211aa33c363a8eab21fb5e22bf2eac4",
+  "frozen_copy_dir": "artifacts/frozen/",
+  "files": {
+    "tscast_stage2_s2_nodensity.pt": {
+      "role": "HEADLINE: stage-2, density loss OFF (T+S+rho)",
+      "bytes": 2261397,
+      "sha256": "53e73e4f3a5cbbd14a2fe0e54f79ea5bb35abc3f21755d02d02bbeefbc483f4c"
+    },
+    "tscast_stage2_s2_nodensity_metrics.json": {
+      "role": "scored metrics for the headline",
+      "bytes": 18293,
+      "sha256": "e850e53cfa79e1b5461e6c29513bca98f15fbbb6c62b0fa89f6a58d5697610d1"
+    },
+    "tscast_stage2_s2.pt": {
+      "role": "stage-2 control, density loss ON (the physics ablation)",
+      "bytes": 2260953,
+      "sha256": "3b43ac09b43694c156b4cc28de9490b01b0de8aeae3a18969c4cc0cdb2900ae8"
+    },
+    "tscast_stage2_s2_metrics.json": {
+      "role": "scored metrics for the physics control",
+      "bytes": 18301,
+      "sha256": "4372c394bc10e8f00f876524bd4208e6f377f868f49e53455fdaf78337ca2e54"
+    },
+    "tscast_stage1_7ch.pt": {
+      "role": "stage-1, wind ON (the wind ablation)",
+      "bytes": 2214463,
+      "sha256": "d9969a63d6abb036a37eb1fba529698d547fd767739f5be4dec009411f30ef5d"
+    },
+    "tscast_stage1_7ch_metrics.json": {
+      "role": "scored metrics for wind ON",
+      "bytes": 10684,
+      "sha256": "9761a6aa64b7050eb043a75a1216b7293ba2078d0f7bab292ed7afb75e13650b"
+    },
+    "tscast_stage1_5ch.pt": {
+      "role": "stage-1, wind OFF -- matched control",
+      "bytes": 2208831,
+      "sha256": "85adc3ab72cc7c9bfbeaefe1a21041079b2b7f1dbba6c6711a023ba25363e67e"
+    },
+    "tscast_stage1_5ch_metrics.json": {
+      "role": "scored metrics for wind OFF",
+      "bytes": 10747,
+      "sha256": "75b36f0ca48b734179cb41982fe0d16e13dfed7aea74a61db5190914874284ec"
+    }
+  },
+  "claims": {
+    "headline": {
+      "seed": 42,
+      "channels": [
+        "sst",
+        "sss",
+        "ssh",
+        "u",
+        "v",
+        "wu",
+        "wv"
+      ],
+      "T_SEQ": 11,
+      "encoder": "cnn3d",
+      "argo_profiles": 962,
+      "train_period": [
+        "2025-06-01",
+        "2026-03-26"
+      ],
+      "test_period": [
+        "2026-04-01",
+        "2026-06-23"
+      ],
+      "best_epoch": 8,
+      "protocol": "embargoed_v2",
+      "overall_rmse": 0.8547624448808847,
+      "overall_bias": 0.1054850734862639,
+      "overall_correlation": 0.89344544778383,
+      "overall_skill_rmse_ratio": 0.3027297186292427,
+      "overall_skill_vs_climatology": 0.5138141547171449,
+      "overall_rmse_climatology": 1.2258696056864993,
+      "overall_n": 12829,
+      "n_depths": 15
+    },
+    "physics_control": {
+      "seed": 42,
+      "channels": [
+        "sst",
+        "sss",
+        "ssh",
+        "u",
+        "v",
+        "wu",
+        "wv"
+      ],
+      "T_SEQ": 11,
+      "encoder": "cnn3d",
+      "argo_profiles": 962,
+      "train_period": [
+        "2025-06-01",
+        "2026-03-26"
+      ],
+      "test_period": [
+        "2026-04-01",
+        "2026-06-23"
+      ],
+      "best_epoch": 8,
+      "protocol": "embargoed_v2",
+      "overall_rmse": 0.8592800723811269,
+      "overall_bias": 0.15983886229610003,
+      "overall_correlation": 0.8971239344978731,
+      "overall_skill_rmse_ratio": 0.29904447553382196,
+      "overall_skill_vs_climatology": 0.5086613527203453,
+      "overall_rmse_climatology": 1.2258696056864993,
+      "overall_n": 12829,
+      "n_depths": 15
+    },
+    "wind_on": {
+      "seed": 42,
+      "channels": [
+        "sst",
+        "sss",
+        "ssh",
+        "u",
+        "v",
+        "wu",
+        "wv"
+      ],
+      "T_SEQ": 11,
+      "encoder": "cnn3d",
+      "argo_profiles": 962,
+      "train_period": [
+        "2025-06-01",
+        "2026-03-26"
+      ],
+      "test_period": [
+        "2026-04-01",
+        "2026-06-23"
+      ],
+      "best_epoch": 7,
+      "protocol": "embargoed_v2",
+      "code_commit": "a5cdd3a",
+      "overall_rmse": 0.8793149343866818,
+      "overall_bias": 0.12956736968511245,
+      "overall_correlation": 0.8942323595335954,
+      "overall_skill_rmse_ratio": 0.28270108802130167,
+      "overall_skill_vs_climatology": 0.4854822708741756,
+      "overall_rmse_climatology": 1.2258696056864993,
+      "overall_n": 12829,
+      "n_depths": 15
+    },
+    "wind_off_control": {
+      "seed": 42,
+      "channels": [
+        "sst",
+        "sss",
+        "ssh",
+        "u",
+        "v"
+      ],
+      "T_SEQ": 11,
+      "encoder": "cnn3d",
+      "argo_profiles": 962,
+      "train_period": [
+        "2025-06-01",
+        "2026-03-26"
+      ],
+      "test_period": [
+        "2026-04-01",
+        "2026-06-23"
+      ],
+      "best_epoch": 7,
+      "protocol": "embargoed_v2",
+      "code_commit": "a5cdd3a",
+      "overall_rmse": 0.8682066991526605,
+      "overall_bias": 0.15178146250055236,
+      "overall_correlation": 0.89712836468993,
+      "overall_skill_rmse_ratio": 0.29176260254331376,
+      "overall_skill_vs_climatology": 0.4983997888437798,
+      "overall_rmse_climatology": 1.2258696056864993,
+      "overall_n": 12829,
+      "n_depths": 15
+    }
+  },
+  "recorded_in": "docs/EXPERIMENT_LOG.md :: v2-embargoed 2026-09-01",
+  "note": "Every number in `claims` is copied out of the frozen metrics file beside it, never retyped. Stage-1 legs were independently reproduced from disk by scripts/phase2/rescore_checkpoint.py (gap 0.00e+00 on both)."
+}

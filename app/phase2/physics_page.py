@@ -31,9 +31,15 @@ st.set_page_config(page_title="OceanEmbed — Ocean structure", layout="wide")
 GRIDS = os.path.join(config.DATA_PROCESSED, "grids.npz")
 SUBSURFACE = os.path.join(config.DATA_PROCESSED, "subsurface.npz")
 
-#: The two boxes the validated seasonal claim is made over. Stated here rather than buried,
-#: because Unit B and Unit A used DIFFERENT boxes and got different magnitudes for the same
-#: (correct) conclusion — so the box definition is part of the result.
+#: LEGACY, AND DELIBERATELY NOT THE CANONICAL PARTITION.
+#: `src/phase2/basins.py` is the one canonical Arabian Sea / Bay of Bengal definition, and every
+#: model metric goes through it. These two small boxes are kept ONLY because the validated
+#: seasonal claim on this page was measured over them: swapping in the canonical masks would
+#: silently change a published magnitude without re-deriving it. They are frozen to that claim.
+#: Do not reuse them anywhere else, and do not add a third definition -- import phase2.basins.
+#: Stated here rather than buried, because Unit B and Unit A used DIFFERENT boxes and got
+#: different magnitudes for the same (correct) conclusion — so the box definition is part of
+#: the result.
 BOB = {"name": "Bay of Bengal", "lat": (15.0, 22.0), "lon": (85.0, 95.0)}
 ARABIAN = {"name": "Arabian Sea", "lat": (10.0, 22.0), "lon": (60.0, 72.0)}
 

@@ -1103,6 +1103,12 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - BLOCKERS: none. A and C can start immediately against `artifacts/sample_*`.
 
 ## 2026-08-30 — Unit B (Darshan) — v2 TS-Cast-NIO: wind in, inference fixed, model retrained, UI built
+
+> ⚠ **SUPERSEDED 2026-09-01 — see the PHASE 1 entry at the end of this file.** The numbers in this
+> entry were correct for commit `6e6ba9a` and are preserved unedited as the pre-embargo record. The
+> leakage embargo (`a5cdd3a`) changed them: **0.8612 → 0.8793** for 7ch, **0.8760 → 0.8682** for the
+> matched 5ch control, so **the wind RMSE result reverses** (wind now costs +0.0111 °C) while the bias
+> benefit survives at 14.6% rather than 41%. Current shipped headline: stage-2 density-OFF, 0.8548 °C.
 - CURRENT PHASE: Phase 2 v2 (TS-Cast-NIO). Branch `phase2-tscast-nio`. Solo on both units while
   Arjhun's Claude was out of tokens; handing back Mon 16:30 IST.
 - WHAT WORKS [VERIFIED by execution]:
@@ -1113,7 +1119,8 @@ then `git add -f src/oceanembed/data/` and commit. One line.
   - **The shipped stage-1 model: Argo RMSE 0.8612 degC, skill +0.2975, bias +0.1247** on 962
     INDEPENDENT profiles, 12,829 depth comparisons. Skill positive at all 15 depths; correlation
     >= 0.787 everywhere. Full per-depth table in `docs/EXPERIMENT_LOG.md`.
-  - **Wind is worth 0.0149 degC and 41% of the warm bias**, measured against a MATCHED 5-channel
+  - ⚠ _[SUPERSEDED — post-embargo: wind COSTS +0.0111 degC and removes 14.6% of the bias.]_
+    **Wind is worth 0.0149 degC and 41% of the warm bias**, measured against a MATCHED 5-channel
     control (same seed, samples, epochs, patience, everything). Both scored on identical points --
     `rmse_climatology` comes out 1.2259 in both.
   - **The inference path loads.** It previously raised `Missing key(s) ... decoder.*` on every
@@ -1176,3 +1183,296 @@ then `git add -f src/oceanembed/data/` and commit. One line.
 - NEXT TASK (A): decide whether the eq. 5 run or the ablation is the shipped stage 2 — the
   ablation is better on every accuracy metric; see AGENT_SYNC 2026-08-31 section 9.
 - BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — PHASE 1: the provenance audit, and the wind result reverses
+
+- CONTEXT: Phase 1 of the SIH sprint plan was scoped as "fix the synthetic-vs-real artifact
+  mismatch and add a row-count verifier". Both halves of that scope turned out to be wrong, and
+  the audit found something more important instead. Nothing was fixed that was not first
+  reproduced.
+- FINDING 1 — THE SYNTHETIC-DATA BUG IS ALREADY FIXED [VERIFIED four ways]. The Aug-26 audit note
+  (`ASK DARSHAN (6)`) reported `X_train.npy` as the stale synthetic file with 143,514 rows against
+  `provenance.json`'s 323,028. On disk today: X_train (323028, 11), y_train (323028, 15), X_test
+  (107676, 11), y_test (107676, 15) — all four agree with provenance exactly. ssh mean **0.4463**,
+  not the synthetic 0.0017. `norm_stats.json` reproduces this array's per-column means to 6 dp, so
+  it was computed FROM it. And the LightGBM's own ssh split thresholds span **0.0 to 0.659**, which
+  is impossible for a model trained on an ssh field centred at 0.0017 — so `lgbm_model.pkl` was
+  trained on real data too. The bundle landed and replaced them; the note is stale, not the data.
+- FINDING 2 — THE PLANNED ROW-COUNT GATE WAS NOT BUILT, DELIBERATELY. It is the guard this repo
+  already tried and removed, for a reason recorded in `test_validation.py`: a row count proves the
+  training DATA is right, never that THIS CHECKPOINT was trained on it (the pickles are unstamped,
+  D-012), and it silently passed on the demo machine while rendering an empty baseline. Re-adding
+  it would reintroduce a known-bad guard. Built the narrower true thing instead — see below.
+- FINDING 3 — **THE WIND RESULT REVERSES AFTER THE LEAKAGE EMBARGO** [VERIFIED, and independently
+  reproduced]. Commit `a5cdd3a` embargoed training targets whose T_SEQ window reached into the
+  test block, the stage-1 legs were retrained on 08-31, and that run was never logged. So
+  EXPERIMENT_LOG carried pre-embargo numbers while the artifacts carried different ones:
+
+  | | 7ch (wind ON) | 5ch (matched control) | delta |
+  |---|---|---|---|
+  | logged (pre-embargo, 6e6ba9a) | 0.8612 | 0.8760 | −0.0149 wind HELPS |
+  | on disk (post-embargo, a5cdd3a) | **0.8793** | **0.8682** | **+0.0111 wind HURTS** |
+
+  Wind still removes **14.6%** of the warm bias (+0.1518 → +0.1296), so the honest reading is
+  split: wind buys bias and pays in RMSE. The legs are matched — identical seed, T_SEQ, samples,
+  epochs, patience, embargo (5 of 304 dropped in both), Argo set, and `rmse_climatology` identical
+  to 4 dp at 1.2259, which is this repo's own check that two legs scored the same points.
+- HOW FINDING 3 WAS CONFIRMED BEFORE IT WAS WRITTEN DOWN: `scripts/phase2/rescore_checkpoint.py`
+  (new) reloads the saved checkpoint from disk and re-runs the same split/embargo/normalisation/
+  collocation, reusing the trainer's own `dataset`/`metrics`/`validate_argo` modules rather than
+  reimplementing them. Both legs reproduce their recorded metrics with a largest gap of
+  **0.00e+00** across rmse, bias, correlation and skill, n identical at 12,829. A retrain was
+  deliberately NOT used as the check: that proves the pipeline reproduces, not that THESE shipped
+  checkpoints produce their recorded numbers.
+- WHAT WORKS (new, [VERIFIED by execution]):
+  - `scripts/phase2/freeze_headline.py` — SHA-256 identity for all 8 files behind the shipped
+    claims (headline + physics control + both wind legs), plus a `claims` block that copies each
+    leg's scores out of its metrics JSON. `--verify` re-checks. Proven to FAIL on a tampered file
+    (exit 1) and pass when restored — a guard never seen failing is not a guard.
+  - `artifacts/frozen_manifest.json` is the one artifact un-ignored in `.gitignore`, so another
+    machine can prove its checkpoints are the ones that were scored.
+  - `docs/EXPERIMENT_LOG.md` gained `v2-embargoed 2026-09-01`, appended above `v2-final`. **No row
+    was edited or deleted** — the file is append-only and a superseded result is evidence.
+- HEADLINE CHANGED (decision taken with Darshan): the shipped headline is now **stage-2 with the
+  density term OFF — T RMSE 0.8548, skill +0.3027, bias +0.1055**, which also ships salinity and
+  density. It beats the stage-1 7ch model on every accuracy metric. This closes the open
+  "NEXT TASK (A)" from the 08-31 entry.
+- FILES MODIFIED: `scripts/phase2/freeze_headline.py` (new), `scripts/phase2/rescore_checkpoint.py`
+  (new), `tests/phase2/test_frozen_manifest.py` (new, 4 tests), `docs/EXPERIMENT_LOG.md` (append
+  only), `.gitignore` (un-ignore the manifest), `docs/HANDOFF.md`.
+- TESTS RUN: full suite — **438 passed, 1 failed, 2 skipped**. The 4 new manifest tests pass, and
+  one of them independently re-derives that the declared headline really is the lowest RMSE we
+  ship. Nothing I changed broke anything.
+- KNOWN ISSUES:
+  - **`tests/phase2/test_validation.py::test_lightgbm_stays_refused_even_when_the_row_counts_match`
+    now FAILS: `assert 323028 != 323028`.** Its setup line asserts the counts DIFFER, so it only
+    held while the data was still wrong — fixing the data broke the test. The production gate it
+    guards is fine and needs no change. NOT TOUCHED: F8 Validation Lab is Unit A's, and the fix
+    should assert the invariant in whichever state it finds rather than depend on the machine —
+    which is the very bug the test exists to catch.
+  - Stage-2 metrics files record `code_commit: null`. Minor provenance gap; stage-1 records it.
+  - The wind RMSE cost (0.0111 degC) is ONE SEED and too small to settle. Not claimed as a
+    finding; logged as a limitation. Same caveat the eq. 5 result carries.
+  - Stage-2 legs were verified from their metrics JSONs, not yet re-scored from disk the way the
+    stage-1 legs were — `rescore_checkpoint.py` is stage-1 only so far.
+- NEXT TASK (B): basin masks (Arabian Sea / Bay of Bengal) + per-basin metrics, then the depth
+  diagnostics. Both feed the currents ablation's reporting.
+- NEXT TASK (A): the currents ablation, 5ch vs a matched 3ch `[sst,sss,ssh]`. Note it now sits on
+  top of a reversed wind result, so run it against the 5ch leg, not the 7ch one. Then per-depth
+  sigma recalibration.
+- BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — train_stage2.py: the stale literal that travelled forward
+
+- CONTEXT: flagged at the end of the Phase-1 provenance audit and fixed as a separate code-only
+  change, after the documentation pass was committed.
+- THE BUG [VERIFIED]: `train_stage2.py` carried `"stage1_rmse": 0.8612` and
+  `"stage1_skill_rmse_ratio": 0.2975` as **float literals** inside the `compare_against` block it
+  writes into every stage-2 metrics artifact. The leakage embargo (`a5cdd3a`) retrained stage 1 to
+  0.8793 / +0.2827; the literals did not move. So every stage-2 run after 08-31 stamped a
+  SUPERSEDED number into a FRESH artifact under the name of a current one. Nothing errored — the
+  artifact looked authoritative, which is what made it worth fixing rather than noting.
+- THE TELL: the block's own `which` field already read
+  `"stage-1 7-channel run, artifacts/tscast_stage1_7ch_metrics.json"`. It named the file the
+  numbers should have come from and then hardcoded them anyway.
+- FIX: new `_stage1_comparison(tag="7ch")` reads `metrics.overall` out of that artifact at runtime
+  and returns rmse, skill_rmse_ratio and n. Verified live: it now returns **0.8793149 / +0.2827011
+  / n=12,829**, matching the artifact to 1e-12. It takes a `tag`, so a future run can score against
+  the 5ch matched control — which post-embargo is the better leg.
+- REFUSES RATHER THAN INVENTS: if the stage-1 artifact is absent the block returns `None` for all
+  three values plus a stated reason, instead of falling back to a remembered number. That path was
+  executed, not assumed.
+- DOCSTRING CORRECTED, HISTORY KEPT: the module header said stage 1 "produced the shipped result
+  (0.8612 degC)". It now says that figure is pre-embargo and superseded by 0.8793, and points at
+  `EXPERIMENT_LOG :: v2-embargoed`. The number itself is left in the prose — it is the historical
+  record, and only its status was wrong.
+- WHAT WORKS (new, [VERIFIED by execution]):
+  - `tests/phase2/test_stage2_comparison.py` — 4 tests. The load-bearing one greps the source for
+    `"stage1_*": <number>` and fails if a scored value is ever assigned as a literal again.
+    **Proven to fail**: the literal was temporarily reintroduced, the test failed at line 35, the
+    file was restored and it passed. A regression test never seen failing is not a regression test.
+- FILES MODIFIED: `src/phase2/tscast_nio/train/train_stage2.py` (docstring + new helper + one call
+  site), `tests/phase2/test_stage2_comparison.py` (new, 4 tests), `docs/HANDOFF.md`.
+- TESTS RUN: full suite **442 passed, 1 failed, 2 skipped** before adding the new file; stage-2
+  suite 30 passed after. The single failure is the pre-existing
+  `test_lightgbm_stays_refused_even_when_the_row_counts_match` in Unit A's F8 — unchanged, not mine.
+- KNOWN ISSUES:
+  - Three docstrings still mention 0.8612 as prose (`tscast.py`, `fetch_argo_ts_daily_period.py`,
+    `test_tscast_stage2.py`). They are descriptive, not values written into artifacts, so they were
+    left. Worth a sweep if anyone is in those files anyway.
+  - Existing stage-2 artifacts on disk (`tscast_stage2_s2*_metrics.json`) still carry the old
+    hardcoded pair in their `compare_against` block. They are NOT rewritten — an artifact records
+    what the run produced. Any stage-2 rerun will now write the correct value.
+- NEXT TASK (B): basin masks + per-basin metrics, then depth diagnostics.
+- NEXT TASK (A): currents ablation, 5ch vs matched 3ch.
+- BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — basins.py: the canonical Arabian Sea / Bay of Bengal partition
+
+- CONTEXT: sprint task "basin masks". `AGENT_SYNC` (F5 barrier-layer check) had the two units
+  quoting BoB-vs-Arabian numbers from DIFFERENT boxes — 9.5/7.1 m vs 8.3/4.6 m — and Arjhun's own
+  note asked to "pin the boxes in config/ ... otherwise we will quote two different figures for the
+  same thing". This is that pin.
+- WHAT WAS BUILT: `src/phase2/basins.py` — `grid_masks()` (three boolean masks on the frozen
+  100×240 grid), `classify_points(lat, lon)` (labels Argo floats), `summary()` (cell counts +
+  bounds text). Existing boxes were NOT reused: the F5 boxes are small open-ocean SAMPLING boxes
+  (islands in the domain), and reporting skill by basin needs a PARTITION of it.
+- THE DEFINITION [all boundaries verified on the real land mask, True=land confirmed at 21N/78E]:
+  - Arabian Sea = ocean, lon <= 78.0E, minus the Persian Gulf. 6,877 cells.
+  - Bay of Bengal = ocean, 80.0E <= lon <= 100.0E (includes the Andaman Sea; the 100E cap excludes
+    Malacca + Gulf of Thailand, which drain to the Pacific — 439 cells a naive rule would grab).
+    4,068 cells.
+  - Unassigned = 887 cells: the 78–80E strip south of Sri Lanka, the Persian Gulf, and east of
+    100E. Nothing is forced into a basin; leftovers are reported, not hidden.
+  - North of ~8N the SUBCONTINENT separates the basins, so the land mask does the work and the
+    meridians only matter south of India.
+- REAL DATA CAUGHT A BUG, AS DESIGNED: the Persian Gulf box first used lon<=57.0E, which reached
+  past the Strait of Hormuz into the GULF OF OMAN and stranded four Argo profiles at 25.2N/56.9E as
+  `unassigned`. Tightened to the strait at 56.5E — still excludes the Persian Gulf proper (319
+  cells), strands no float. Locked by a regression test.
+- VALIDATED, not just tested:
+  - Partition is exact: zero pairwise overlap, the three masks reproduce the ocean (11,832 cells)
+    exactly once.
+  - All 4,331 Argo profiles in argo_daily_period.parquet classify (2,934 Arabian / 1,397 BoB /
+    0 unassigned).
+  - SCIENTIFIC check on the real bundle: Arabian Sea surface salinity **35.73 psu** vs Bay of
+    Bengal **31.95 psu**, a 3.78 psu freshening — the physical fact that distinguishes the basins.
+    A swapped-mask definition would fail this.
+- FILES: `src/phase2/basins.py` (new), `tests/phase2/test_basins.py` (new, 16 tests).
+- TESTS RUN: full suite **462 passed, 1 failed, 2 skipped**. The failure is the pre-existing F8
+  row-count test (Unit A), unchanged. The 1 basin skip is the salinity check on a fresh clone
+  without the data bundle; it PASSES here on the real bundle.
+- FOR ARJHUN: when you slice the currents ablation by basin, import `phase2.basins` — do not
+  re-cut boxes. `classify_points()` takes the Argo lat/lon straight from `pivot_profiles`.
+- NEXT TASK (B): wire these masks into `validation.metrics` so any run reports per-basin per-depth
+  RMSE, then the depth diagnostics.
+- BLOCKERS: none.
+
+## 2026-09-01 — Unit B (Darshan) — per-basin metrics: Arabian Sea vs Bay of Bengal, wired into the Argo scoring
+
+- CONTEXT: sprint task, follows basins.py. Wire the canonical partition into the validation
+  metrics so evaluation reports each basin, per depth. No retrain, no architecture/dataset change,
+  headline untouched.
+- WHAT WAS BUILT: `metrics.per_depth_by_basin(pred, truth, lat, lon, clim=...)` in
+  `src/phase2/tscast_nio/metrics.py`. It routes each PROFILE through `phase2.basins.classify_points`
+  and calls the SAME `per_depth()` on each subset, so a basin number is computed identically to the
+  overall one. `per_depth()` itself is unchanged — every existing caller and the frozen numbers are
+  untouched. Returns overall + by_basin + a `profiles` reconciliation block. Draws NO new boxes; a
+  test asserts it defers to `phase2.basins`.
+- WIRED INTO: `scripts/phase2/rescore_checkpoint.py` now prints a per-basin table (overall skill +
+  per-depth RMSE for both basins, with profile counts). This is the evaluation path for the FROZEN
+  checkpoints, so basin numbers come out without retraining anything.
+- RESULT on the frozen 7ch checkpoint [VERIFIED by execution, 962 independent Argo]:
+  - reconciles exactly: Arabian 679 + BoB 283 + unassigned 0 = 962.
+  - **Arabian Sea rmse 0.8680, skill +0.3016, bias +0.076 (n=9108).**
+  - **Bay of Bengal rmse 0.9064, skill +0.2339, bias +0.261 (n=3721).** The BoB is harder and runs
+    3.4x warmer-biased; its per-depth error peaks at 75-100 m (1.42 / 1.49 degC), the
+    barrier-layer / thermocline zone this basin is known for. A real, defensible basin difference.
+  - overall 0.8793 unchanged, reproduced to 0.00e+00 — the split does not move the headline.
+- FILES: `src/phase2/tscast_nio/metrics.py` (+per_depth_by_basin), `scripts/phase2/rescore_checkpoint.py`
+  (+per-basin printout), `tests/phase2/test_metrics_by_basin.py` (new, 8 tests).
+- TESTS RUN: the 8 new tests pass (incl. a real-Argo reconciliation where a perfect reconstruction
+  gives 0 RMSE per basin). Full suite **470 passed, 1 failed, 2 skipped** — the failure is the
+  pre-existing F8 row-count test (Unit A), unchanged.
+- FOR ARJHUN: the currents ablation's per-basin reporting is now a one-liner —
+  `metrics.per_depth_by_basin(mu, truth[keep], keys['lat'].values[keep], keys['lon'].values[keep], clim=...)`.
+  Same call the rescore script uses.
+- NEXT TASK (B): depth diagnostics (pred-vs-Argo profile, error-vs-depth, uncertainty-vs-depth),
+  per basin, using these outputs.
+- BLOCKERS: none.
+
+---
+
+## 2026-09-02 — D2, D3, D4 (Darshan's machine)
+
+**D1 first: the branch was never pushed.** `fix/provenance-audit` had seven commits with no
+upstream, and `origin/phase2-tscast-nio` was still at `950ec6d`. So A1 (leakage fix), A3
+(superseded numbers), A12 (per-basin metrics), D4 (basins.py) and D6 (provenance) were all
+invisible to Arjhun and scheduled to be redone. Pushed; `phase2-tscast-nio` fast-forwarded.
+**Treat every "MISSING"/"does not exist" claim in the master plan as unverified** — several were
+already false on this disk.
+
+**A1 acceptance — PASSES, and reproduced.** Pre-fix `dataset.py` makes 7 of the 18 embargo tests
+fail; post-fix all 18 pass. The 5 crossings are pinned twice: `{25,26,27,28,29}` on a 30-day
+scale model, and 304 -> 299 kept targets on the real 388-day calendar. Retrained from scratch as
+`7ch_repro`: **rmse 0.879315, identical to the Sep 1 run to six decimals**, same embargo count,
+same best epoch. 0.8611 was leaky; 0.8793 is the honest number.
+
+**D2 — INCOIS LAS: right product, dead data layer.** Full writeup in `docs/INCOIS_PROBE.md`.
+The catalogue is healthy (0.19 s) and carries exactly what the PS names: both gridded Argo
+products, 1 deg, 10-day, to 30-Jul-2026, **temperature and salinity**. 14 of our 15
+`config.DEPTHS` are exact INCOIS levels (only 0 m absent), and ~98% of our region is covered.
+But every retrieval route dies in Ferret: `dodsC` hangs at zero bytes (240 s), the advertised
+`ftds_url` 404s, and `ProductServer.do` returns "An error occurred in the service that was
+creating your product". **This is an outage, not the wrong-product problem the plan feared** —
+re-probe before the freeze with `scripts/phase2/probe_incois_las.py` (exits non-zero while down,
+and asserts the 24 depth levels have not silently changed). A8 proceeds on argopy meanwhile.
+
+**D3 — Argo T+S fetched.** `artifacts/argo_daily_period_ts.parquet`, 59,626 rows / ~4,334
+profiles in 2025-06-01..2026-06-23, **100% salinity coverage**. Both guarded tables untouched,
+and temperature is identical to the stage-1 table where they overlap (max |diff| 0.000000), so
+stage-2 salinity sits on the same profiles as the stage-1 headline. `train_stage2.py:258` picks
+this file up automatically and drops its "salinity scored against held-out GLORYS only" warning.
+**Artifact is gitignored — it must be re-fetched on Arjhun's machine, not copied.**
+CAVEAT: the script's own overlap diagnostic printed `60717 rows of 59599` — an overlap larger
+than the table it merged into means the `(lat, lon, date, depth_idx)` key matches one-to-many,
+so there are duplicate rows on that key and the profile count may be inflated. The temperature
+check is unaffected. Worth resolving before any salinity number is quoted.
+
+**D4 — basin definition finished.** `21b5131` had already done the hard part. Two gaps closed:
+- The record carried only a prose string naming the module. Added public `basins.BOUNDS` (real
+  numbers, JSON-serializable) and put it on every record as `basin_bounds`.
+- `app/phase2/physics_page.py:37-38` still held rival boxes. **Not swapped to the canonical
+  masks** — they underwrite a published seasonal magnitude, and changing them silently would
+  move a number without re-deriving it. Annotated as legacy, frozen to that one claim.
+Two new tests: the record carries numbers, and each boundary is probed from both sides
+(including 25.2 N / 56.9 E staying Arabian Sea, the Hormuz case).
+
+**Also fixed:** `test_lightgbm_stays_refused_even_when_the_row_counts_match` was failing on this
+machine. Its precondition required the row counts to DIFFER; `b83a571` made them agree
+(323028 == 323028), so it died on scaffolding before reaching its real assertion, and the
+`matched` dict it built was dead code. Now asserts the refusal unconditionally. This is the
+failure the previous handoff entry recorded as "pre-existing F8 row-count test, unchanged".
+
+**BLOCKERS:** none. **NEXT:** A8 on argopy; D5 waits on Arjhun's A9.
+
+### 2026-09-02 (later) — the D3 duplicate-key anomaly, diagnosed and fixed
+
+**It was one Argo float, duplicated at source, and it never affected a number.**
+
+The fetch script printed `overlap with the stage-1 table: 60717 rows of 59599` — an overlap
+larger than the table it merged into, which reads as corruption. Traced:
+
+- 1,118 duplicate-key rows in **both** the T+S table and the frozen stage-1 table (identical
+  counts, so D3 did not introduce it). 559 keys, each appearing exactly twice.
+- All 559 are **byte-identical in temp AND psal**. Zero disagree.
+- They are 40 profiles from a single float: lat 13.13–15.03, lon 67.79–69.79 (Arabian Sea),
+  consecutive displacement ~0.30 deg, **time gaps median 9.79 d** — one float's ~10-day cycle,
+  every profile delivered twice by Ifremer ERDDAP.
+- Merge arithmetic reconciles exactly: 559 doubled keys x 2 extra rows = 1,118; 59,599 + 1,118
+  = 60,717.
+
+**Impact on published numbers: none.** `validate_argo.pivot_profiles` aggregates with
+`aggfunc="mean"`, and mean(x, x) = x. Verified by pivoting the table before and after the
+dedupe: keys identical, array shape (4334, 15) both times, `array_equal(..., equal_nan=True)`
+True. The artifact was only rewritten once that equality held.
+
+**Correction to the earlier entry:** I flagged that the ~4,334 profile count "may be inflated".
+It is not. `ngroups` groups by (lat, lon, date), so the duplicated profiles were already
+collapsed — 4,334 before and after. The only real cost was 559 redundant rows and a diagnostic
+that made a clean result look broken.
+
+**Fixed:**
+- `download_argo._dedupe_rows` drops EXACT duplicates only, and loudly reports any surviving
+  key-duplicates that *disagree* — those are not redundant, and pivot_profiles would silently
+  average two distinct measurements into one. Wired into `download()`.
+- The fetch script dedupes on assembly too (cached per-year parquets predate the fix) and its
+  overlap diagnostic now compares distinct rows, so it cannot fan out again.
+- `tests/phase2/test_argo_dedupe.py`, 5 tests. The one that matters asserts a *conflicting* key
+  is kept and reported, never silently collapsed.
+- `artifacts/argo_daily_period_ts.parquet` rewritten deduped: 59,626 -> 59,067 rows, 4,334
+  profiles unchanged.
+
+**`argo_daily_period.parquet` deliberately left alone** with its 1,118 rows. It is frozen and
+underwrites the 0.8793 headline; the pivot handles it, so rewriting it would churn a published
+input for no numerical gain.

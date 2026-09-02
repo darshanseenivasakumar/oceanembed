@@ -43,9 +43,16 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from oceanembed import config  # noqa: E402
 
-# The commit that fixed the temporal leak in dataset._window(). Any run built from code that does
-# NOT contain this commit read test-period surface fields on 5 of 304 train days.
-EMBARGO_COMMIT = "1d3c135"
+# The CANONICAL temporal embargo: dataset.embargo_indices(), which DROPS training targets whose
+# T_SEQ window would reach into the test block. Any run built from code without this commit read
+# test-period surface fields on 5 of 304 train days.
+#
+# This gated on 1d3c135 until 2026-09-02 -- my own window-clamping fix, written independently on
+# this machine before a5cdd3a was pushed. Darshan's is the better protocol and won: clamping
+# silently shortened the context for boundary samples while still counting them as full ones, and
+# it embargoed the TEST side too, which models an operational setting nobody runs. Gating on my
+# commit would now REFUSE his correctly-embargoed runs, since they predate the merge.
+EMBARGO_COMMIT = "a5cdd3a"
 STAGES = ("stage1", "stage2")
 
 

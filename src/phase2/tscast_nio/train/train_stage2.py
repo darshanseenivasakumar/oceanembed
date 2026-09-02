@@ -1,8 +1,11 @@
 """Train TS-Cast-NIO stage 2: temperature AND salinity, with the paper's eq. 5 density constraint.
 
 WHAT STAGE 2 ADDS, AND WHY IT IS A SEPARATE FILE
-Stage 1 produced the shipped result (0.8612 degC, 7 channels, 962 independent Argo profiles). That
-number has to stay reproducible, so `train_stage1.py` is imported here and not edited: the loss,
+Stage 1 produced the result that was shipped at the time (0.8612 degC, 7 channels, 962
+independent Argo profiles). That figure is PRE-EMBARGO and has since been superseded: the leakage
+embargo (a5cdd3a) retrained the same leg to 0.8793 degC -- see `docs/EXPERIMENT_LOG.md ::
+v2-embargoed`. Whatever the current number is, it has to stay reproducible, so `train_stage1.py`
+is imported here and not edited: the loss,
 the calibration measurement and the best-epoch rule are the SAME functions, not copies that could
 drift from the ones that produced the published number.
 
@@ -52,46 +55,9 @@ from phase2.physics import seawater
 from phase2.tscast_nio.train.train_stage1 import MAX_DAYS, calibration
 
 
-def _stage1_baseline(path: str) -> dict:
-    """READ the stage-1 baseline this run is compared against. Never hardcode it.
-
-    These numbers were Python literals -- 0.8612 and 0.2975 -- naming a metrics file that does not
-    exist on this disk. Two failures in one: every stage-2 artifact asserted a baseline it had
-    never opened, and re-running stage 1 would leave the literal in place while the reported delta
-    silently became wrong. A fabricated comparison is worse than a missing one, because it reads
-    as measured.
-
-    So: open the file, take the numbers, and record its hash and mtime so the pairing is provable
-    afterwards. If it is absent, FAIL -- a stage-2 result whose baseline cannot be produced is not
-    a comparison.
-    """
-    import hashlib
-
-    if not os.path.exists(path):
-        raise SystemExit(
-            f"stage-1 baseline {path} not found. Stage 2's headline is a DELTA against stage 1, "
-            f"so without it there is nothing to compare to. Run stage 1 with the matching "
-            f"--tag first, or pass --baseline-metrics pointing at the run you mean.")
-    with open(path, "rb") as f:
-        raw = f.read()
-    d = json.loads(raw)
-    o = d.get("metrics", {}).get("overall", {})
-    if "rmse" not in o:
-        raise SystemExit(f"{path} has no metrics.overall.rmse -- it is not a stage-1 metrics file.")
-    return {
-        "stage1_rmse": o["rmse"],
-        "stage1_skill_rmse_ratio": o.get("skill_rmse_ratio"),
-        "which": os.path.basename(path),
-        "read_at_runtime": True,
-        "source_sha256_16": hashlib.sha256(raw).hexdigest()[:16],
-        "source_mtime": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(path))),
-        "source_T_SEQ": d.get("T_SEQ"),
-        "source_channels": [str(c) for c in d.get("channels", [])],
-        "source_seed": d.get("seed"),
-        "caveat": ("comparable only if the bundle, split, T_SEQ and seed above match this run. "
-                   "They are recorded so that can be checked rather than assumed."),
-    }
-
+# _stage1_baseline was removed in the merge with a5cdd3a.. -- Darshan's _stage1_comparison
+# below does the same job and is the canonical fix (3b04cbc). Two functions reading the same
+# baseline is how the literals went stale in the first place.
 
 def salinity_calibration(pred, sigma, truth):
     """Per-depth RMSE / RMS(sigma) for salinity, aggregated exactly as `calibration` does for T."""
@@ -113,6 +79,39 @@ def _json_safe(o):
     if isinstance(o, (list, tuple)):
         return [_json_safe(v) for v in o]
     return o
+
+
+def _stage1_comparison(tag: str = "7ch") -> dict:
+    """Read stage 1's scored numbers OUT of its metrics artifact. Never hardcode them here.
+
+    These were two float literals (0.8612 and 0.2975) until 2026-09-01, and they went stale in
+    exactly the way literals do. The leakage embargo (a5cdd3a) retrained stage 1 to 0.8793 /
+    +0.2827, and this file went on stamping the OLD pair into every stage-2 artifact it wrote --
+    a superseded number travelling forward into new results under the name of a current one.
+
+    The `which` field always named the file the numbers should have come from. Now it reads it.
+    If that file is absent no comparison is recorded: a missing number is reported as missing,
+    never filled in from memory.
+    """
+    path = base.art(f"tscast_stage1_{tag}_metrics.json")
+    block = {
+        "which": f"stage-1 {tag} run, artifacts/tscast_stage1_{tag}_metrics.json",
+        "read_at_runtime": True,
+        "caveat": ("same bundle, same split, same T_SEQ and same seed, so the temperature "
+                   "delta is attributable to stage 2's extra heads and the eq. 5 term -- "
+                   "NOT to a different test set."),
+    }
+    if not os.path.exists(path):
+        block.update(stage1_rmse=None, stage1_skill_rmse_ratio=None, stage1_n=None,
+                     note=("stage-1 metrics artifact absent, so no comparison is recorded. "
+                           "A number is not invented to fill the gap."))
+        return block
+    with open(path, encoding="utf-8") as f:
+        overall = json.load(f).get("metrics", {}).get("overall", {})
+    block.update(stage1_rmse=overall.get("rmse"),
+                 stage1_skill_rmse_ratio=overall.get("skill_rmse_ratio"),
+                 stage1_n=overall.get("n"))
+    return block
 
 
 def main() -> None:
@@ -140,12 +139,6 @@ def main() -> None:
     ap.add_argument("--daily-dir", default=None)
     ap.add_argument("--tag", default="s2",
                     help="filename suffix; writes tscast_stage2_<tag>.pt")
-    ap.add_argument("--baseline-metrics",
-                    default=base.art("tscast_stage1_metrics.json"),
-                    help="stage-1 metrics JSON this run is compared against. READ at runtime and "
-                         "hashed into the output -- the numbers used to be Python literals naming "
-                         "a file that did not exist, which made every stage-2 artifact assert a "
-                         "baseline it had never opened.")
     a = ap.parse_args()
 
     dev = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
@@ -159,6 +152,15 @@ def main() -> None:
             "`python -m phase2.tscast_nio.daily_pipeline` (salinity is on by default).")
     tr_t, te_t = D.daily_split_indices(d["times"])
     t_seq = int(a.t_seq)
+
+    # Same embargo as stage 1: a training target within t_seq//2 of the first test day would read
+    # TEST surface fields as input, because _window clamps to the array and not to the split.
+    n_before = len(tr_t)
+    tr_t = D.embargo_indices(tr_t, t_seq, int(te_t.min()) if len(te_t) else None)
+    n_embargoed = n_before - len(tr_t)
+    if n_embargoed:
+        print(f"embargo: dropped {n_embargoed} of {n_before} training targets whose T_SEQ={t_seq} "
+              f"window would have read the test block")
 
     _t = np.asarray(d["times"], dtype="datetime64[D]")
     train_period = (str(_t[tr_t].min()), str(_t[tr_t].max()))
@@ -385,6 +387,7 @@ def main() -> None:
                 "latent": latent, "unet_channels": None,
                 "decoder": "simple", "loss": "nll", "beta_nll": a.beta, "data": "daily",
                 "stage": 2, "w_density": a.w_density,
+                "protocol": "embargoed_v2", "n_targets_embargoed": int(n_embargoed),
                 "norm": [np.asarray(v).tolist() for v in ds_tr.norm],
                 "trained_on": trained_on,
                 "train_period": list(train_period), "test_period": list(test_period),
@@ -410,6 +413,11 @@ def main() -> None:
         "trained_on": trained_on,
         "train_period": list(train_period), "test_period": list(test_period),
         "data": "daily", "T_SEQ": t_seq,
+        "protocol": "embargoed_v2",
+        "protocol_note": ("training targets whose T_SEQ window would reach into the test block are "
+                          "dropped; test indices unchanged. Runs before 2026-08-31 used "
+                          "'boundary_overlap_v1' and are NOT comparable to these."),
+        "n_targets_embargoed": int(n_embargoed),
         "channels": [str(c) for c in d["channels"]],
         "device": str(dev), "latent": latent, "n_params": n_all, "seed": base.SEED,
         "epochs_requested": a.epochs, "epochs_run": len(curve), "best_epoch": best["epoch"],
@@ -431,7 +439,7 @@ def main() -> None:
         "calibration": cal_t,
         "calibration_salinity": cal_s,
         "density": rho_stats,
-        "compare_against": _stage1_baseline(a.baseline_metrics),
+        "compare_against": _stage1_comparison(),
         "checkpoint": os.path.basename(ck),
     }
     mp = base.art(f"tscast_stage2{suffix}_metrics.json")

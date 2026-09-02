@@ -1,0 +1,75 @@
+{
+  "what": "A16 freeze -- the exact combination that produced the shipped numbers",
+  "frozen_at": "2026-09-02T20:12:52",
+  "git": {
+    "commit": "ffd95e6e84e1988fde65e9546ea9c392418010d5",
+    "branch": "phase2-tscast-nio",
+    "tree_clean": true
+  },
+  "model": {
+    "promoted_from": "sat_7ch_s42",
+    "checkpoint": "tscast_stage1.pt",
+    "checkpoint_sha256": "53848bb52533752d15a4e25f6e0fb038297bd32671606b290dd0260e991441ae",
+    "code_commit": "a67feea",
+    "encoder": "cnn3d",
+    "decoder": "simple",
+    "loss": "nll",
+    "beta_nll": 0.5,
+    "seed": 42,
+    "T_SEQ": 11,
+    "built_t_seq": 1,
+    "latent": 128,
+    "channels": [
+      "sst",
+      "sss",
+      "ssh",
+      "u",
+      "v",
+      "wu",
+      "wv"
+    ],
+    "input_source": "satellite"
+  },
+  "data": {
+    "bundle": "data/processed/daily_sat/v001",
+    "days": 388,
+    "sha256": {
+      "2025.npz": "6e3e53ee23343438aaf0238dab473d883e3800ebc6465945bd978fc7e1eb4241",
+      "2026.npz": "7fdefe1f444eb7b84bdc7db12043e8aae722573b1dbf7c5e6553d12adf5bce59"
+    },
+    "target_source": "GLORYS12V1 daily (cmems_mod_glo_phy_my_0.083deg_P1D-m)",
+    "deviation_from_ps": "currents come from CMEMS COPERNICUS-GLOBCURRENT rather than the PS's PO.DAAC OSCAR_L4_OC_FINAL_V2.0 (no NASA Earthdata login). Same quantity (geostrophic + Ekman), same 0.25 deg daily grid."
+  },
+  "split": {
+    "train": [
+      "2025-06-01",
+      "2026-03-26"
+    ],
+    "test": [
+      "2026-04-01",
+      "2026-06-23"
+    ],
+    "protocol": "embargoed_v2",
+    "n_targets_embargoed": 5
+  },
+  "metrics": {
+    "argo_profiles": 962,
+    "n": 12829,
+    "rmse": 0.9077608087441584,
+    "bias": 0.10034202787842492,
+    "correlation": 0.8811808952548911,
+    "skill_rmse_ratio": 0.2594964386642058,
+    "rmse_climatology": 1.2258696056864993
+  },
+  "uncertainty": {
+    "cov2_range": [
+      0.8009,
+      0.9553
+    ],
+    "cov2_mean": 0.9119,
+    "cov1_mean": 0.6387,
+    "claim": "2-sigma only; never a 1-sigma band, never a confidence percentage"
+  },
+  "checks_passed": 18,
+  "checks_failed": []
+}

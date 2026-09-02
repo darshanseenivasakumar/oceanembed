@@ -1,42 +1,51 @@
 
 
-## E-SAT-01  2026-09-02  — the first SATELLITE-INPUT result (A7)
+## E-ABL-01  2026-09-02  — A10, satellite-bundle feature ablations, 3 seeds
 
-**Status: VALIDATED against independent Argo. This is the PS's actual requirement.**
+**Status: VALIDATED. One of three effects is real; two are not.**
 
-Trained on `data/processed/daily_sat/v001/` — 388 days, inputs from OSTIA SST (K->degC),
-DUACS altimetry, SMOS-blended SSS, COPERNICUS-GLOBCURRENT total surface currents, and the wind
-that was always observational. GLORYS remains the TARGET, which the PS names. The bundle passed
-44 provenance + data-lineage checks and a negative test in which GLORYS injected into each of the
-five satellite channels was caught every time.
+Twelve runs on `data/processed/daily_sat/v001` — 4 legs x seeds 42/43/44. Identical bundle, split,
+embargo (`embargoed_v2`, 5 targets), architecture, T_SEQ=11, 60k/12k, optimiser and schedule. Only
+the seed varies within a leg, only the dropped channels between legs.
 
-Config identical to the GLORYS-input leg in every respect — cnn3d, simple decoder, beta-NLL 0.5,
-T_SEQ=11, 60k/12k, lr 1e-3, batch 256, seed 42, embargoed_v2, 5 targets embargoed. **Only the
-input source differs.**
+**`rmse_climatology` is 1.2258696057 in all twelve runs** — every leg scored on the same 962
+profiles and 12,829 depth comparisons. That is what makes these deltas comparable at all.
 
-| | GLORYS-input (comparator) | **SATELLITE-input** | delta |
-|---|---|---|---|
-| Argo RMSE °C | 0.8789 | **0.9078** | **+0.0289** |
-| bias °C | +0.1263 | **+0.1003** | -0.0259 |
-| correlation | 0.8942 | 0.8812 | -0.0130 |
-| skill 1-RMSE/RMSEclim | +0.2831 | **+0.2595** | -0.0236 |
-| skill Murphy | +0.4860 | +0.4517 | -0.0344 |
-| climatology RMSE °C | 1.2259 | 1.2259 | 0.0000 |
-| n / profiles | 12829 / 962 | 12829 / 962 | 0 / 0 |
+| leg | ch | RMSE mean | sd | delta vs full | per-seed deltas | sign holds |
+|---|---|---|---|---|---|---|
+| full | 7 | 0.9070 | 0.0020 | (reference) | — | — |
+| **noSSS** | 6 | 0.9315 | 0.0165 | **+0.0245** | +0.0047, +0.0375, +0.0314 | **YES 3/3** |
+| noCUR | 5 | 0.9171 | 0.0192 | +0.0101 | -0.0072, +0.0080, +0.0297 | **NO — flips** |
+| noWIND | 5 | 0.9110 | 0.0204 | +0.0041 | -0.0174, +0.0068, +0.0228 | **NO — flips** |
 
-`rmse_climatology` identical to 4 dp and n identical — both legs scored on the same points.
+### What may be quoted
 
-**READ THIS AS: reconstruction from real satellite observations costs +0.0289 °C against a
-reanalysis-fed comparator, and still beats climatology by +0.2595.** That is the answer to "how
-much does reconstruction depend on the surface input source?", measured rather than asserted.
-The satellite leg retains 92% of the comparator's skill.
+**SSS earns its place: +0.0245 °C when removed, sign held on all three seeds, twelve times the
+0.0020 noise floor.** The model is genuinely using satellite salinity — notable given that same
+product is blind to the Meghna/Ganges plume (floors at 30.78 psu vs the real 6.43).
 
-**Why the satellite leg is expected to be worse, physically — not a model failure:**
-satellite SSS floors at 30.78 psu while Unit B measured 6.43 psu at 22.50N 91.25E, the
-Meghna/Ganges plume. The satellite input is blind to the Bay of Bengal's defining feature. Bias
-actually IMPROVED (+0.1003 vs +0.1263), so this is a variance cost, not a systematic offset.
+### What may NOT be quoted
 
-**Not yet done:** per-basin split of this gap (A12 has the masks), multi-seed (n=1 here), and
-INCOIS LAS validation (data layer down; argopy used, deviation documented).
+**Currents and wind both FLIP SIGN across seeds.** noCUR reads -0.0072, +0.0080, +0.0297; noWIND reads
+-0.0174, +0.0068, +0.0228. At n=1 either could have been written up as a finding in whichever direction that
+seed happened to fall — and `noCUR s42` (0.9005) and `noWIND s42` (0.8904) both came in BETTER than
+full, which at one seed would have read as "dropping currents helps".
 
-checkpoint: `artifacts/tscast_stage1_sat_7ch_s42.pt`  code_commit `a67feea`
+This **retires the old wind claim for good**. `EXPERIMENT_LOG` once recorded wind at −0.0149
+(helps); it later flipped to +0.0111 on a single retrain. Now measured properly: **wind's effect is
+not separable from seed noise on the satellite bundle at n=3.** Not "wind does not help" — *we
+cannot tell*, which is a different and weaker statement, and the correct one.
+
+### The finding neither the mean nor the delta shows
+
+**Removing any channel destabilises training far more than it shifts the mean.** Full-leg seed
+spread is sd 0.0020; every reduced leg scatters at
+0.0165–0.0204,
+eight to ten times higher. The 7-channel input is not merely more accurate, it is more
+*reproducible*. Only a multi-seed design can see this, and it is arguably the strongest argument
+in the ablation for keeping all seven.
+
+**Limitations:** 3 seeds, one architecture, one bundle version, temperature only. Non-flipping is
+not proof of no effect — a real effect below ~0.02 °C would not be resolvable here.
+
+artifact: `artifacts/sat_ablation.json`

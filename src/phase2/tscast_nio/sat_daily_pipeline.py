@@ -111,7 +111,18 @@ PROVENANCE_CHANNELS = {
                 processing="bilinear to 0.25 deg, GLORYS land mask",
                 note="SMOS multi-dimensionally interpolated WITH IN-SITU salinity "
                      "(Buongiorno Nardelli 2016). NOT a pure satellite retrieval -- must not be "
-                     "described as one."),
+                     "described as one.",
+                measured_limitation=(
+                    "SENSOR LIMIT, NOT A MODELLING GAP. Measured on 5 days against the GLORYS "
+                    "bundle: this product floors at 30.78 psu where GLORYS reaches 9.72. Unit B's "
+                    "F5 work independently measured 6.43 psu at 22.50N 91.25E -- the real "
+                    "Meghna/Ganges river signature. So the satellite input is BLIND to the single "
+                    "most distinctive feature of the Bay of Bengal. Expect the BoB half of the "
+                    "PoC to score worse on satellite input for a PHYSICAL reason, not because the "
+                    "model is worse there. State this wherever the satellite-vs-GLORYS comparison "
+                    "is written up (A9), beside the barrier-layer numbers (BoB 9.5 m vs Arabian "
+                    "7.1 m, peaks 75-100 m) -- both point at the same basin being harder for the "
+                    "same underlying reason. [Darshan, AGENT_SYNC 2026-09-02]")),
     "ssh": dict(product="cmems_obs-sl_glo_phy-ssh_nrt_allsat-l4-duacs-0.125deg_P1D",
                 provider="CLS/CNES", data_class="SATELLITE_DERIVED",
                 native_resolution="0.125 deg", native_units="m", processed_units="m",

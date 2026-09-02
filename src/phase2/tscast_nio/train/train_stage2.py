@@ -81,31 +81,57 @@ def _json_safe(o):
     return o
 
 
-def _stage1_comparison(tag: str = "7ch") -> dict:
-    """Read stage 1's scored numbers OUT of its metrics artifact. Never hardcode them here.
+def _stage1_comparison(tag: str | None = None) -> dict:
+    """Read stage 1's scored numbers OUT of the CANONICAL artifact. Never hardcode, never guess.
 
     These were two float literals (0.8612 and 0.2975) until 2026-09-01, and they went stale in
     exactly the way literals do. The leakage embargo (a5cdd3a) retrained stage 1 to 0.8793 /
     +0.2827, and this file went on stamping the OLD pair into every stage-2 artifact it wrote --
     a superseded number travelling forward into new results under the name of a current one.
 
-    The `which` field always named the file the numbers should have come from. Now it reads it.
-    If that file is absent no comparison is recorded: a missing number is reported as missing,
-    never filled in from memory.
+    NAMING [agreed with Darshan, 2026-09-02]: the canonical unsuffixed artifact, written by
+    scripts/phase2/promote_run.py. One fixed name that every consumer reads is the fix for the
+    producer/consumer drift that blanked the dashboard. Tagged files stay experiments.
+
+    WHY THIS RAISES INSTEAD OF RECORDING "absent" [Darshan's condition, and he is right]:
+    it used to return a block of Nones with a polite note. That is the same shape as the
+    accept.py `check_v2_ui` bug -- a missing precondition reported as a benign outcome, so a
+    stage-2 artifact would ship claiming a comparison it never made. A stage-2 run whose whole
+    purpose is "does the extra head pay for itself?" cannot answer that with no baseline. Fail
+    loudly and say what to do about it.
     """
-    path = base.art(f"tscast_stage1_{tag}_metrics.json")
-    block = {
-        "which": f"stage-1 {tag} run, artifacts/tscast_stage1_{tag}_metrics.json",
+    # tag=None -> the canonical promoted artifact (the shipped model). An explicit tag scores
+    # against one specific leg, which stays possible on purpose: post-embargo a stage-2 run may
+    # legitimately want the 5ch matched control rather than the shipped 7ch one.
+    path = base.art(f"tscast_stage1_{tag}_metrics.json" if tag else "tscast_stage1_metrics.json")
+    if not os.path.exists(path):
+        which = f"stage-1 leg {tag!r}" if tag else "the canonical stage-1 artifact"
+        raise SystemExit("\n".join([
+            f"REFUSING to train stage 2: {which} ({path}) is absent, so there is no baseline to "
+            f"compare against and the run could not answer the only question it exists to answer.",
+            "Promote a stage-1 run first:",
+            "    python scripts/phase2/promote_run.py --list",
+            "    python scripts/phase2/promote_run.py --tag <tag>",
+        ]))
+    with open(path, encoding="utf-8") as f:
+        m = json.load(f)
+    overall = m.get("metrics", {}).get("overall", {})
+    if "rmse" not in overall:
+        raise SystemExit(f"{path} exists but carries no metrics.overall.rmse -- refusing to "
+                         f"record a comparison against a file that has not been scored.")
+    return {
+        "which": f"stage-1 run, artifacts/{os.path.basename(path)}"
+                 + ("" if tag else " (canonical promoted artifact)"),
+        "promoted_from": m.get("promoted_from"),
+        "checkpoint_sha256": m.get("checkpoint_sha256"),
         "read_at_runtime": True,
         "caveat": ("same bundle, same split, same T_SEQ and same seed, so the temperature "
                    "delta is attributable to stage 2's extra heads and the eq. 5 term -- "
                    "NOT to a different test set."),
+        "stage1_rmse": overall.get("rmse"),
+        "stage1_skill_rmse_ratio": overall.get("skill_rmse_ratio"),
+        "stage1_n": overall.get("n"),
     }
-    if not os.path.exists(path):
-        block.update(stage1_rmse=None, stage1_skill_rmse_ratio=None, stage1_n=None,
-                     note=("stage-1 metrics artifact absent, so no comparison is recorded. "
-                           "A number is not invented to fill the gap."))
-        return block
     with open(path, encoding="utf-8") as f:
         overall = json.load(f).get("metrics", {}).get("overall", {})
     block.update(stage1_rmse=overall.get("rmse"),

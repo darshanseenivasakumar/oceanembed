@@ -102,3 +102,32 @@ def test_accept_no_longer_reports_pass_when_the_ui_check_cannot_run():
     code = "\n".join(ln for ln in branch.splitlines() if not ln.strip().startswith("#"))
     assert "return False" in code, "the missing-artifact branch must FAIL, never skip-pass"
     assert "return True" not in code, "returning True here is the skip-that-passes, again"
+
+
+def test_stage2_refuses_to_run_without_a_promoted_baseline(artifacts):
+    """The consumer side of the canonical-name contract [agreed with Darshan 2026-09-02].
+
+    `_stage1_comparison` used to return a block of Nones with a polite note when the artifact was
+    absent. That is the same shape as the accept.py skip-reports-pass bug: a missing precondition
+    reported as a benign outcome, so a stage-2 artifact would ship claiming a comparison it never
+    made. A run whose entire question is "does the extra head pay for itself?" cannot answer it
+    with no baseline."""
+    from phase2.tscast_nio.train import train_stage2 as T
+    with pytest.raises(SystemExit) as e:
+        T._stage1_comparison()
+    msg = str(e.value)
+    assert "REFUSING" in msg
+    assert "promote_run.py" in msg, "the error must say how to fix it"
+
+
+def test_stage2_reads_the_canonical_name_not_a_tagged_one(artifacts):
+    """Tagged files are experiments; the unsuffixed name is the shipped model. Reading a tag here
+    is how the two machines drifted apart in the first place."""
+    import json as _json
+    from phase2.tscast_nio.train import train_stage2 as T
+    (artifacts / "tscast_stage1_metrics.json").write_text(_json.dumps(
+        {"metrics": {"overall": {"rmse": 0.8793, "skill_rmse_ratio": 0.2827, "n": 12829}},
+         "promoted_from": "7ch_repro", "checkpoint_sha256": "a" * 64}), encoding="utf-8")
+    b = T._stage1_comparison()
+    assert b["stage1_rmse"] == 0.8793
+    assert b["promoted_from"] == "7ch_repro", "provenance of the baseline must travel with it"

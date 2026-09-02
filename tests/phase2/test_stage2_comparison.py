@@ -41,10 +41,10 @@ def test_no_scored_metric_survives_as_a_float_literal():
 
 def test_comparison_matches_the_artifact_it_names():
     """The block must agree with the file its own `which` field points at."""
-    block = _stage1_comparison()
     path = os.path.join(ARTIFACTS, "tscast_stage1_7ch_metrics.json")
     if not os.path.exists(path):
         pytest.skip("stage-1 7ch metrics absent — artifacts are gitignored")
+    block = _stage1_comparison("7ch")
     with open(path, encoding="utf-8") as f:
         overall = json.load(f)["metrics"]["overall"]
     assert block["stage1_rmse"] == pytest.approx(overall["rmse"], abs=1e-12)
@@ -54,14 +54,23 @@ def test_comparison_matches_the_artifact_it_names():
     assert "tscast_stage1_7ch_metrics.json" in block["which"]
 
 
-def test_a_missing_artifact_reports_missing_rather_than_inventing_a_number():
-    """The failure path, exercised. A comparison that cannot be made must say so — silently
-    substituting a remembered value is the failure this whole test file exists to prevent."""
-    block = _stage1_comparison("no_such_tag")
-    assert block["stage1_rmse"] is None
-    assert block["stage1_skill_rmse_ratio"] is None
-    assert block["stage1_n"] is None
-    assert "not invented" in block["note"]
+def test_a_missing_artifact_now_FAILS_rather_than_reporting_missing():
+    """CHANGED 2026-09-02 at Darshan's request, and he is right about why.
+
+    This test used to assert that an absent artifact returned a block of Nones with a polite
+    "not invented" note. That was the honest half of the problem -- the number was not invented --
+    but it is the same SHAPE as the accept.py `check_v2_ui` bug killed in 9c54566: a missing
+    precondition reported as a benign outcome. A stage-2 artifact would ship carrying a
+    `compare_against` block that looks like a comparison and contains none, and a run whose whole
+    question is "does the extra head pay for itself?" cannot answer it with no baseline.
+
+    So it now refuses, and the message says how to fix it."""
+    with pytest.raises(SystemExit) as e:
+        _stage1_comparison("no_such_tag")
+    msg = str(e.value)
+    assert "REFUSING" in msg
+    assert "no_such_tag" in msg, "the error must name the leg it could not find"
+    assert "promote_run.py" in msg, "the error must say how to fix it"
 
 
 def test_the_comparison_is_not_frozen_to_one_tag():

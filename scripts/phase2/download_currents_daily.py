@@ -185,7 +185,12 @@ def verify(out_dir: str = OUT_DIR) -> int:
             step = float(np.diff(ds["latitude"].values)[0])
             if abs(step - step_target) > 1e-6:
                 bad.append(f"{d:%Y-%m-%d}: lat step {step} != {step_target}")
-    print(f"  grid       : native {step_target} deg, no regrid needed")
+    # The STEP matches ours; the OFFSET does not. Native centres are 5.125, 5.375 ... against our
+    # 5.0, 5.25 ... -- half a cell, ~14 km. This line used to read "no regrid needed", which was
+    # wrong and green at the same time: sat_daily_pipeline applies a bilinear half-cell shift, and
+    # shipping these unshifted would misplace every current value.
+    print(f"  grid       : step {step_target} deg matches ours, but centres are offset half a "
+          f"cell -- sat_daily_pipeline shifts them, they are NOT drop-in")
     if bad:
         print("  FAILED:")
         for b in bad:

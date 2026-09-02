@@ -196,6 +196,28 @@ def _check_range(name: str, field: np.ndarray, day: str) -> None:
             f"write it into the bundle.")
 
 
+def _static_valid_mask(g) -> np.ndarray:
+    """The GLORYS bundle's valid_mask, passed through unchanged.
+
+    It is (lat, lon, depth) -- a STATIC per-cell-per-depth mask with NO time axis, exactly like
+    land_mask. This was written as `vm[gi] if vm.ndim > 2 else vm`, inferring "has a time axis"
+    from a dimension COUNT. Three dimensions here are (100, 240, 15), so that guess indexed the
+    LATITUDE axis with day numbers and died with `index 100 is out of bounds for axis 0 with size
+    100` -- 100 being the number of latitudes, on day 100 of 214.
+
+    Assert the shape rather than infer meaning from ndim. A mask that silently gained a time axis
+    would otherwise be sliced wrong and still produce an array of plausible shape.
+    """
+    vm = np.asarray(g["valid_mask"])
+    want = (len(base.LAT), len(base.LON), config.N_DEPTHS)
+    if vm.shape != want:
+        raise ValueError(
+            f"valid_mask is {vm.shape}, expected {want} = (lat, lon, depth). If the GLORYS bundle "
+            f"has started writing a time axis, this needs a deliberate decision about which days "
+            f"to carry -- not a reshape.")
+    return vm
+
+
 def available_days() -> list[str]:
     """YYYYMMDD strings for which EVERY satellite channel exists. No partial days."""
     per_source = []
@@ -256,8 +278,7 @@ def build_year(year: int, days: list[str], out_dir: str = OUT_DIR) -> str | None
         surface=surface,
         temp=np.asarray(g["temp"])[gi],
         land_mask=land,
-        valid_mask=np.asarray(g["valid_mask"])[gi] if g["valid_mask"].ndim > 2
-        else np.asarray(g["valid_mask"]),
+        valid_mask=_static_valid_mask(g),
         channels=np.array(config.CHANNELS),
         units=np.array(config.CHANNEL_UNITS),
         missing_days=np.array(dropped),

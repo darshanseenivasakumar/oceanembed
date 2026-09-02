@@ -117,3 +117,21 @@ def test_the_output_namespace_is_not_the_glorys_one():
     """data/processed/daily/ is canonical GLORYS input and is not ours to overwrite."""
     assert S.OUT_DIR != S.GLORYS_DIR
     assert "daily_sat" in S.OUT_DIR
+
+
+def test_valid_mask_is_passed_through_not_time_indexed():
+    """REGRESSION. valid_mask is (lat, lon, depth) -- static, no time axis. It was selected with
+    `vm[gi] if vm.ndim > 2 else vm`, which inferred "has a time axis" from a dimension COUNT and
+    so indexed LATITUDE with day numbers. The build died 200 days in with `index 100 is out of
+    bounds for axis 0 with size 100`. Cheap to catch, expensive to hit at the end of a long run."""
+    vm = np.zeros((len(base.LAT), len(base.LON), config.N_DEPTHS), bool)
+    out = S._static_valid_mask({"valid_mask": vm})
+    assert out.shape == vm.shape, "a static mask must come through unchanged"
+
+
+def test_a_valid_mask_that_grew_a_time_axis_is_refused_not_reshaped():
+    """If the GLORYS bundle ever starts writing a time axis, that is a decision about which days
+    to carry -- not something to silently slice."""
+    vm = np.zeros((5, len(base.LAT), len(base.LON), config.N_DEPTHS), bool)
+    with pytest.raises(ValueError, match="expected"):
+        S._static_valid_mask({"valid_mask": vm})

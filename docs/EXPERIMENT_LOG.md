@@ -1,43 +1,48 @@
 
 
-## E-BASIN-02  2026-09-02  — the currents explanation is NOT supported either
+## E-BASIN-03  2026-09-02  — the hybrid leg: currents are NOT the mechanism
 
-**Status: the Arabian Sea penalty remains UNEXPLAINED. Report it as an open question.**
+**Status: VALIDATED. The Arabian Sea penalty SURVIVES swapping in GLORYS currents.**
 
-E-BASIN-01 found the satellite penalty sits entirely in the Arabian Sea (+0.0341) while the Bay of
-Bengal is slightly better on satellite input (-0.0194), both signs holding 3/3. The proposed
-mechanism was that GLOBCURRENT (geostrophic + Ekman) resolves the Somali Jet and summer upwelling
-less well than GLORYS' modelled `uo/vo`.
+Direct test of the E-BASIN-02 hypothesis. Built `data/processed/daily_hybrid_glocur/v001` — the
+satellite bundle with GLORYS `uo/vo` substituted for the two currents channels, everything else
+untouched — and trained 3 seeds with the identical recipe. **This bundle is a DIAGNOSTIC and is
+marked as such in its own provenance; the anti-GLORYS guard must reject it, and no shipped model
+may ever be trained on it.**
 
-Tested it: currents contribution by basin = noCUR RMSE minus full RMSE, satellite bundle, 3 seeds.
-A positive value means dropping currents hurt, i.e. currents were helping there.
+Penalty = leg RMSE minus the seed-matched GLORYS-input RMSE.
 
-| seed | overall | Arabian Sea | Bay of Bengal |
-|---|---|---|---|
-| 42 | -0.0072 | -0.0049 | -0.0131 |
-| 43 | +0.0080 | -0.0255 | +0.0928 |
-| 44 | +0.0297 | +0.0266 | +0.0383 |
-| mean | +0.0101 | **-0.0013** | +0.0393 |
+| basin | satellite (sat u/v) | hybrid (GLORYS u/v) |
+|---|---|---|
+| overall | +0.0190 sd 0.0160 holds | +0.0183 sd 0.0104 holds |
+| **Arabian Sea** | **+0.0341** sd 0.0240 holds | **+0.0245** sd 0.0072 holds |
+| Bay of Bengal | -0.0194 sd 0.0171 holds | +0.0030 sd 0.0280 FLIPS |
 
-**No sign holds in any basin.** Arabian-minus-BoB is +0.0083, -0.1183, -0.0117 —
-inconsistent. If currents were the mechanism, dropping them should hurt the Arabian Sea most; the
-Arabian Sea contribution averages **-0.0013**, indistinguishable from zero.
+### The result
 
-### What this does and does not establish
+**Giving the model GLORYS' own currents removes only about a quarter of the Arabian Sea penalty.**
+It falls from +0.0341 to +0.0245, and the sign holds on all three seeds with a
+TIGHTER spread (sd 0.0072 against 0.0240). Roughly 72% of the penalty is still there when the
+currents channels are byte-identical to the comparator's.
 
-It does NOT refute the currents hypothesis — the test lacks the power to. It establishes that the
-hypothesis is **not supported**, which is a weaker and honest statement. Two reasons the test is
-underpowered: the Bay of Bengal holds only 283 of 962 profiles, so its per-basin delta carries
-sd 0.0530 — larger than any effect we are chasing; and this measures whether satellite currents
-CONTRIBUTE differently by basin, not whether GLOBCURRENT is WORSE than GLORYS there. The direct
-test is a hybrid leg — satellite inputs with GLORYS `uo/vo` substituted — which does not exist.
+The per-seed CHANGE is -0.0209, -0.0335, +0.0256 — **inconsistent**, so no portion of the penalty
+may be attributed to currents as a number. What IS established is that currents cannot be the
+dominant cause, because removing the difference entirely leaves most of the effect standing.
 
-### The position to hold
+### Where that leaves the cause
 
-The basin asymmetry is real, reproducible and 3-seed stable. **Its cause is unknown.** Two
-candidate mechanisms have now been proposed and neither survived: SSS blindness (falsified,
-E-BASIN-01) and currents (unsupported, here).
+Narrowed, not solved. The Arabian Sea penalty must come from **SST, SSS, SSH, or the encoder's
+response to them** — those are what remain different between the hybrid leg and the GLORYS leg.
 
-That is the honest state and it is what should be presented. A measured asymmetry with an admitted
-open cause is stronger than a plausible story with no number under it -- which is exactly what we
-had this morning, twice.
+Three mechanisms proposed, three not supported:
+  1. SSS blindness in the Bay of Bengal — **falsified** (E-BASIN-01)
+  2. Currents contribute differently by basin — **unsupported** (E-BASIN-02)
+  3. Satellite currents are worse in the Arabian Sea — **refuted here**: the penalty survives them
+
+**Also worth recording:** the Bay of Bengal's satellite ADVANTAGE (-0.0194, sign holding 3/3)
+disappears in the hybrid leg (+0.0030, flipping). That hints satellite currents were HELPING
+in the BoB, which is the opposite of the original story. It flips across seeds, so it is a lead,
+not a result.
+
+The honest position for the jury: a measured, reproducible, 3-seed-stable basin asymmetry whose
+cause we have tested three ways and not yet found. artifact: `artifacts/hybrid_currents_basin.json`

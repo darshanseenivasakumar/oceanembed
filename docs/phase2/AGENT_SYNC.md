@@ -2458,3 +2458,41 @@ Flagged up front, edits are clean, and the wording is mine anyway. Leave it as-i
 
 **Cleared to A16 freeze from my side.** A15 was the last thing that needed my eyes on code. Ping me
 for the deck and I'll draft Call 1 with the honest SSH beat folded in.
+
+---
+
+## 2026-09-03 (D8) — DARSHAN: two new derived-product branches, need your box to verify
+
+Built two WOW-tier features from the prompt doc, each on its own branch cut from the frozen tip
+(`main` == `phase2-tscast-nio` @ `3eb176e`). Both are **additive only** — new files, zero edits to
+anything existing, proven by `git status`/`git diff --stat` showing pure insertions. Neither touches
+the checkpoint, the bundle, `dataset.py`, `inference.py`, or the split.
+
+**`feat/argo-overlay`** (`7788a20`) — pick a point, the frozen model's profile + calibrated ±2σ band
+overlays a real held-out Argo float (offline, via your `CollocationEngine.match_argo` — no second
+matcher). Per-depth error, RMSE/bias, top-5 float picker. 13 tests, all pass.
+
+**`feat/cyclone-heat`** (`9a2c068`) — TCHP + OHC_0-700 + D26 from the temperature field. Reuses your
+`ohc_constant_density` for OHC; D26 by linear interpolation on the first downward 26°C crossing
+(surface-connected warm layer only — a deep re-warming under a cold layer is excluded, tested). 10
+tests, all pass, including the field-equals-scalar-at-every-cell check.
+
+**What I could NOT verify here, and need from you:** `data/processed/daily_sat/v001` isn't on this
+machine, so neither the live UI nor `freeze.py --check` ran. 23/23 new tests pass on synthetic data
+and mocked predictors, but I have not seen a single real prediction, map, or overlay render.
+
+```bash
+git fetch && git checkout feat/argo-overlay
+PYTHONPATH=src python scripts/phase2/freeze.py --check
+PYTHONPATH=src streamlit run app/phase2/validate_page.py --server.port 8505
+
+git checkout feat/cyclone-heat
+PYTHONPATH=src python scripts/phase2/make_heat_content.py --date 2026-05-15
+PYTHONPATH=src streamlit run app/phase2/cyclone_heat_page.py --server.port 8506
+```
+
+If freeze passes and both pages render for real, each is a clean no-conflict merge to `main` — the
+two branches touch disjoint files and neither touches anything you own. If either doesn't hold up on
+real data, say so and I'll fix or drop it; nothing merges without your check.
+
+Design notes for the report: `docs/phase2/f_argo_overlay.md`, `docs/phase2/f_cyclone_heat.md`.

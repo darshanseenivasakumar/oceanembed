@@ -64,10 +64,45 @@ DIVERGING_SCALES = {"Blue → purple": BLUE_PURPLE_DIVERGING,
                     "PuOr": "PuOr_r", "RdBu": "RdBu_r"}
 
 
+def _v2_version() -> str:
+    """Cache key that moves when the shipped model or the code that loads it moves.
+
+    st.cache_data keys on ARGUMENTS and cannot see imported module source. A server started before
+    a fix went on serving a stale predictor for 9.5 minutes on 2026-09-02 -- the Profile tab showed
+    an 8 degC error while the same call outside Streamlit was correct. Same trap here.
+    """
+    import hashlib
+    from phase2.tscast_nio import dataset as _D, field as _F, inference as _I
+
+    h = hashlib.sha256()
+    for p in (config.art("tscast_stage1.pt"), _I.__file__, _D.__file__, _F.__file__):
+        try:
+            st_ = os.stat(p)
+            h.update(f"{p}:{st_.st_mtime_ns}:{st_.st_size}".encode())
+        except OSError:
+            h.update(f"{p}:missing".encode())
+    return h.hexdigest()[:16]
+
+
 @st.cache_data(show_spinner="Reconstructing the volume …")
-def build_cube(date_str: str, source: str, with_uncertainty: bool):
+def build_cube(date_str: str, source: str, with_uncertainty: bool, version: str = ""):
     """Cached by value only -- no underscore-prefixed argument, which would be silently
-    excluded from the cache key and pin the first result forever."""
+    excluded from the cache key and pin the first result forever.
+
+    `source="v2 satellite"` is THE SHIPPED MODEL. Every other option here reconstructs with the
+    Phase-1 baseline on monthly 2019-2022 GLORYS, which is what this page rendered exclusively
+    until 2026-09-02 -- a different model, on different data, from a different era, with nothing on
+    screen saying so. That was risk U4 of the forensic audit.
+    """
+    if source == "v2 satellite":
+        from phase2.tscast_nio.field import predict_field
+        from phase2.tscast_nio.inference import TSCastPredictor
+
+        f = predict_field(TSCastPredictor(), date_str)
+        return OceanCube(date=f["date"], temperature=f["temperature"],
+                         valid_mask=f["valid_mask"], land_mask=f["land_mask"],
+                         uncertainty=f["sigma"] if with_uncertainty else None,
+                         provenance=f["provenance"])
     return OceanCube.reconstruct(date_str, source=source, with_uncertainty=with_uncertainty)
 
 
@@ -161,7 +196,7 @@ def main() -> None:
         st.header("Volume")
         dates = _dates()
         date_str = st.selectbox("Date", options=dates, index=max(0, len(dates) - 6))
-        source = st.radio("Surface source", ["satellite", "glorys"], index=0,
+        source = st.radio("Surface source", ["v2 satellite", "satellite", "glorys"], index=0,
                           help="satellite = the problem statement's deliverable; "
                                "glorys = the model's own training source")
         what = st.selectbox("Field", list(FIELDS), format_func=lambda k: FIELDS[k])
@@ -183,7 +218,7 @@ def main() -> None:
         force_2d = st.checkbox("Force the 2-D fallback view", value=False)
         fb_depth = st.select_slider("Fallback depth (m)", options=list(config.DEPTHS), value=100)
 
-    cube = build_cube(date_str, source, what == "uncertainty")
+    cube = build_cube(date_str, source, what == "uncertainty", _v2_version())
 
     # ---- the 3-D view, with every reason it might not work handled --------------------
     reason = None

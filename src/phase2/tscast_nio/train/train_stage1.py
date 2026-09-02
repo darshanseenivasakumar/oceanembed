@@ -394,6 +394,12 @@ def main():
                 # different numbers and only coincide at T_SEQ=1; cnn3d pools over time so its
                 # shapes do not change, but a reader must not have to know that to load us.
                 "built_t_seq": 1,
+                # WHICH bundle, recorded in the checkpoint itself. It used to live
+                # only in the sibling metrics JSON, so a consumer holding just the
+                # .pt had to guess -- and inference.py guessed wrong for a day.
+                "daily_dir": (a.daily_dir or ("data/processed/daily"
+                                              if a.data == "daily" else None)),
+                "input_source": d.get("input_source", "unknown"),
                 # The temporal pooling this network was built with. A consumer that rebuilds
                 # wrongly is refused by models.assert_architecture_matches instead of
                 # silently predicting differently -- see that function for what happened.

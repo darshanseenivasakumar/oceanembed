@@ -315,3 +315,61 @@ def split_indices(times, train_years=None, test_years=None):
     te = np.nonzero(np.isin(yrs, test_years or base.TEST_YEARS))[0]
     assert len(np.intersect1d(tr, te)) == 0, "train and test windows overlap"
     return tr, te
+
+
+def bundle_for_checkpoint(ck: dict, checkpoint_path: str | None = None) -> tuple[str, str]:
+    """WHICH bundle a checkpoint was trained on. Resolved from evidence, never defaulted silently.
+
+    THE BUG THIS EXISTS FOR
+    `inference.py` called `load_daily()` with no argument, which defaults to
+    `data/processed/daily` -- the GLORYS bundle. The shipped model is trained on
+    `data/processed/daily_sat/v001`. So the dashboard fed GLORYS reanalysis into a
+    satellite-trained network and served the result as a prediction. Measured at 15N 68E on
+    2026-05-15: 18.84 degC at 100 m against an independent float reading 26.85, an 8.01 degC error,
+    while the same model on its own bundle gives 26.24 (error 0.61).
+
+    Nothing caught it. The checkpoint records `data: "daily"` -- a CADENCE, not a path -- and the
+    channel-order guard passes because both bundles carry the same seven channels in the same
+    order. `calibrate_uncertainty.py` had the same call, so the per-depth sigma scales were fitted
+    on errors the shipped model does not make.
+
+    Returns (path, how_it_was_resolved). "defaulted" in the second slot means UNVERIFIED and the
+    caller must say so in its provenance rather than presenting the bundle as confirmed.
+    """
+    if ck.get("daily_dir"):
+        return str(ck["daily_dir"]), "recorded in the checkpoint"
+
+    # Runs before 2026-09-02 recorded the path only in the sibling metrics artifact.
+    if checkpoint_path:
+        mp = checkpoint_path[:-3] + "_metrics.json" if checkpoint_path.endswith(".pt") else None
+        if mp and os.path.exists(mp):
+            try:
+                import json as _json
+                with open(mp, encoding="utf-8") as f:
+                    dd = _json.load(f).get("daily_dir")
+                if dd:
+                    return str(dd), f"read from {os.path.basename(mp)}"
+            except Exception:
+                pass
+
+    return os.path.join(base.DATA_PROCESSED, "daily"), "defaulted"
+
+
+def assert_bundle_matches_checkpoint(bundle: dict, ck: dict, where: str = "") -> None:
+    """Refuse a bundle whose input source is not the one the checkpoint was trained on.
+
+    The channel-order check cannot see this: the GLORYS and satellite bundles carry identical
+    channel names in identical order and differ only in what the numbers MEAN. This compares the
+    thing that actually differs.
+    """
+    want = ck.get("input_source")
+    if not want:
+        return          # pre-2026-09-02 checkpoints do not record it; nothing to compare
+    got = bundle.get("input_source", "unknown")
+    if got != want:
+        raise ValueError(
+            f"input-source mismatch{' in ' + where if where else ''}: this checkpoint was trained "
+            f"on {want!r} inputs and the loaded bundle is {got!r}. The channel names and order "
+            f"match, so nothing else would have caught this -- and feeding the wrong source "
+            f"produced an 8.01 degC error at 100 m the one time it happened. Pass the correct "
+            f"bundle explicitly, or use dataset.bundle_for_checkpoint().")

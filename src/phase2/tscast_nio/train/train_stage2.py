@@ -132,12 +132,6 @@ def _stage1_comparison(tag: str | None = None) -> dict:
         "stage1_skill_rmse_ratio": overall.get("skill_rmse_ratio"),
         "stage1_n": overall.get("n"),
     }
-    with open(path, encoding="utf-8") as f:
-        overall = json.load(f).get("metrics", {}).get("overall", {})
-    block.update(stage1_rmse=overall.get("rmse"),
-                 stage1_skill_rmse_ratio=overall.get("skill_rmse_ratio"),
-                 stage1_n=overall.get("n"))
-    return block
 
 
 def main() -> None:
@@ -410,6 +404,12 @@ def main() -> None:
     torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
                 "encoder": a.encoder, "seed": base.SEED, "residual": not a.no_residual,
                 "channels": d["channels"], "P": config.P, "T_SEQ": t_seq, "built_t_seq": 1,
+                # WHICH bundle, recorded in the checkpoint itself. It used to live
+                # only in the sibling metrics JSON, so a consumer holding just the
+                # .pt had to guess -- and inference.py guessed wrong for a day.
+                "daily_dir": (a.daily_dir or ("data/processed/daily"
+                                              if a.data == "daily" else None)),
+                "input_source": d.get("input_source", "unknown"),
                 "latent": latent, "unet_channels": None,
                 "decoder": "simple", "loss": "nll", "beta_nll": a.beta, "data": "daily",
                 "stage": 2, "w_density": a.w_density,

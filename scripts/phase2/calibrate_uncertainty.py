@@ -61,7 +61,12 @@ def main() -> None:
     chans = [str(c) for c in ck["channels"]]
     print(f"checkpoint: T_SEQ={ck['T_SEQ']}  {len(chans)} channels {chans}  seed {ck['seed']}")
 
-    d = D.load_daily()
+    # Same defect as inference.py had: this defaulted to the GLORYS bundle, so every per-depth
+    # sigma scale was fitted on errors the shipped model does not make.
+    _bundle, _how = D.bundle_for_checkpoint(ck, a.checkpoint)
+    print(f"bundle: {_bundle}  ({_how})")
+    d = D.load_daily(_bundle)
+    D.assert_bundle_matches_checkpoint(d, ck, "calibrate_uncertainty")
     if [str(c) for c in d["channels"]] != chans:
         raise SystemExit(
             f"checkpoint trained on {chans} but the bundle has {[str(c) for c in d['channels']]} -- "

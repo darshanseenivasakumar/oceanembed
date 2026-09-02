@@ -53,7 +53,17 @@ class TSCastPredictor:
         if data is not None:
             self.data = data
         elif self.trained_data == "daily":
-            self.data = D.load_daily()
+            # THE BUNDLE THE CHECKPOINT WAS TRAINED ON, not the default. This read
+            # `D.load_daily()` -- defaulting to data/processed/daily, the GLORYS bundle -- while
+            # the shipped model trains on data/processed/daily_sat/v001. The dashboard therefore
+            # fed GLORYS reanalysis into a satellite-trained network. Measured at 15N 68E on
+            # 2026-05-15: 18.84 degC at 100 m against a float reading 26.85 (8.01 error); the same
+            # model on its own bundle gives 26.24 (0.61). The channel-order check below cannot see
+            # it -- both bundles carry the same seven channels in the same order.
+            bundle_path, self.bundle_source = D.bundle_for_checkpoint(ck, path)
+            self.data = D.load_daily(bundle_path)
+            self.meta["bundle"] = bundle_path
+            self.meta["bundle_resolved_by"] = self.bundle_source
         else:
             self.data = D.load_monthly()
 

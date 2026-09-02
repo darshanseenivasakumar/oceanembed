@@ -149,13 +149,18 @@ def provenance_banner(m: dict | None) -> None:
 # ── tab 1: the profile ─────────────────────────────────────────────────────────────────
 
 def profile_chart(record: dict) -> alt.LayerChart:
-    """Temperature against depth with a ±2σ (95%) band. Only valid depths are drawn.
+    """Temperature against depth with a ±2σ band. Only valid depths are drawn.
 
-    TWO SIGMA ONLY, and the reason is measured rather than stylistic. Against 908 held-out Argo
-    profiles the shipped model's +/-2 sigma band covers 96.5% (target 95.4%) -- honest. Its
-    +/-1 sigma band covers 60.5% (target 68.3%) -- still overconfident AFTER calibration, and the
-    per-depth scales needed to get there reach 5.4x at 100 m. Drawing a 1 sigma band would show a
-    envelope we have measured to be too narrow. See docs/EXPERIMENT_LOG.md E-CAL-01.
+    TWO SIGMA ONLY, measured rather than stylistic. Against 908 held-out Argo profiles the shipped
+    model's +/-2 sigma band covers 91.2% (a Gaussian of that width would be 95.4%) and its
+    +/-1 sigma band covers 63.9% (68.3%). Both run slightly narrow, so the band is labelled
+    +/-2 sigma rather than "95%" -- the nominal figure is not the measured one.
+
+    CORRECTED 2026-09-02. This docstring previously claimed 96.5% coverage and per-depth scales
+    reaching 5.4x at 100 m. Those came from a calibration fitted while calibrate_uncertainty.py
+    loaded the GLORYS bundle for a satellite-trained model -- the same defect inference.py had.
+    Refitted on the correct bundle the scales are 0.89-1.46
+    (max at 100 m). The thermocline was never 4-5x miscalibrated; the diagnostic was.
     """
     rows = []
     for k, d in enumerate(record["depths_m"]):
@@ -177,7 +182,7 @@ def profile_chart(record: dict) -> alt.LayerChart:
         y=alt.Y("depth:Q", scale=alt.Scale(reverse=True)),
         tooltip=[alt.Tooltip("depth:Q", title="depth (m)"),
                  alt.Tooltip("temperature:Q", format=".2f", title="°C"),
-                 alt.Tooltip("sigma2:Q", format=".2f", title="± 2σ (95%) °C"),
+                 alt.Tooltip("sigma2:Q", format=".2f", title="± 2σ °C"),
                  alt.Tooltip("why:N", title="why")])
 
     layers = [band, line]
@@ -194,7 +199,7 @@ def profile_chart(record: dict) -> alt.LayerChart:
                     tooltip=[alt.Tooltip("depth:Q", title="depth (m)"),
                              alt.Tooltip("temperature:Q", format=".2f",
                                          title="independent float °C")]))
-    return alt.layer(*layers).properties(height=560, title="reconstructed profile, ±2σ (95%)")
+    return alt.layer(*layers).properties(height=560, title="reconstructed profile, ±2σ")
 
 
 def render_profile_tab() -> None:
@@ -233,12 +238,14 @@ def render_profile_tab() -> None:
         # Unit B (AGENT_SYNC 2026-09-02, Call 3): show the band we measured as honest, refuse the
         # one we measured as too narrow, and say which is which where the number appears.
         st.caption(
-            "**We report uncertainty at the 95% level, where this model is calibrated** — 96.5% "
-            "of independent Argo profiles fall inside the ±2σ band against a 95.4% target. "
-            "**We deliberately do not show a tighter band or a confidence percentage:** we "
-            "measured our thermocline uncertainty to be four to five times too narrow (σ needed "
-            "×5.4 at 100 m), and we will not display a confidence interval we cannot defend. "
+            "**The band is ±2σ, and its MEASURED coverage is "
+            "91.2%** of independent Argo profiles — against {95.4}% for a Gaussian of "
+            "that width. So it runs slightly narrow: we label it ±2σ rather than \"95%\" because "
+            "the nominal figure is not the one we measured. "
+            "**We show no ±1σ band and no confidence percentage:** ±1σ covers 63.9% "
+            "against 68.3%, and calibration needed a per-depth scale up to ×1.46 (at 100 m). "
             "The 0 m band is unfitted — only 20 profiles reach it.")
+
     with right:
         render_argo_check(record)
 

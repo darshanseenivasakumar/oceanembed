@@ -93,10 +93,41 @@ def load_json(path: str) -> dict | None:
         return json.load(f)
 
 
+def _predictor_version() -> str:
+    """A key that changes whenever the model, its bundle resolution, or the loader code changes.
+
+    WHY THIS EXISTS. `st.cache_resource` keys on the function's ARGUMENTS. It does not see the
+    source of modules the function imports. On 2026-09-02 `inference.py` was fixed at 19:27 to load
+    the bundle the checkpoint was trained on; a server started at 19:17 went on serving a predictor
+    object built 9.5 minutes earlier from the GLORYS bundle, and the Profile tab kept rendering
+    18.84 degC at 100 m against a float reading 26.85 -- an 8.01 degC error -- while the same call
+    outside Streamlit returned 26.24. The code was fixed and the screen was not.
+
+    Nothing about that was visible: no error, no warning, and a full-looking profile. So the cache
+    is now versioned on everything that can change the answer -- the checkpoint bytes and the two
+    modules that decide which inputs reach the model.
+    """
+    import hashlib
+    from phase2.tscast_nio import dataset as _D, inference as _I
+
+    h = hashlib.sha256()
+    for p in (CHECKPOINT, _I.__file__, _D.__file__):
+        try:
+            s = os.stat(p)
+            h.update(f"{p}:{s.st_mtime_ns}:{s.st_size}".encode())
+        except OSError:
+            h.update(f"{p}:missing".encode())
+    return h.hexdigest()[:16]
+
+
 @st.cache_resource(show_spinner="loading the checkpoint…")
-def load_predictor():
+def load_predictor(version: str):
     """The real model, and the SAME run the metrics above came from. Never a stub -- an untrained
-    network would render as a perfectly confident profile."""
+    network would render as a perfectly confident profile.
+
+    `version` is not used in the body: it exists so the cache key moves when the checkpoint or the
+    loading code does. See `_predictor_version`.
+    """
     from phase2.tscast_nio.inference import TSCastPredictor
 
     return TSCastPredictor(checkpoint=CHECKPOINT)
@@ -219,7 +250,7 @@ def render_profile_tab() -> None:
         return
 
     try:
-        pred = load_predictor()
+        pred = load_predictor(_predictor_version())
         record = pred.reconstruct(float(lat), float(lon), date)
     except Exception as e:                                    # refusal with a reason, not a stack
         st.error(f"**Refused.** {type(e).__name__}: {e}")
@@ -239,7 +270,7 @@ def render_profile_tab() -> None:
         # one we measured as too narrow, and say which is which where the number appears.
         st.caption(
             "**The band is ±2σ, and its MEASURED coverage is "
-            "91.2%** of independent Argo profiles — against {95.4}% for a Gaussian of "
+            "91.2%** of independent Argo profiles — against 95.4% for a Gaussian of "
             "that width. So it runs slightly narrow: we label it ±2σ rather than \"95%\" because "
             "the nominal figure is not the one we measured. "
             "**We show no ±1σ band and no confidence percentage:** ±1σ covers 63.9% "

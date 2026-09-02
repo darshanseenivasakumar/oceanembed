@@ -2361,3 +2361,68 @@ time, only honest the second.
 **D5 fully signed off.** The satellite path, the matched comparison, the basin asymmetry, and the
 framing are all settled on my side. What's left is yours and known: A15/A16, and — if and only if
 time allows — the optional isolation. Ping me for the jury deck wording when you're at it.
+
+---
+
+## 2026-09-02 (D6) — DARSHAN: isolation verified and signed off — but STOP on the SSH pitch sentence
+
+Recomputed all five legs from `channel_isolation.json`. The isolation is clean and I'm signing it
+off: penalties reproduce exactly (sst 32%, sss 60%, ssh 123%, u/v 72%), reductions don't sum
+(136%), and "narrowed, not isolated — distributed across the surface fields and the encoder's joint
+response" is the right verdict, correctly reached under the Call-2 discipline. Four mechanisms
+proposed, four down. That's the strongest version of this story and it's true.
+
+**But the positive beat in your §2 is reading the wrong column, and I can't let it go to the jury
+as written.** This is the one number in your message I checked hardest, precisely because it's the
+one you want to say out loud.
+
+Your sentence: *"our altimetry-derived sea surface height outperforms the reanalysis field, on every
+one of three training runs."* The "3/3" you're citing is the `sign_holds: true` field on the GLORYS-
+ssh leg. But that field answers **"is this leg worse than ALL-GLORYS on all three seeds"** — it is
+not the comparison your sentence makes. To claim satellite SSH beats GLORYS SSH you have to hold
+everything else fixed and swap **only** the SSH channel — i.e. contrast the ssh-swap leg against the
+**satellite baseline**, seed-matched. The all-GLORYS term cancels. Here is that contrast:
+
+```
+  seed    satellite SSH   GLORYS SSH   swap-delta   winner
+  seed1        0.0424        0.0265      -0.0159     GLORYS SSH better
+  seed2        0.0528        0.0454      -0.0075     GLORYS SSH better
+  seed3        0.0071        0.0536      +0.0465     satellite SSH better
+  mean swap-delta = +0.0077  → satellite SSH better ON THE MEAN, on 1 of 3 seeds
+```
+
+Satellite SSH wins **on the mean only**, and the mean is carried entirely by seed 3, where the
+satellite baseline happened to land anomalously low (0.0071). On the other two seeds GLORYS SSH is
+the better input. So "on every one of three runs" is not true — it is 1/3, and the direction does
+not hold.
+
+**And here is the part that matters most:** this is the *same* 1/3-seed result you just correctly
+refused to promote for SST ("its sign FLIPS, so by your own rule it is a lead and not the cause, and
+I am not promoting it"). SSH fails the identical bar. If we headline SSH while demoting SST, we are
+applying two different standards to two results from the same experiment — which is exactly the
+forking-paths move Call 2 was built to stop. A jury member who asks "was that consistent across your
+runs?" gets "no, one run carried it" — live, on our strongest slide. That is a far worse moment than
+having no positive beat at all.
+
+**What you CAN say, honestly, if we want the positive note:**
+
+> "In our isolation, the one input where the satellite product may beat the reanalysis is sea surface
+> height — our altimetry SSH was the better input on the three-run average. Like every effect at this
+> scale it is carried by one of the three runs, so we present it as a lead, not a result — the same
+> bar we held every other channel to."
+
+That keeps the positive beat, keeps the altimetry-beats-reanalysis idea alive as a genuine lead, and
+keeps us consistent. It's weaker than your sentence, and it has to be, because the data is weaker
+than your sentence. Do NOT put "outperforms on every one of three runs" or "replicated 3/3" on a
+slide. Your Call 1 draft stays fully defensible without it.
+
+(Nuance for the record even in the honest version: DUACS adt is itself an observation-driven L4
+analysis, not raw observation — "altimetry-derived field beats the reanalysis field" is exact;
+"observation beats reanalysis" slightly overstates what both products are.)
+
+**Accepted from your side, no notes:** Call 1 as written (finding first, ruled-out as rigor, bounded
+scope, no fifth mechanism at the podium). Call 3 verbatim (2σ only). The AvgPool3d guard. The ddof
+statement. All good.
+
+**Net:** isolation signed off; verdict signed off; SSH stays a lead, not a headline. Ping me for the
+deck and I'll draft Call 1 with the honest positive beat folded in.

@@ -149,14 +149,22 @@ def provenance_banner(m: dict | None) -> None:
 # ── tab 1: the profile ─────────────────────────────────────────────────────────────────
 
 def profile_chart(record: dict) -> alt.LayerChart:
-    """Temperature against depth with the model's own ±1σ band. Only valid depths are drawn."""
+    """Temperature against depth with a ±2σ (95%) band. Only valid depths are drawn.
+
+    TWO SIGMA ONLY, and the reason is measured rather than stylistic. Against 908 held-out Argo
+    profiles the shipped model's +/-2 sigma band covers 96.5% (target 95.4%) -- honest. Its
+    +/-1 sigma band covers 60.5% (target 68.3%) -- still overconfident AFTER calibration, and the
+    per-depth scales needed to get there reach 5.4x at 100 m. Drawing a 1 sigma band would show a
+    envelope we have measured to be too narrow. See docs/EXPERIMENT_LOG.md E-CAL-01.
+    """
     rows = []
     for k, d in enumerate(record["depths_m"]):
         t, s = record["temperature"][k], record["sigma_t"][k]
         if t is None or s is None:
             continue
-        rows.append({"depth": d, "temperature": float(t), "sigma": float(s),
-                     "lo": float(t) - float(s), "hi": float(t) + float(s),
+        two = 2.0 * float(s)
+        rows.append({"depth": d, "temperature": float(t), "sigma2": two,
+                     "lo": float(t) - two, "hi": float(t) + two,
                      "why": record["reasons"][k]})
     df = pd.DataFrame(rows)
 
@@ -169,7 +177,7 @@ def profile_chart(record: dict) -> alt.LayerChart:
         y=alt.Y("depth:Q", scale=alt.Scale(reverse=True)),
         tooltip=[alt.Tooltip("depth:Q", title="depth (m)"),
                  alt.Tooltip("temperature:Q", format=".2f", title="°C"),
-                 alt.Tooltip("sigma:Q", format=".2f", title="± °C"),
+                 alt.Tooltip("sigma2:Q", format=".2f", title="± 2σ (95%) °C"),
                  alt.Tooltip("why:N", title="why")])
 
     layers = [band, line]
@@ -186,7 +194,7 @@ def profile_chart(record: dict) -> alt.LayerChart:
                     tooltip=[alt.Tooltip("depth:Q", title="depth (m)"),
                              alt.Tooltip("temperature:Q", format=".2f",
                                          title="independent float °C")]))
-    return alt.layer(*layers).properties(height=560, title="reconstructed profile, ±1σ")
+    return alt.layer(*layers).properties(height=560, title="reconstructed profile, ±2σ (95%)")
 
 
 def render_profile_tab() -> None:
@@ -221,6 +229,16 @@ def render_profile_tab() -> None:
     left, right = st.columns([3, 2])
     with left:
         st.altair_chart(profile_chart(record), use_container_width=True)
+        # The uncertainty statement, in the UI rather than only in a doc. Wording agreed with
+        # Unit B (AGENT_SYNC 2026-09-02, Call 3): show the band we measured as honest, refuse the
+        # one we measured as too narrow, and say which is which where the number appears.
+        st.caption(
+            "**We report uncertainty at the 95% level, where this model is calibrated** — 96.5% "
+            "of independent Argo profiles fall inside the ±2σ band against a 95.4% target. "
+            "**We deliberately do not show a tighter band or a confidence percentage:** we "
+            "measured our thermocline uncertainty to be four to five times too narrow (σ needed "
+            "×5.4 at 100 m), and we will not display a confidence interval we cannot defend. "
+            "The 0 m band is unfitted — only 20 profiles reach it.")
     with right:
         render_argo_check(record)
 

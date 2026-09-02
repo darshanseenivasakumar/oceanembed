@@ -91,11 +91,21 @@ def profile_rows(record: dict) -> list[dict]:
         if t is None:
             why = (f"REFUSED — below the seafloor, which is at {float(floor):.0f} m here"
                    if floor is not None else "REFUSED — no valid ocean at this depth")
-            rows.append({"depth (m)": int(d), "temperature (°C)": None, "± σ (°C)": None,
+            rows.append({"depth (m)": int(d), "temperature (°C)": None, "± 2σ (95%) °C": None,
                          "explanation": why})
         else:
+            # 2 SIGMA ONLY, never 1. MEASURED 2026-09-02 on the shipped model against 908
+            # held-out Argo profiles: +/-2 sigma covers 96.5% against a 95.4% target -- honest.
+            # +/-1 sigma covers 60.5% against 68.3% -- still overconfident AFTER calibration, and
+            # the per-depth scales it needed reach 5.4x at 100 m. Showing a band we measured as
+            # too narrow would be the same failure as the confidence percentage we refuse to
+            # display. See docs/EXPERIMENT_LOG.md E-CAL-01.
+            two = None if s is None else _r(2.0 * float(s), 2)
             rows.append({"depth (m)": int(d), "temperature (°C)": _r(t, 2),
-                         "± σ (°C)": _r(s, 2), "explanation": record["reasons"][k]})
+                         "± 2σ (95%) °C": two,
+                         "explanation": ("0 m band UNFITTED (n=20 profiles) — "
+                                         + record["reasons"][k]) if int(d) == 0
+                                        else record["reasons"][k]})
     return rows
 
 

@@ -1,45 +1,43 @@
 
 
-## E-CAL-01  2026-09-02  — uncertainty refitted against the shipped satellite model
+## E-BASIN-02  2026-09-02  — the currents explanation is NOT supported either
 
-**Status: IMPROVED, NOT CALIBRATED. Must be labelled as a limitation wherever sigma is shown.**
+**Status: the Arabian Sea penalty remains UNEXPLAINED. Report it as an open question.**
 
-The previous `uncertainty_calibration.json` was INVALID: `calibrate_uncertainty.py:76` rebuilt the
-model with `t_seq=ck["T_SEQ"]` instead of `built_t_seq`, producing a structurally different encoder
-that `load_state_dict` accepts silently. Every scale in it was fitted on predictions the shipped
-model does not make. It also targeted `tscast_stage1_tseq31.pt` — a 5-channel T_SEQ=31 checkpoint
-that was never the shipped model (`is_shipped_model: false`). Preserved as
-`uncertainty_calibration_INVALID_pre_built_tseq.json`, never to be applied.
+E-BASIN-01 found the satellite penalty sits entirely in the Arabian Sea (+0.0341) while the Bay of
+Bengal is slightly better on satellite input (-0.0194), both signs holding 3/3. The proposed
+mechanism was that GLOBCURRENT (geostrophic + Ekman) resolves the Somali Jet and summer upwelling
+less well than GLORYS' modelled `uo/vo`.
 
-Refitted against the canonical promoted artifact (tscast_stage1.pt, T_SEQ 11,
-7 channels, `is_shipped_model: true`), method `coverage`,
-fitted on 3423 TRAIN-window Argo profiles and evaluated on 908
-TEST-window ones.
+Tested it: currents contribution by basin = noCUR RMSE minus full RMSE, satellite bundle, 3 seeds.
+A positive value means dropping currents hurt, i.e. currents were helping there.
 
-| | before | after | target |
+| seed | overall | Arabian Sea | Bay of Bengal |
 |---|---|---|---|
-| ±1σ coverage | 0.2735 | **0.6053** | 0.683 |
-| ±2σ coverage | 0.4643 | **0.9650** | 0.954 |
-| PIT uniform deviation | 0.1051 | **0.0709** | 0 |
+| 42 | -0.0072 | -0.0049 | -0.0131 |
+| 43 | +0.0080 | -0.0255 | +0.0928 |
+| 44 | +0.0297 | +0.0266 | +0.0383 |
+| mean | +0.0101 | **-0.0013** | +0.0393 |
 
-### Read this honestly
+**No sign holds in any basin.** Arabian-minus-BoB is +0.0083, -0.1183, -0.0117 —
+inconsistent. If currents were the mechanism, dropping them should hurt the Arabian Sea most; the
+Arabian Sea contribution averages **-0.0013**, indistinguishable from zero.
 
-**±2σ is now good. ±1σ is not.** 0.605 against a 0.683 target means the band is still too narrow:
-roughly 6 floats in 10 land inside ±1σ where 7 should. The model remains **overconfident after
-calibration**, and no product may describe this as "calibrated uncertainty" or show a confidence
-percentage derived from it.
+### What this does and does not establish
 
-**The scales themselves are the finding.** To reach even this, sigma had to be multiplied by
+It does NOT refute the currents hypothesis — the test lacks the power to. It establishes that the
+hypothesis is **not supported**, which is a weaker and honest statement. Two reasons the test is
+underpowered: the Bay of Bengal holds only 283 of 962 profiles, so its per-basin delta carries
+sd 0.0530 — larger than any effect we are chasing; and this measures whether satellite currents
+CONTRIBUTE differently by basin, not whether GLOBCURRENT is WORSE than GLORYS there. The direct
+test is a hybrid leg — satellite inputs with GLORYS `uo/vo` substituted — which does not exist.
 
-    50 m 3.24 · 75 m 5.13 · 100 m 5.41 · 125 m 4.95 · 150 m 4.78 · 200 m 4.45 · 300 m 4.13
+### The position to hold
 
-The raw head is **4-5x too narrow through the entire thermocline** — worse than the MC-dropout it
-replaced was at its worst (1.6-3.5x). The uncertainty head is not merely imprecise there; it is
-confidently wrong in exactly the depth range the reconstruction is hardest and users care most
-about. That is a result about the model, not a tuning nuisance.
+The basin asymmetry is real, reproducible and 3-seed stable. **Its cause is unknown.** Two
+candidate mechanisms have now been proposed and neither survived: SSS blindness (falsified,
+E-BASIN-01) and currents (unsupported, here).
 
-**Surface has n=20** — far too few profiles to fit a scale on. The 0 m entry should be treated as
-unfitted regardless of what the file says.
-
-Limitations: one seed, temperature only, and the scales are fitted on the train window and applied
-to the test window, so they carry that period's error structure.
+That is the honest state and it is what should be presented. A measured asymmetry with an admitted
+open cause is stronger than a plausible story with no number under it -- which is exactly what we
+had this morning, twice.

@@ -2270,3 +2270,13 @@ asymmetry with an explicitly open cause.** Two mechanisms proposed, both tested,
 that is a stronger position than either story would have been, and it is the whole D5 lesson in one
 line: a number with an admitted open cause beats a plausible story with no number under it. Do NOT
 run the hybrid leg unless we have spare time before the freeze; it is a nice-to-have, not a gap.
+
+### FROM DARSHAN: provenance corrected (`ef394e3`)
+
+Took the edit I offered in D5 FINAL, so it is off your plate. The sss `measured_limitation` you
+flagged in 89efab4 is now marked SUPERSEDED in place, same as the leaky numbers in 7f65b91 --
+not rewritten, not deleted. The measured fact (30.78 vs 6.43 psu, no BoB plume) stays verbatim;
+the "expect BoB to score worse" prediction is struck and carries the A12 numbers that killed it
+(Arabian +0.0341, BoB -0.0194, both 3/3) plus the note that your currents test didn't rescue a
+mechanism. Nothing referenced the old string; 35 pipeline/guard/provenance tests pass. The bundle
+no longer ships a claim we've falsified.

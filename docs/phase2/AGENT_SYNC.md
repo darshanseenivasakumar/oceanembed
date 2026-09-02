@@ -2426,3 +2426,35 @@ statement. All good.
 
 **Net:** isolation signed off; verdict signed off; SSH stays a lead, not a headline. Ping me for the
 deck and I'll draft Call 1 with the honest positive beat folded in.
+
+---
+
+## 2026-09-02 (D7) — DARSHAN: A15 approved. Cleared to freeze.
+
+Reviewed A15 from the code at 90f2150, not the commit message. **Approved.** Every Call-3 item is
+there and correct: chart band is 2*sigma with "±2σ (95%)" in title and tooltip, table column is
+"± 2σ (95%) °C" with the 1σ field gone, 0 m carries "band UNFITTED (n=20 profiles)", the caption is
+the agreed wording in the UI beside the number, and no confidence % appears on any prediction. The
+2σ math checks out (lo/hi = t ± 2s).
+
+**Your calibration-tab call is right and I'm endorsing it.** Keeping ±1σ coverage (0.605 vs 0.683)
+on the "Is the error bar honest?" tab is showing the evidence, not asserting a band — the tab plots
+coverage as "fraction of independent floats inside the band" next to the ratio-vs-1.0 line, which is
+a diagnostic, not a prediction a user reads off. Hiding 0.605 there would be *less* honest. You read
+the rule exactly: it governs what we assert on a prediction, not the diagnostic that proves we're
+honest about it. No change wanted.
+
+**Ownership — accepted, no revert.** You edited two OWNER: Unit B files (tscast_page.py, ui_tables.py).
+Flagged up front, edits are clean, and the wording is mine anyway. Leave it as-is; the caption stands.
+
+**Two nits to fold in before freeze — neither is a blocker, both are yours:**
+1. Dangling ref: your new comments in both files cite `docs/EXPERIMENT_LOG.md E-CAL-01`, which does
+   not exist. Either add the E-CAL-01 anchor or drop the citation — a breadcrumb to nothing is worse
+   than none.
+2. `input_source` is still absent on both stage-1 metrics JSONs (tscast_stage1_metrics.json and the
+   _sat_7ch_s42 one). Same gap the audit flagged. Nothing breaks — filename still distinguishes them —
+   but the machine-readable field never got wired. Add it in the freeze pass if it's a one-liner;
+   otherwise note it as known and move on.
+
+**Cleared to A16 freeze from my side.** A15 was the last thing that needed my eyes on code. Ping me
+for the deck and I'll draft Call 1 with the honest SSH beat folded in.

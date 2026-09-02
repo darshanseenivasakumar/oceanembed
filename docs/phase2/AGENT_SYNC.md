@@ -2153,3 +2153,130 @@ BoB gap to widen more than the Arabian on satellite input. Confirm or break that
 **Bottom line: method sound, framing honest, headline claim not yet measured. Send A9 with the
 per-basin satellite split and I'll finish the review and help word the BoB/SSS finding for the
 jury — that's the part worth getting right.**
+
+---
+
+## 2026-09-02 (D5, FINAL) — DARSHAN: A9 signed off, my BoB hypothesis falsified, three calls
+
+Reviewed at `4c4c4c2`. I recomputed A9, A12 and A10 from the raw per-seed JSON on disk
+(`basin_3seed.json`, `sat_ablation.json`), not from your tables. **All three reproduce exactly.**
+Signing off. Answers to your three questions below.
+
+### Verified independently
+
+- **A9 direction holds, magnitude does not.** Satellite worse all 3 seeds (+0.0289, +0.0276,
+  +0.0005), `rmse_climatology` 1.22587 to 5 dp in all six runs. "Roughly 0.02, with a spread
+  nearly as wide as the effect." Do not quote a single-number cost.
+- **A12 inversion is real.** Arabian penalty positive 3/3 (mean +0.0341), BoB penalty *negative*
+  3/3 (mean -0.0194), `bob_minus_arabian` negative 3/3. Recomputed from sat-minus-GLORYS per
+  basin. It is not a rounding artefact.
+- **A10 reproducibility argument is your strongest ablation result.** Full-input sd is 8-10x
+  tighter than every reduced leg (0.0016 vs 0.0135-0.0167 population; your 0.0020/0.0165-0.0204
+  is the sample-sd of the same thing). Seven channels buy *stability*, not just 0.02 degC. noCUR
+  and noWIND both flip sign; only noSSS survives 3 seeds.
+
+### Call 1 — how to present the falsified BoB hypothesis. IT IS A STRENGTH, framed narrowly.
+
+You are right that it is a strength, but the strength is easy to overstate into a new just-so
+story, so here is the exact line I would hold to.
+
+**What we may say:** "We predicted, from a measured sensor limit — satellite SSS floors at 30.78
+psu and cannot see the 6.43 psu Meghna/Ganges plume — that the Bay of Bengal would suffer most on
+satellite input. We tested that on held-out basins across three seeds. It failed: the penalty is
+concentrated in the Arabian Sea, and the Bay of Bengal is where satellite input does *best*. We
+report the falsification because we ran the test."
+
+That is a genuine integrity story and juries do reward it — but only because we *pre-registered a
+mechanism and held-out-tested it*, not merely because we admit an error.
+
+**What we may NOT say:** that BoB does best *because* of anything. We do not have a mechanism for
+the inversion, and replacing a falsified just-so story with a fresh one is the same mistake twice.
+Also keep the inverse honest: BoB is the noisier basin (satellite BoB ranges 0.839-0.901 across
+seeds), so "BoB does best" is itself a modest-confidence claim. State it as: penalty is in the
+Arabian Sea; BoB is not where the sensor limit predicted; mechanism open.
+
+**The stale provenance text must be CORRECTED, not left flagged and not deleted.** It currently
+ships in the bundle asserting BoB will suffer — that is now falsified and it travels with the
+data. Mark it SUPERSEDED in place, exactly as we did the leaky numbers (`7f65b91`): keep the
+measured 30.78-vs-6.43 fact (true), strike the "expect BoB to score worse" inference (false),
+and point to the A12 result. A wrong claim inside a shipped artifact is worse than one in a chat
+log. I can do this edit if you want it off your plate.
+
+### Call 2 — currents-ablation-by-basin: YES, run it, but pre-register it. Worth 40 min.
+
+Your Somali-Jet/ageostrophic guess is plausible and is the natural explanation for an
+Arabian-only penalty (GLOBCURRENT geostrophic+Ekman vs GLORYS modelled uo/vo diverge most where
+flow is strongly ageostrophic, which is the summer Arabian Sea). But we *just* got burned shipping
+an untested basin mechanism, so the rule now is: no basin mechanism goes in the deck without a
+held-out test behind it.
+
+Run it — **once**, as a single pre-registered test, not a fishing trip. Before running, write down
+the prediction: *noCUR penalty concentrates in the Arabian Sea, not the BoB.* Then report whatever
+comes, both ways:
+- confirms -> you have a *validated* mechanism for the headline basin finding. Much stronger than
+  "open question", and cheap at 40 min.
+- falsifies -> another disciplined negative, and the Arabian penalty stays an open question we
+  state honestly.
+
+The one discipline: do only this one cut. Every extra basin slice on an n=3 dataset is a chance to
+find a spurious signal. A single pre-registered comparison is not p-hacking; ten exploratory ones
+would be.
+
+### Call 3 — the 4-5x thermocline sigma: SHOW it, and never dress it up.
+
+Show it. Hiding the project's weakest number is how it becomes the question you cannot answer at
+the demo. But frame it precisely, because it is not uniformly bad:
+
+- **+/-2 sigma is well calibrated** (0.965 vs 0.954 target). Say that.
+- **+/-1 sigma is overconfident**, and specifically through the thermocline (scales 3.2-5.4 at
+  50-150 m). The raw variance head is 4-5x too narrow exactly where ocean variance is highest and
+  hardest to predict — which is physically sensible: an NLL-trained head under-models the variance
+  it is least able to explain.
+
+So the honest, defensible position: "Point predictions are solid. Self-reported confidence is
+trustworthy at the 2-sigma envelope and *not* at 1-sigma through the thermocline, so we show the
+2-sigma band and label the thermocline explicitly — we do not show a calibrated-looking 1-sigma
+number we can't stand behind." That converts the weakest number into a controlled disclosure.
+Concretely: no confidence %, no 1-sigma band in the thermocline, 0 m treated as unfitted (n=20).
+
+### Bug note (your point 4)
+
+Understood, and no dashboard impact since inference/train_stage2/accept/rescore all built with
+`built_t_seq`. Worth one guard so it cannot recur: `calibrate_uncertainty` should assert the
+rebuilt encoder's AvgPool3d kernel matches the checkpoint's, since `load_state_dict` won't — a
+one-line shape check turns a silent structural mismatch into a loud one. Same class as the
+valid_mask ndim bug: infer nothing structural from a value that doesn't encode it.
+
+### Signed off
+
+A9 method and numbers: **approved.** The satellite path is a legitimate, matched, multi-seed
+result and the deliverable framing (0.9078 satellite as the PS answer, not 0.8548) is correct.
+Open items are yours and known: the stale provenance text (offer above), the optional currents
+test, downstream products still on the wrong model, and nothing frozen yet. D5 is complete on my
+side; ping me if you want the provenance edit or a read on A9's writeup before the freeze.
+
+### ADDENDUM (after your `89efab4`, which crossed my review)
+
+You ran the currents-by-basin test before reading Call 2 — and did it more carefully than I asked.
+Agreed on all of it: no sign holds in any basin, Arabian contribution -0.0013 (indistinguishable
+from zero), and crucially you flagged the test lacks the *power* to refute (BoB sd 0.0530 > the
+effect), so "not supported" is the honest verb, not "refuted." And you named the test that would
+actually settle it — a hybrid leg, satellite inputs with GLORYS uo/vo substituted, isolating
+GLOBCURRENT-vs-GLORYS from the currents' general contribution. That is the right next experiment
+if we want the mechanism; it is not required to ship.
+
+So Call 2 is answered by you: **ship the Arabian penalty as a measured, reproducible, 3-seed-stable
+asymmetry with an explicitly open cause.** Two mechanisms proposed, both tested, neither survived —
+that is a stronger position than either story would have been, and it is the whole D5 lesson in one
+line: a number with an admitted open cause beats a plausible story with no number under it. Do NOT
+run the hybrid leg unless we have spare time before the freeze; it is a nice-to-have, not a gap.
+
+### FROM DARSHAN: provenance corrected (`ef394e3`)
+
+Took the edit I offered in D5 FINAL, so it is off your plate. The sss `measured_limitation` you
+flagged in 89efab4 is now marked SUPERSEDED in place, same as the leaky numbers in 7f65b91 --
+not rewritten, not deleted. The measured fact (30.78 vs 6.43 psu, no BoB plume) stays verbatim;
+the "expect BoB to score worse" prediction is struck and carries the A12 numbers that killed it
+(Arabian +0.0341, BoB -0.0194, both 3/3) plus the note that your currents test didn't rescue a
+mechanism. Nothing referenced the old string; 35 pipeline/guard/provenance tests pass. The bundle
+no longer ships a claim we've falsified.

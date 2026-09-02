@@ -1,41 +1,45 @@
 
 
-## E-BASIN-01  2026-09-02  — A12: the Bay of Bengal hypothesis is FALSIFIED
+## E-CAL-01  2026-09-02  — uncertainty refitted against the shipped satellite model
 
-**Status: VALIDATED, 3 seeds, and it overturns the story we were about to present.**
+**Status: IMPROVED, NOT CALIBRATED. Must be labelled as a limitation wherever sigma is shown.**
 
-Satellite penalty = satellite-input RMSE minus GLORYS-input RMSE, seed-matched, scored through the
-shared `eval_argo` path on the canonical `phase2.basins` partition. 962 profiles: 679 Arabian Sea,
-283 Bay of Bengal, 0 unassigned.
+The previous `uncertainty_calibration.json` was INVALID: `calibrate_uncertainty.py:76` rebuilt the
+model with `t_seq=ck["T_SEQ"]` instead of `built_t_seq`, producing a structurally different encoder
+that `load_state_dict` accepts silently. Every scale in it was fitted on predictions the shipped
+model does not make. It also targeted `tscast_stage1_tseq31.pt` — a 5-channel T_SEQ=31 checkpoint
+that was never the shipped model (`is_shipped_model: false`). Preserved as
+`uncertainty_calibration_INVALID_pre_built_tseq.json`, never to be applied.
 
-| seed | overall | Arabian Sea | Bay of Bengal |
+Refitted against the canonical promoted artifact (tscast_stage1.pt, T_SEQ 11,
+7 channels, `is_shipped_model: true`), method `coverage`,
+fitted on 3423 TRAIN-window Argo profiles and evaluated on 908
+TEST-window ones.
+
+| | before | after | target |
 |---|---|---|---|
-| 42 | +0.0289 | +0.0424 | -0.0037 |
-| 43 | +0.0276 | +0.0528 | -0.0376 |
-| 44 | +0.0005 | +0.0071 | -0.0168 |
-| **mean** | **+0.0190** | **+0.0341** | **-0.0194** |
+| ±1σ coverage | 0.2735 | **0.6053** | 0.683 |
+| ±2σ coverage | 0.4643 | **0.9650** | 0.954 |
+| PIT uniform deviation | 0.1051 | **0.0709** | 0 |
 
-**Both signs hold on all three seeds, in OPPOSITE directions.** Satellite input is consistently
-WORSE in the Arabian Sea and consistently BETTER in the Bay of Bengal. BoB-minus-Arabian is
--0.0462, -0.0904, -0.0238 — never once positive.
+### Read this honestly
 
-### What this kills
+**±2σ is now good. ±1σ is not.** 0.605 against a 0.683 target means the band is still too narrow:
+roughly 6 floats in 10 land inside ±1σ where 7 should. The model remains **overconfident after
+calibration**, and no product may describe this as "calibrated uncertainty" or show a confidence
+percentage derived from it.
 
-The project's most jury-legible story was: *satellite SSS floors at 30.78 psu against a real 6.43
-at the Meghna/Ganges, so the Bay of Bengal should suffer.* Darshan proposed it, I recorded it in
-the bundle provenance, and we were one step from presenting it.
+**The scales themselves are the finding.** To reach even this, sigma had to be multiplied by
 
-**It is false.** The BoB is where satellite input does BEST. The sensor limit is real — the product
-genuinely cannot see the plume — but it is NOT what costs accuracy. Two separate claims, and only
-the first survives.
+    50 m 3.24 · 75 m 5.13 · 100 m 5.41 · 125 m 4.95 · 150 m 4.78 · 200 m 4.45 · 300 m 4.13
 
-### What replaces it — [INFERRED], not measured
+The raw head is **4-5x too narrow through the entire thermocline** — worse than the MC-dropout it
+replaced was at its worst (1.6-3.5x). The uncertainty head is not merely imprecise there; it is
+confidently wrong in exactly the depth range the reconstruction is hardest and users care most
+about. That is a result about the model, not a tuning nuisance.
 
-The penalty lives in the Arabian Sea. A plausible mechanism is that the Arabian Sea is the more
-dynamically demanding basin for a satellite-derived current field: the Somali Jet and the summer
-upwelling are strong, wind-driven and ageostrophic, and GLOBCURRENT's geostrophic+Ekman estimate
-may resolve them less well than GLORYS' modelled `uo/vo`. **This is a hypothesis. It has not been
-tested, and it must not be presented as the explanation until a currents-ablation-by-basin is run.**
-We have just been burned once by exactly that shortcut.
+**Surface has n=20** — far too few profiles to fit a scale on. The 0 m entry should be treated as
+unfitted regardless of what the file says.
 
-artifact: `artifacts/basin_3seed.json`
+Limitations: one seed, temperature only, and the scales are fitted on the train window and applied
+to the test window, so they carry that period's error structure.

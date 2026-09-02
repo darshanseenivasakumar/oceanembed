@@ -113,16 +113,21 @@ PROVENANCE_CHANNELS = {
                      "(Buongiorno Nardelli 2016). NOT a pure satellite retrieval -- must not be "
                      "described as one.",
                 measured_limitation=(
-                    "SENSOR LIMIT, NOT A MODELLING GAP. Measured on 5 days against the GLORYS "
-                    "bundle: this product floors at 30.78 psu where GLORYS reaches 9.72. Unit B's "
-                    "F5 work independently measured 6.43 psu at 22.50N 91.25E -- the real "
-                    "Meghna/Ganges river signature. So the satellite input is BLIND to the single "
-                    "most distinctive feature of the Bay of Bengal. Expect the BoB half of the "
-                    "PoC to score worse on satellite input for a PHYSICAL reason, not because the "
-                    "model is worse there. State this wherever the satellite-vs-GLORYS comparison "
-                    "is written up (A9), beside the barrier-layer numbers (BoB 9.5 m vs Arabian "
-                    "7.1 m, peaks 75-100 m) -- both point at the same basin being harder for the "
-                    "same underlying reason. [Darshan, AGENT_SYNC 2026-09-02]")),
+                    "MEASURED SENSOR LIMIT (true, stands): on 5 days against the GLORYS bundle "
+                    "this product floors at 30.78 psu where GLORYS reaches 9.72, and Unit B's F5 "
+                    "work independently measured 6.43 psu at 22.50N 91.25E -- the real "
+                    "Meghna/Ganges river signature. The satellite SSS product does not resolve "
+                    "the Bay of Bengal freshwater plume. "
+                    "SUPERSEDED PREDICTION (corrected 2026-09-02): this note previously inferred "
+                    "from that limit that the BoB half of the PoC would score WORSE on satellite "
+                    "input. A12 FALSIFIED it. Satellite-minus-GLORYS RMSE by basin over 3 seeds "
+                    "is Arabian +0.0341 (positive 3/3) and Bay of Bengal -0.0194 (negative 3/3): "
+                    "the BoB is where satellite input does BEST, and the penalty is entirely "
+                    "Arabian Sea. The sensor limit is real but is NOT what costs accuracy. A "
+                    "follow-up currents-by-basin test (89efab4) did not support a currents "
+                    "mechanism either; the Arabian asymmetry is reproducible with its cause OPEN. "
+                    "Do not quote the old prediction. See AGENT_SYNC 2026-09-02 (D5 FINAL). "
+                    "[corrected by Darshan]")),
     "ssh": dict(product="cmems_obs-sl_glo_phy-ssh_nrt_allsat-l4-duacs-0.125deg_P1D",
                 provider="CLS/CNES", data_class="SATELLITE_DERIVED",
                 native_resolution="0.125 deg", native_units="m", processed_units="m",

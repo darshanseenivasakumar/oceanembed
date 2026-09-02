@@ -95,7 +95,8 @@ def profile_rows(record: dict) -> list[dict]:
                          "explanation": why})
         else:
             # 2 SIGMA ONLY, never 1. MEASURED 2026-09-02 on the shipped model against 908
-            # held-out Argo profiles: +/-2 sigma covers 91.2%, +/-1 sigma covers 63.9%
+            # held-out Argo profiles: +/-2 sigma covers 80.1%-95.5% BY DEPTH (mean 91.2%,
+            # worst 80.1% at 50 m); +/-1 sigma averages 63.9% and falls to 46.1% there
             # (Gaussian nominals 95.4 and 68.3). Both run slightly narrow, so the column is
             # labelled +/-2 sigma and NOT "95%" -- the nominal is not the measured figure.
             # An earlier version of this comment cited 4-5x thermocline scales; those came

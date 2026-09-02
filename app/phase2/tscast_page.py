@@ -182,16 +182,17 @@ def provenance_banner(m: dict | None) -> None:
 def profile_chart(record: dict) -> alt.LayerChart:
     """Temperature against depth with a ±2σ band. Only valid depths are drawn.
 
-    TWO SIGMA ONLY, measured rather than stylistic. Against 908 held-out Argo profiles the shipped
-    model's +/-2 sigma band covers 91.2% (a Gaussian of that width would be 95.4%) and its
-    +/-1 sigma band covers 63.9% (68.3%). Both run slightly narrow, so the band is labelled
-    +/-2 sigma rather than "95%" -- the nominal figure is not the measured one.
+    TWO SIGMA ONLY, measured rather than stylistic -- and reported by RANGE, not by mean. Against
+    908 held-out Argo profiles the band covers 80.1% to 95.5% depending on depth, against 95.4%
+    for a Gaussian of that width. The mean is 91.2%, and quoting only the mean hides the weak
+    band: at 50 m coverage is 80.1% and +/-1 sigma falls to 46.1%. Below 75 m it
+    recovers to 93-95%. The caption renders the same figures; the Calibration tab renders them per
+    depth. One measurement, three views -- if they ever disagree, that is a bug.
 
-    CORRECTED 2026-09-02. This docstring previously claimed 96.5% coverage and per-depth scales
-    reaching 5.4x at 100 m. Those came from a calibration fitted while calibrate_uncertainty.py
-    loaded the GLORYS bundle for a satellite-trained model -- the same defect inference.py had.
-    Refitted on the correct bundle the scales are 0.89-1.46
-    (max at 100 m). The thermocline was never 4-5x miscalibrated; the diagnostic was.
+    CORRECTED TWICE on 2026-09-02. First it claimed 96.5% coverage and per-depth scales reaching
+    5.4x at 100 m, from a calibration fitted while calibrate_uncertainty.py loaded the GLORYS
+    bundle for a satellite-trained model. Then it quoted the 91.2% mean alone, which reads as
+    uniform coverage the data does not support.
     """
     rows = []
     for k, d in enumerate(record["depths_m"]):
@@ -269,13 +270,16 @@ def render_profile_tab() -> None:
         # Unit B (AGENT_SYNC 2026-09-02, Call 3): show the band we measured as honest, refuse the
         # one we measured as too narrow, and say which is which where the number appears.
         st.caption(
-            "**The band is ±2σ, and its MEASURED coverage is "
-            "91.2%** of independent Argo profiles — against 95.4% for a Gaussian of "
-            "that width. So it runs slightly narrow: we label it ±2σ rather than \"95%\" because "
-            "the nominal figure is not the one we measured. "
-            "**We show no ±1σ band and no confidence percentage:** ±1σ covers 63.9% "
-            "against 68.3%, and calibration needed a per-depth scale up to ×1.46 (at 100 m). "
-            "The 0 m band is unfitted — only 20 profiles reach it.")
+            "**The band is ±2σ. Its coverage of independent Argo profiles ranges "
+            "80.1% to 95.5% by depth** — a Gaussian of that width would be 95.4%. "
+            "The mean is 91.2%, but quoting the mean hides where it is weak: "
+            "**at 50 m only 80.1% of floats fall inside the band**, and that is the "
+            "number to judge us on. Coverage recovers to 93–95% below 75 m. "
+            "**We show no ±1σ band and no confidence percentage:** ±1σ averages "
+            "63.9% against 68.3% and drops to 46.1% at 50 m. "
+            "The 0 m band is unfitted — only 20 profiles reach it. "
+            "Per-depth coverage is on the Calibration tab; this caption is its summary, not a "
+            "different measurement.")
 
     with right:
         render_argo_check(record)

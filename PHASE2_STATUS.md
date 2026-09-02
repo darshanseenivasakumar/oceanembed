@@ -2,6 +2,30 @@
 
 Status vocabulary: `NOT STARTED` · `IN PROGRESS` · `IMPLEMENTED` · `TESTED` · `VALIDATED` · `DEMO READY`
 
+> ## WHICH NUMBER IS THE HEADLINE — read before quoting any of the three
+>
+> As of 2026-09-02 there are three validated results, and **the most accurate one is NOT the
+> deliverable.** The PS asks for temperature "using only surface satellite observations".
+>
+> | result | Argo RMSE | skill | INPUT SOURCE |
+> |---|---|---|---|
+> | **stage 1 satellite — SHIPPED** | **0.9078** | **+0.2595** | **satellite** ✅ the PS deliverable |
+> | stage 1 GLORYS — comparator | 0.8789 | +0.2831 | reanalysis ❌ |
+> | stage 2 GLORYS — best accuracy | 0.8548 | +0.3027 | reanalysis ❌ |
+>
+> **Quoting 0.8548 as "our result" would present a reanalysis-fed model as satisfying a
+> satellite-input requirement.** It is a legitimate number and a legitimate comparator; it is not
+> the deliverable. Row 14's "CURRENT HEADLINE" label predates the satellite model and should be
+> read as "best accuracy on the GLORYS-input path".
+>
+> The honest framing for a jury: *real satellite observations cost +0.0289 °C against a
+> reanalysis-fed comparator and retain 92% of its skill* — that difference IS a result, measured
+> on identical points (rmse_climatology 1.2259 and n=12829 in both legs).
+>
+> Stage 2 has not yet been run on satellite input. Until it is, there is no satellite T+S+density
+> number and none may be implied.
+
+
 > ## ⚠ SUPERSEDED RESULTS — read before quoting any number below
 >
 > **Every trained artifact produced before commit `1d3c135` (2026-09-02) came from a leaky
@@ -49,6 +73,7 @@ documented physical expectation.
 | 13 | **v2 UI — explain every output** | Darshan | `phase2-tscast-nio` | **TESTED** | ☑ | ☑ | ☑ 15 | ◐ | Port 8504, four tabs, frozen demo untouched. Every rendered number is asserted equal to the metrics artifact to 4 dp by `accept.py check_v2_ui`. Marked TESTED not VALIDATED: it renders validated science correctly, which is not the same as validating anything itself |
 | 14 | **Stage 2 — salinity + density (CURRENT HEADLINE)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 26 | ☑ | **T RMSE 0.8548 °C / skill +0.3027 / bias +0.1055 on the same 962 independent Argo (n=12,829)**, plus salinity 0.2450 psu and density 0.2841 kg m⁻³. Beats stage-1 7ch on every accuracy metric, so this is the shipped headline as of 2026-09-01. The paper's eq. 5 density loss is OFF: with it ON the same run reads 0.8593 / +0.2990 / bias +0.1598, i.e. it costs accuracy — reported as a negative result, not hidden. Byte identity in `artifacts/frozen_manifest.json` |
 | 15 | **Phase 1 — provenance audit + freeze** | Darshan | `fix/provenance-audit` | **VALIDATED** | ☑ | n/a | ☑ 4 | ☑ | Three findings. (1) The Aug-26 synthetic-`X_train` alarm is STALE — verified four ways (row counts match provenance exactly; ssh mean 0.4463 not 0.0017; `norm_stats` derived from it; LightGBM ssh splits span 0.0–0.659). (2) The planned row-count gate was NOT built — it is the guard this repo already removed for cause (D-012). (3) **The wind result reverses post-embargo** and was independently re-scored from disk at a 0.00e+00 gap before being written down. `freeze_headline.py` proven to fail on a tampered file |
+| 16 | **Stage 1 SATELLITE-INPUT (the PS deliverable)** | Arjhun | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 44 | ☑ | **T RMSE 0.9078 °C / skill +0.2595 / bias +0.1003 on 962 independent Argo (n=12,829)** — the first result whose INPUTS are satellite observations (OSTIA SST, DUACS altimetry, SMOS-blended SSS, GLOBCURRENT total currents, observational wind). GLORYS remains the target, which the PS names. Bundle `daily_sat/v001`, 388 days, 0 dropped, passed 44 provenance + data-lineage checks and a negative test that caught GLORYS injected into all five satellite channels. Config identical to the GLORYS-input leg; only the input source differs. **n=1 — multi-seed is A10.**
 
 
 ## F5 — detail (Arjhun, `phase2-physics`)

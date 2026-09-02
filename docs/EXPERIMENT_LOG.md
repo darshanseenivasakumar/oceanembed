@@ -1,48 +1,51 @@
 
 
-## E-BASIN-03  2026-09-02  — the hybrid leg: currents are NOT the mechanism
+## E-BASIN-04  2026-09-02  — channel isolation: NO single channel explains it
 
-**Status: VALIDATED. The Arabian Sea penalty SURVIVES swapping in GLORYS currents.**
+**Status: the elimination is COMPLETE. The Arabian Sea penalty is DISTRIBUTED, not attributable.**
 
-Direct test of the E-BASIN-02 hypothesis. Built `data/processed/daily_hybrid_glocur/v001` — the
-satellite bundle with GLORYS `uo/vo` substituted for the two currents channels, everything else
-untouched — and trained 3 seeds with the identical recipe. **This bundle is a DIAGNOSTIC and is
-marked as such in its own provenance; the anti-GLORYS guard must reject it, and no shipped model
-may ever be trained on it.**
+Four diagnostic bundles, each the satellite bundle with exactly ONE channel replaced by GLORYS,
+3 seeds each, identical recipe. 12 runs plus the 3 already-run currents legs. Every bundle is
+marked DIAGNOSTIC in its own provenance; the anti-GLORYS guard must reject all of them.
 
-Penalty = leg RMSE minus the seed-matched GLORYS-input RMSE.
+Penalty = leg RMSE minus the seed-matched all-GLORYS-input RMSE, Arabian Sea:
 
-| basin | satellite (sat u/v) | hybrid (GLORYS u/v) |
-|---|---|---|
-| overall | +0.0190 sd 0.0160 holds | +0.0183 sd 0.0104 holds |
-| **Arabian Sea** | **+0.0341** sd 0.0240 holds | **+0.0245** sd 0.0072 holds |
-| Bay of Bengal | -0.0194 sd 0.0171 holds | +0.0030 sd 0.0280 FLIPS |
+| swapped to GLORYS | Arabian penalty | % of baseline remaining | sign holds 3/3 |
+|---|---|---|---|
+| nothing (pure satellite) | **+0.0341** | 100% | yes |
+| SST | +0.0109 | 32% | **NO — flips** |
+| SSS | +0.0205 | 60% | yes |
+| SSH | **+0.0418** | **123%** | yes |
+| currents u,v | +0.0245 | 72% | yes |
 
-### The result
+### The answer, and it is a negative one
 
-**Giving the model GLORYS' own currents removes only about a quarter of the Arabian Sea penalty.**
-It falls from +0.0341 to +0.0245, and the sign holds on all three seeds with a
-TIGHTER spread (sd 0.0072 against 0.0240). Roughly 72% of the penalty is still there when the
-currents channels are byte-identical to the comparator's.
+**No single channel accounts for the penalty.** SST is the largest candidate — replacing it removes
+about two thirds — but **its sign does not hold across three seeds**, so it is a lead and not a
+measurement. SSS removes 40% and currents 28%, both sign-holding, and neither is close to the whole.
+The reductions do not sum to 100% either: 68 + 40 + 28 = 136%. Contributions are not additive,
+which is what a nonlinear encoder over correlated inputs should look like.
 
-The per-seed CHANGE is -0.0209, -0.0335, +0.0256 — **inconsistent**, so no portion of the penalty
-may be attributed to currents as a number. What IS established is that currents cannot be the
-dominant cause, because removing the difference entirely leaves most of the effect standing.
+So the cause is **distributed across the surface fields and the encoder's joint response to them**,
+not localised in one product. Four mechanisms have now been tested and none is the explanation:
 
-### Where that leaves the cause
+  1. SSS blindness in the Bay of Bengal   FALSIFIED   (E-BASIN-01)
+  2. currents contribute by basin         UNSUPPORTED (E-BASIN-02)
+  3. satellite currents worse in the AS   REFUTED     (E-BASIN-03, 72% survives)
+  4. any single channel                   REFUTED     (here)
 
-Narrowed, not solved. The Arabian Sea penalty must come from **SST, SSS, SSH, or the encoder's
-response to them** — those are what remain different between the hybrid leg and the GLORYS leg.
+### The result worth showing a jury — satellite SSH BEATS the reanalysis
 
-Three mechanisms proposed, three not supported:
-  1. SSS blindness in the Bay of Bengal — **falsified** (E-BASIN-01)
-  2. Currents contribute differently by basin — **unsupported** (E-BASIN-02)
-  3. Satellite currents are worse in the Arabian Sea — **refuted here**: the penalty survives them
+**Swapping in GLORYS SSH makes the model WORSE**: the penalty rises to +0.0418,
+123% of baseline, and the **sign holds on all three seeds**. DUACS `adt` is a better input
+for this reconstruction than GLORYS `zos` — a direct, replicated case of a satellite observation
+outperforming the reanalysis it is being compared against. This is the first result today where
+satellite input wins on its own terms.
 
-**Also worth recording:** the Bay of Bengal's satellite ADVANTAGE (-0.0194, sign holding 3/3)
-disappears in the hybrid leg (+0.0030, flipping). That hints satellite currents were HELPING
-in the BoB, which is the opposite of the original story. It flips across seeds, so it is a lead,
-not a result.
+### Limits
 
-The honest position for the jury: a measured, reproducible, 3-seed-stable basin asymmetry whose
-cause we have tested three ways and not yet found. artifact: `artifacts/hybrid_currents_basin.json`
+The Bay of Bengal column flips sign on EVERY swap leg (n=283 profiles, sd up to 0.065). Channel
+attribution is not possible in that basin at this sample size, and nothing about the BoB should be
+read off this table. Three seeds resolves a large effect, not a small one.
+
+artifact: `artifacts/channel_isolation.json`

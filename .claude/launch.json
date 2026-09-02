@@ -3,10 +3,12 @@
   "configurations": [
     {
       "name": "tscast-v2",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "streamlit", "run", "app/phase2/tscast_page.py",
-                      "--server.port", "8504", "--server.headless", "true"],
-      "port": 8504
+                      "--server.port", "8504", "--server.headless", "true",
+                      "--browser.gatherUsageStats", "false"],
+      "port": 8504,
+      "env": { "PYTHONPATH": "src" }
     }
   ]
 }

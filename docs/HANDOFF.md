@@ -249,3 +249,68 @@ recomputing on it would silently change the published 9.5 m / 7.1 m magnitudes.
   salinity array — the compliance boundary as an executable check, needed precisely BECAUSE the
   salinity is sitting right there.
 - Full suite: **557 passed, 10 skipped**.
+
+---
+
+## 2026-09-03 (later still) — events_page: same era bug, plus a false provenance string
+
+### The era bug, same as physics_page
+
+`events_page` read `data/processed/grids.npz` — Phase-1 GLORYS, 48 monthly fields, 2019-2022.
+Now reads the daily bundles, 388 consecutive days 2025-06-01..2026-06-23, with a source toggle:
+
+| | surface fields | what the detectors see |
+|---|---|---|
+| `satellite` | daily_sat/v001 | GLOBCURRENT currents + OSTIA SST — real observations, the PS deliverable |
+| `glorys` | daily | the reanalysis of the same days |
+
+No model reconstruction is involved on either side: eddies and fronts are SURFACE diagnostics, so
+"satellite" here means the detectors read genuine observations. Measured on 2026-06-18, same day
+both ways: **satellite 140 eddies (62 cyc / 78 anti, mean r 52.6 km), 35 fronts; glorys 123
+eddies (59/64, 50.2 km), 40 fronts.** [VERIFIED]
+
+### A false provenance claim, found by moving the page
+
+`eddy.summarise()` hardcoded `"source": "GLORYS reanalysis surface currents, not observations"`.
+It receives a list of eddies and cannot know what produced them. That string was accidentally TRUE
+while the only caller read the Phase-1 GLORYS grids — and became FALSE the instant the page could
+read satellite currents: fed GLOBCURRENT, it still reported GLORYS. Same defect as the hardcoded
+`"input_source": "glorys"` in inference.py and the `"unpromoted"` checkpoint in field.py.
+
+Now `summarise(eddies, *, source=None)`. Omitting it yields an explicit
+`"unspecified -- the caller did not say which currents these are"`, so an un-updated caller reads
+as unknown rather than confidently wrong. Regression test asserts it claims neither GLORYS nor
+satellite when not told.
+
+### Claims that stopped being true, and were rewritten rather than left standing
+
+The page's own docstring said **"DETECTION, NEVER TRACKING. The record is 48 monthly fields"**, and
+its closing expander said marine heatwaves were **"permanently closed at monthly cadence"**. Both
+were honest for monthly data and are wrong for 388 consecutive days. Rewritten: tracking and MHWs
+are now **UNBUILT, not impossible** — a gap being stated, not a limit of the data. The sub-mesoscale
+limit (0.25° ≈ 25 km) is a real limit and is marked as one that does not move.
+
+### Upwelling: what could NOT move, and why
+
+- Its shoaled-thermocline term needs subsurface T and S. Those are GLORYS in BOTH bundles
+  (byte-identical), so the panel says on screen that its subsurface half is GLORYS either way and
+  that nothing there is a satellite-only product.
+- **The wind-stress product runs 2019-01..2022-12 only** (48 monthly files) and cannot reach the
+  2025-2026 window. So there is no Ekman term: the result is a signature, not an attribution.
+  `wind_attributed: False` already records this as data; the page now explains why rather than
+  showing a bare "no". The closing caveat about monthly-mean stress is conditional on wind
+  actually having been used.
+- Verified on 2026-06-18: **387 cells flagged, wind attributed no, limiting term
+  shoaled_thermocline** — identical headless and on screen.
+
+### Great Whirl panel
+
+Stays on Phase-1 GLORYS monthly 2019-2022 and now says so, for the same reason physics_page's
+section 3 does: a four-year seasonal climatology cannot be recomputed on a 388-day record without
+silently changing published magnitudes (77 km month 12 → 243 km month 8).
+
+### Verified
+
+Rendered live on 8506, toggled sources and all three field panels; on-screen numbers match the
+headless run exactly. 4 new tests (1 in test_events.py for the provenance fix, 3 in
+test_physics_v2.py for the page wiring). Full suite: **561 passed, 10 skipped** (was 557).

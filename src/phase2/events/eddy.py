@@ -142,8 +142,20 @@ def detect_eddies(u, v, *, w_factor: float = W_FACTOR, min_cells: int = MIN_CELL
     return out
 
 
-def summarise(eddies: list[dict]) -> dict:
-    """Counts by polarity -- the shape of the answer the Sentinel and the UI want."""
+def summarise(eddies: list[dict], *, source: str | None = None) -> dict:
+    """Counts by polarity -- the shape of the answer the Sentinel and the UI want.
+
+    `source` DESCRIBES THE CURRENTS THE CALLER PASSED TO `detect_eddies`, and the caller is the
+    only one who knows it -- this function receives a list of eddies and cannot tell GLORYS from
+    satellite. It used to hardcode "GLORYS reanalysis surface currents, not observations", which
+    was accidentally true while the only caller read the Phase-1 grids and became a FALSE
+    provenance claim the moment one read the satellite bundle (measured 2026-09-03: fed
+    GLOBCURRENT satellite currents, it still reported GLORYS). Same defect as the hardcoded
+    `"input_source": "glorys"` in inference.py.
+
+    Omitting it yields an explicit "unspecified" rather than a guess, so an un-updated caller
+    reads as unknown instead of confidently wrong.
+    """
     cyc = sum(1 for e in eddies if e["polarity"] == "cyclonic")
     return {
         "n_eddies": len(eddies),
@@ -153,5 +165,5 @@ def summarise(eddies: list[dict]) -> dict:
         if eddies else float("nan"),
         "method": "okubo-weiss",
         "tracking": False,
-        "source": "GLORYS reanalysis surface currents, not observations",
+        "source": source or "unspecified -- the caller did not say which currents these are",
     }

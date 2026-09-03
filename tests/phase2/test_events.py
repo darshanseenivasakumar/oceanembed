@@ -416,3 +416,28 @@ def test_supplying_wind_flips_the_attribution_flag(real_grids, real_subsurface):
     assert with_wind["method"] == "signature+ekman"
     # Attribution can only ever narrow the signature, never widen it.
     assert with_wind["n_cells"] <= without["n_cells"]
+
+
+# ---------------------------------------------------------------------------------------------
+# 12. provenance must be told, never assumed  (added 2026-09-03)
+# ---------------------------------------------------------------------------------------------
+def test_summarise_does_not_invent_the_current_source():
+    """`summarise` receives a list of eddies and cannot know what produced them.
+
+    It used to hardcode "GLORYS reanalysis surface currents, not observations". That was
+    accidentally true while the only caller read the Phase-1 GLORYS grids, and became a FALSE
+    claim the moment events_page read the satellite bundle: fed COPERNICUS-GLOBCURRENT satellite
+    currents on 2026-09-03, it still reported GLORYS. Same defect as the hardcoded
+    `"input_source": "glorys"` in inference.py.
+    """
+    u, v, _ = _rankine(sign=+1.0)
+    eddies = eddy.detect_eddies(u, v)
+
+    told = eddy.summarise(eddies, source="satellite observations (GLOBCURRENT)")
+    assert told["source"] == "satellite observations (GLOBCURRENT)"
+
+    # An un-updated caller must read as UNKNOWN, never as a confident guess in either direction.
+    untold = eddy.summarise(eddies)
+    assert "unspecified" in untold["source"]
+    assert "GLORYS" not in untold["source"], "must not assert GLORYS when it was not told"
+    assert "satellite" not in untold["source"], "must not assert satellite either"

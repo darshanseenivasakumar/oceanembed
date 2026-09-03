@@ -226,3 +226,51 @@ def test_v2_never_borrows_glorys_salinity_for_a_satellite_labelled_number(physic
     f2 = physics_page.layer_fields_v2(dates[-1], v)
     assert "salinity" not in f2, "the v2 result must not carry a salinity array at all"
     assert f2["provenance"]["input_source"] == "satellite"
+
+
+# --------------------------------------------------------------------------- events page
+
+
+@pytest.fixture(scope="module")
+def events_page():
+    return _load("events_page_under_test", "app/phase2/events_page.py")
+
+
+def test_events_page_reads_the_daily_bundles_not_the_2019_2022_grids(events_page, glorys_dates):
+    """Same era bug physics_page had: this page read grids.npz (48 monthly, 2019-2022) while the
+    shipped model ran on 2025-2026. Both sources must now offer the daily calendar."""
+    for source in ("satellite", "glorys"):
+        dates = events_page.daily_dates(source)
+        assert len(dates) == 388, f"{source}: expected the 388-day bundle, got {len(dates)}"
+        assert not set(dates) & set(glorys_dates)
+        assert dates[0].startswith("2025") and dates[-1].startswith("2026")
+
+
+def test_events_reports_the_source_it_was_actually_given(events_page):
+    """The hardcoded 'GLORYS reanalysis surface currents' string became false the moment this
+    page could read satellite currents. Each source must describe itself correctly, and the two
+    must not report the same provenance."""
+    out = {}
+    for source in ("satellite", "glorys"):
+        dates = events_page.daily_dates(source)
+        _, summary, _, _, actual, _ = events_page.detect_daily(dates[len(dates) - 6], source)
+        out[source] = summary
+        assert actual == dates[len(dates) - 6]
+
+    assert "satellite" in out["satellite"]["source"].lower()
+    assert "not reanalysis" in out["satellite"]["source"].lower()
+    assert "glorys" in out["glorys"]["source"].lower()
+    assert "not observations" in out["glorys"]["source"].lower()
+    assert out["satellite"]["source"] != out["glorys"]["source"]
+
+
+def test_events_detects_plausible_eddies_and_fronts_on_both_sources(events_page):
+    """Real detection on real fields, both sources, same day -- not a shape check."""
+    for source in ("satellite", "glorys"):
+        dates = events_page.daily_dates(source)
+        eddies, s, fr, vort, _, _ = events_page.detect_daily(dates[len(dates) - 6], source)
+        assert 10 < s["n_eddies"] < 600, f"{source}: {s['n_eddies']} eddies is not plausible"
+        assert s["n_cyclonic"] > 0 and s["n_anticyclonic"] > 0
+        assert 10.0 < s["mean_radius_km"] < 300.0
+        assert fr["n_fronts"] > 0
+        assert np.isfinite(vort).sum() > 5_000

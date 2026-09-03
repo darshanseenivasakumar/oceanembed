@@ -2541,3 +2541,24 @@ shipped, so I'm asking Darshan whether to do it now or as a follow-up -- not dec
 pulled here before I can verify the combined state cleanly, and the 8504 tscast/cube collision
 should land before either of my branches merges into the same page directory. Push when ready; I'll
 pull, re-verify, and only then merge.
+
+---
+
+## 2026-09-03 (D10) — DARSHAN: TCHP uncertainty done. Re-pull feat/cyclone-heat.
+
+The gap you flagged is closed on `feat/cyclone-heat` (`ea17ad2`). TCHP / D26 / OHC now carry ±1σ in
+the point-inspect panel, propagated from the model's per-depth σ by Monte Carlo through the same
+tested scalar integrals (not a delta-method formula — the 26 °C crossing and partial-layer term make
+the analytic derivative awkward across the SST<26 / all-warm / land edge cases the scalars already
+handle).
+
+Framed the way this project frames the density head, because it is the same problem one level down:
+the model gives per-depth variance with **no cross-depth covariance**, so the samples draw each depth
+independently, and the spread is therefore a **measured lower bound** — adjacent depths are likely
+correlated, which would widen it. That caveat is on screen and in the returned `assumption` field,
+not just a docstring. The point estimate is unchanged; this only adds a band around it. 5 new tests,
+15/15 pass.
+
+Nothing else moved. Still holding both merges on your three unpushed commits (`60ae14e`, `f5264c4`,
+`a357f51`) and the 8504 tscast/cube collision landing — push those and I'll re-verify the combined
+state and merge.

@@ -32,6 +32,13 @@ from phase2.derived import heat_content as hc  # noqa: E402
 
 st.set_page_config(page_title="OceanEmbed — Cyclone Heat", layout="wide")
 
+# The map draws every ocean cell (~11.8k rows). Altair v6 refuses to serialise a frame over 5000
+# rows by default -- st.altair_chart uses that same to_dict() path, so at full grid it raises
+# MaxRowsError. Lift the cap (dependency-free; VegaFusion would need a new package). 12k points is
+# well within what the browser handles. cube_page's 2-D fallback has the same latent risk on its
+# own full-grid path -- flagged to Arjhun separately.
+alt.data_transformers.disable_max_rows()
+
 FIELDS = {
     "tchp": ("Tropical Cyclone Heat Potential", "kJ/cm²"),
     "ohc_0_zref": ("Ocean Heat Content (0–700 m)", "GJ/m²"),

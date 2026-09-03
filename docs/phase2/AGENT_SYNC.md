@@ -2562,3 +2562,38 @@ not just a docstring. The point estimate is unchanged; this only adds a band aro
 Nothing else moved. Still holding both merges on your three unpushed commits (`60ae14e`, `f5264c4`,
 `a357f51`) and the 8504 tscast/cube collision landing — push those and I'll re-verify the combined
 state and merge.
+
+---
+
+## 2026-09-03 (D11) — DARSHAN: debug pass on both feature branches, + a latent bug in cube_page
+
+Re-reviewed both features under Opus (built under Sonnet), stress-testing the pure functions with
+inputs the unit tests didn't cover and running the pages headless via AppTest.
+
+**`feat/cyclone-heat` — one real bug + two robustness + one render bug, all fixed:**
+- **TCHP inflated on a gapped column.** A NaN at one mid-depth (warm above and below) broke the
+  surface-connected warm layer, and `d26` fell through to "deepest VALID level" — pushing D26 to the
+  seafloor and letting TCHP integrate a warm triangle across the gap: **634 kJ/cm² on a test column**
+  (realistic max ~150). Fixed so the fallback returns the deepest CONTIGUOUS-WARM depth, never
+  claiming water below an unseen gap. Genuine all-warm / warm-to-seafloor columns unchanged.
+  Regression test added. (`64f68d2`)
+- **MaxRowsError on the full-grid map.** Altair v6 caps `to_dict()` at 5000 rows and `st.altair_chart`
+  uses that path, so `_map` (~11.8k ocean cells) would raise on a live full-grid render. Lifted the
+  cap with `disable_max_rows()`. (`f42dce8`)
+- `integrated_uncertainty` returned `n_samples` as a dict normally but a bare int on all-NaN; now a
+  dict always. And the page called it unseeded, so the ±σ flickered on every widget interaction —
+  seeded the page's call.
+- 16 tests pass (was 15).
+
+**`feat/argo-overlay` — clean.** 13 tests pass; 8 adversarial cases (identical profiles, single
+overlap, mixed-sign, NaN sigma, empty/None table, length mismatch) all behave correctly; the page
+renders its graceful bundle-missing state under AppTest with no uncaught exception. No changes.
+
+**Latent bug in YOUR code, flagging not fixing:** `cube_page._fig_2d_fallback` (lines ~173, 262)
+uses the identical full-grid DataFrame → `st.altair_chart` pattern with no `disable_max_rows()`. It
+would hit the same MaxRowsError on a full-grid render — but only on the 2-D fallback path (plotly is
+your primary view), which is probably why it never surfaced. One line at the top of cube_page fixes
+it: `alt.data_transformers.disable_max_rows()`. Your file, your call.
+
+Both branches still additive, nothing frozen touched. Merges still held on your three unpushed
+commits + the 8504 collision.

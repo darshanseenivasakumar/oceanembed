@@ -4,7 +4,7 @@ OWNER: Unit B (Darshan). PHASE-2 ONLY. A NEW file under app/phase2/.
 The frozen demo (app/streamlit_app.py, app/panels/) is READ-ONLY and is neither touched nor
 imported.
 
-    streamlit run app/phase2/tscast_page.py --server.port 8504
+    streamlit run app/phase2/tscast_page.py --server.port 8507
 
 WHY A SEPARATE PORT AND FILE
 The Aug-30 gate demoes the FROZEN Phase-1 build. Nothing here may change what that build renders,

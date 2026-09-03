@@ -47,3 +47,70 @@ against an independent float 13 km / 2 days away. 530 tests pass, 10 skipped.
 
 The checkpoint, the bundle, `dataset.py`, `inference.py`, or the split. Any of those moving
 invalidates every number above. `python scripts/phase2/freeze.py --check` is the gate.
+
+---
+
+## 2026-09-03 — Darshan's two feature branches verified on real data; port map fixed (Arjhun)
+
+### `feat/argo-overlay` and `feat/cyclone-heat` — both hold [VERIFIED]
+
+Darshan built both without the satellite bundle on his machine, so neither had ever produced a real
+prediction. Both were run here against `data/processed/daily_sat/v001` and the frozen checkpoint.
+
+| check | argo-overlay | cyclone-heat |
+|---|---|---|
+| `freeze.py --check` | 18/18 | 18/18 |
+| unit tests | 13 passed | 10 passed |
+| diff vs branch point | 4 files, +633, 0 deletions | 6 files, +611, 0 edits |
+| real run | overlay at 15N 68E, 2026-05-15 | 11,832 ocean cells, `--date 2026-05-15` |
+| independent re-derivation | overlay mean == `predictor.reconstruct`, max abs diff 0.00e+00 | my own TCHP/D26 integration matches at 5/5 cells incl. the maximum |
+| UI vs module | page RMSE 0.441 / bias +0.051 == module exactly (and 0.430 / +0.046 at 05-16) | page TCHP 143 / D26 119 m / OHC 45.11 == artifact 142.86 / 118.69 / 45.11 |
+
+`band_2sigma` is `mean +/- 2 * CALIBRATED sigma` at all 15 depths, and the matched float lands
+inside it at 100 m. Max TCHP 173.2 kJ/cm^2 sits at 5.25N 94.75E with D26 105 m — the eastern
+equatorial warm pool, which is where it should be. OHC is finite at 9,210 of 11,832 cells: it
+REFUSES shelf columns shallower than the 700 m reference instead of inventing water.
+
+### Defect this verification exposed, in OUR code — fixed (`f5264c4`)
+
+The cyclone page's Provenance panel reported `checkpoint: "unpromoted"` for a model `freeze.py`
+records as promoted from `sat_7ch_s42`. The page was faithful; `field.py` was wrong.
+`promote_run.py` writes `promoted_from` into the METRICS artifact, never into the checkpoint, so
+`predictor.meta.get("promoted_from")` was always None and the `or "unpromoted"` fallback fired every
+time — **including on the 3-D cube**, which the U4 rewiring had pointed at the same field.
+
+`field._promoted_from` now returns the name only when the loaded file's sha256 IS the one promotion
+recorded (the same equality `freeze.py` checks); reading the metrics file alone would have credited
+any loaded checkpoint with the promotion. `inference.py` keeps `checkpoint_path` so the FILE can be
+identified, not just its meta. Two regression tests, one of them an impostor checkpoint.
+
+### Port collisions fixed, and all seven apps wired [VERIFIED]
+
+`tscast_page.py` and `cube_page.py` both documented **8504**, so starting "the dashboard" could
+serve the 3-D cube instead. `DARSHAN_BUILD_SPEC.md:1733` had already assigned tscast **8507**; the
+code simply never followed it. Three more pages were documented in docstrings and absent from
+`launch.json`, which is why they were always started by hand.
+
+| port | app | | port | app |
+|---|---|---|---|---|
+| 8501 | `app/streamlit_app.py` (was unpinned) | | 8505 | `physics_page.py` |
+| 8502 | `collocation_page.py` | | 8506 | `events_page.py` |
+| 8503 | `validation_page.py` | | 8507 | `tscast_page.py` (**moved from 8504**) |
+| 8504 | `cube_page.py` | | | |
+
+All seven were started and rendered — titles and content confirmed, not assumed.
+`tests/phase2/test_launch_ports.py` makes it enforceable: no two configs share a port, no two
+docstrings claim one, launch.json agrees with every docstring, and every runnable page has an
+entry. Negative test: re-injecting the 8504 collision fails 2 of the 10 checks.
+
+### Open for Arjhun to decide
+
+1. **Both feature branches carry a 44 MB deletion that belongs to neither feature.** Commit
+   `3eb176e` ("Remove the stale v1 artifacts.zip snapshot") is an ancestor of both and drops
+   `oceanembed_artifacts.zip` (44,393,927 bytes). Merging either deletes it from `main` too.
+   Recoverable from `32a5b2f`. Untouched pending a decision. Nothing has been merged.
+2. **8508 / 8509 are reserved** for `validate_page.py` and `cyclone_heat_page.py`. Their docstrings
+   currently claim 8505 and 8506, which are physics and events — fix at merge time, not on his
+   branches, so his "clean no-conflict merge" claim stays true.
+3. **The cyclone page shows TCHP with no uncertainty at all.** Nothing false, but every other v2
+   surface carries +/-2 sigma and the per-depth sigma is available to propagate through the integral.

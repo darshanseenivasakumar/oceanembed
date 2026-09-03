@@ -6,7 +6,7 @@ PANEL POLICY (no collisions): if Unit C's app/panels/<x>_panel.py implements ren
 Otherwise the shell draws a MINIMAL built-in fallback so the demo is always clickable. Unit C's panels
 replace the fallbacks automatically — no edits to this file needed.
 
-Run:  streamlit run app/streamlit_app.py
+Run:  streamlit run app/streamlit_app.py --server.port 8501
 """
 from __future__ import annotations
 import os

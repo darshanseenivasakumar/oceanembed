@@ -2,13 +2,144 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "phase1-app",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/streamlit_app.py",
+        "--server.port",
+        "8501",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8501,
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    },
+    {
+      "name": "collocation",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/collocation_page.py",
+        "--server.port",
+        "8502",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8502,
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    },
+    {
+      "name": "validation",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/validation_page.py",
+        "--server.port",
+        "8503",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8503,
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    },
+    {
+      "name": "cube-3d",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/cube_page.py",
+        "--server.port",
+        "8504",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8504,
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    },
+    {
+      "name": "physics",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/physics_page.py",
+        "--server.port",
+        "8505",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8505,
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    },
+    {
+      "name": "events",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/events_page.py",
+        "--server.port",
+        "8506",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8506,
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    },
+    {
       "name": "tscast-v2",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "streamlit", "run", "app/phase2/tscast_page.py",
-                      "--server.port", "8504", "--server.headless", "true",
-                      "--browser.gatherUsageStats", "false"],
-      "port": 8504,
-      "env": { "PYTHONPATH": "src" }
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/tscast_page.py",
+        "--server.port",
+        "8507",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8507,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

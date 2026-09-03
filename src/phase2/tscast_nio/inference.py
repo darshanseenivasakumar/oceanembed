@@ -40,6 +40,7 @@ class TSCastPredictor:
                 "`python -m phase2.tscast_nio.train.train_stage1` -- this class will not "
                 "fabricate a prediction from an untrained network.")
         ck = torch.load(path, map_location="cpu", weights_only=False)
+        self.checkpoint_path = path      # kept so provenance can identify the FILE, not just its meta
         self.meta = {k: v for k, v in ck.items() if k != "state_dict"}
 
         # Which BUNDLE this checkpoint belongs to. Older checkpoints predate the field; they were

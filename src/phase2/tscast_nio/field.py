@@ -18,12 +18,47 @@ on CPU. Cheap enough to do live in the dashboard for one date.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
 from oceanembed import config as base
 from phase2.tscast_nio import config
+
+
+def _promoted_from(predictor) -> str:
+    """Which run this checkpoint was promoted from -- or "unpromoted", decided by hash.
+
+    `promote_run.py` writes `promoted_from` into the METRICS artifact, never into the checkpoint.
+    So `predictor.meta.get("promoted_from")` was always None, and every provenance panel built on
+    this field told the reader "unpromoted" about the shipped, promoted model -- a false claim in
+    the one place a jury goes to check provenance.
+
+    Reading the metrics file on its own would be the opposite error: it would pin the promotion
+    onto whatever checkpoint happened to be loaded, including an experimental one. So the name is
+    returned only when the loaded file's sha256 IS the one promotion recorded -- the same equality
+    freeze.py checks -- and "unpromoted" otherwise.
+    """
+    path = getattr(predictor, "checkpoint_path", None)
+    mp = base.art("tscast_stage1_metrics.json")
+    if not path or not os.path.exists(path) or not os.path.exists(mp):
+        return "unpromoted"
+    try:
+        with open(mp, encoding="utf-8") as f:
+            m = json.load(f)
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        if m.get("promoted_from") and m.get("checkpoint_sha256") == h.hexdigest():
+            return str(m["promoted_from"])
+    except Exception:            # a provenance lookup must never take down a reconstruction
+        return "unpromoted"
+    return "unpromoted"
 
 
 def predict_field(predictor, date, batch_size: int = 512, device: str | None = None) -> dict:
@@ -105,7 +140,7 @@ def predict_field(predictor, date, batch_size: int = 512, device: str | None = N
             "model": "tscast-nio-stage1",
             "input_source": predictor.data.get("input_source", "unknown"),
             "bundle": predictor.meta.get("bundle"),
-            "checkpoint": predictor.meta.get("promoted_from") or "unpromoted",
+            "checkpoint": _promoted_from(predictor),
             "encoder": predictor.meta.get("encoder"),
             "seed": predictor.meta.get("seed"),
             "T_SEQ": predictor.meta.get("T_SEQ"),

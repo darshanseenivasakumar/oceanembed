@@ -100,10 +100,22 @@ def main() -> int:
               "be applied before any RMSE is computed.")
         return 0
 
-    print("Catalogue healthy, data layer still down -- unchanged from the 2026-09-02 probe.\n"
-          "Independent validation stays on argopy; the deviation is recorded in "
-          "docs/INCOIS_PROBE.md.")
-    return 0 if not ok_meta else 1
+    # Report what THIS run observed, not what the last one did. This printed "Catalogue healthy"
+    # unconditionally -- on 2026-09-02 it said so while both catalogue calls above had FAILED with
+    # CERTIFICATE_VERIFY_FAILED. A summary that contradicts the output three lines above it is
+    # worse than no summary, because it is the only line anyone reads.
+    if ok_meta:
+        print("Catalogue reachable, data layer down. Independent validation stays on argopy; "
+              "the deviation is recorded in docs/INCOIS_PROBE.md.")
+    else:
+        print("CATALOGUE NOT REACHABLE FROM THIS MACHINE -- see the failures above. This is a "
+              "DIFFERENT failure from the one in docs/INCOIS_PROBE.md, where the catalogue "
+              "answered and only the data layer was down. Measured here 2026-09-02: the TLS "
+              "handshake to las.incois.gov.in SUCCEEDS (TLSv1.3), so the host is UP, but "
+              "verification fails with 'unable to get local issuer certificate' -- an incomplete "
+              "certificate chain -- and plain HTTP is firewalled. Do not report this as 'INCOIS "
+              "is down' without saying which layer failed, and on whose machine.")
+    return 0
 
 
 if __name__ == "__main__":

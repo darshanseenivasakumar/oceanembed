@@ -67,21 +67,32 @@ DIVERGING_SCALES = {"Blue → purple": BLUE_PURPLE_DIVERGING,
 def _v2_version() -> str:
     """Cache key that moves when the shipped model or the code that loads it moves.
 
-    st.cache_data keys on ARGUMENTS and cannot see imported module source. A server started before
-    a fix went on serving a stale predictor for 9.5 minutes on 2026-09-02 -- the Profile tab showed
-    an 8 degC error while the same call outside Streamlit was correct. Same trap here.
+    Moved into `phase2.tscast_nio.field.v2_cache_version` so physics_page (and any future v2 page)
+    shares the ONE copy of this instead of pasting a fourth version of a mechanism that guards
+    against a stale-dashboard bug already seen twice.
     """
-    import hashlib
-    from phase2.tscast_nio import dataset as _D, field as _F, inference as _I
+    from phase2.tscast_nio.field import v2_cache_version
+    return v2_cache_version()
 
-    h = hashlib.sha256()
-    for p in (config.art("tscast_stage1.pt"), _I.__file__, _D.__file__, _F.__file__):
-        try:
-            st_ = os.stat(p)
-            h.update(f"{p}:{st_.st_mtime_ns}:{st_.st_size}".encode())
-        except OSError:
-            h.update(f"{p}:missing".encode())
-    return h.hexdigest()[:16]
+
+@st.cache_resource(show_spinner="Loading the shipped model's calendar …")
+def _v2_predictor(version: str):
+    from phase2.tscast_nio.inference import TSCastPredictor
+    return TSCastPredictor()
+
+
+def _v2_dates(version: str) -> list[str]:
+    """Real dates the shipped v2 model can answer for -- NOT the GLORYS list.
+
+    Before this fix the date selector always offered `_dates()` -- the 48 GLORYS 2019-2022 dates
+    -- even when "v2 satellite" was selected, and `predict_field` silently snapped every one of
+    them to the nearest of the 388 real satellite days. Measured 2026-09-03: the default selection
+    (2022-07-15) rendered 2025-06-01, +1052 days away, with `provenance.days_from_requested`
+    computed but never read by this page -- nothing on screen said so. Same class of bug as the U4
+    audit finding this page was built to close.
+    """
+    times = np.asarray(_v2_predictor(version).data["times"]).astype("datetime64[D]")
+    return [str(t) for t in times]
 
 
 @st.cache_data(show_spinner="Reconstructing the volume …")
@@ -194,11 +205,13 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Volume")
-        dates = _dates()
-        date_str = st.selectbox("Date", options=dates, index=max(0, len(dates) - 6))
         source = st.radio("Surface source", ["v2 satellite", "satellite", "glorys"], index=0,
                           help="satellite = the problem statement's deliverable; "
                                "glorys = the model's own training source")
+        # Source decided BEFORE the date list: v2's real calendar is 2025-06-01..2026-06-23, not
+        # GLORYS' 2019-2022. See _v2_dates for the mismatch this replaced.
+        dates = _v2_dates(_v2_version()) if source == "v2 satellite" else _dates()
+        date_str = st.selectbox("Date", options=dates, index=max(0, len(dates) - 6))
         what = st.selectbox("Field", list(FIELDS), format_func=lambda k: FIELDS[k])
         mode = st.radio("Render", ["volume", "isosurface"], index=0,
                         help="volume = translucent stack; isosurface = shells at fixed values")

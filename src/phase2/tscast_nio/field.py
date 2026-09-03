@@ -61,6 +61,30 @@ def _promoted_from(predictor) -> str:
     return "unpromoted"
 
 
+def v2_cache_version() -> str:
+    """Cache key for any Streamlit page that keys a resource/data cache on the shipped v2 model.
+
+    `st.cache_resource`/`st.cache_data` key on the function's ARGUMENTS, not on the source of
+    modules the function imports. On 2026-09-02 `inference.py` was fixed at 19:27 to load the
+    bundle the checkpoint was trained on; a server started at 19:17 went on serving a predictor
+    built 9.5 minutes earlier from the wrong bundle -- the Profile tab showed an 8 degC error while
+    the same call outside Streamlit was correct. The code was fixed and the screen was not.
+
+    This was written three times (tscast_page, cube_page, and now physics_page) before being
+    factored out here -- the exact kind of safety mechanism where a missed copy is a silent stale
+    dashboard, not a test failure. New callers should use THIS, not paste a fourth copy.
+    """
+    h = hashlib.sha256()
+    from phase2.tscast_nio import dataset as _D, inference as _I
+    for p in (base.art("tscast_stage1.pt"), _I.__file__, _D.__file__, __file__):
+        try:
+            st_ = os.stat(p)
+            h.update(f"{p}:{st_.st_mtime_ns}:{st_.st_size}".encode())
+        except OSError:
+            h.update(f"{p}:missing".encode())
+    return h.hexdigest()[:16]
+
+
 def predict_field(predictor, date, batch_size: int = 512, device: str | None = None) -> dict:
     """Reconstruct every ocean cell for one date.
 

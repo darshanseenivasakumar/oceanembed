@@ -122,6 +122,97 @@ def ohc_from_profile(temp_1d, depths=DEPTHS, z_ref: float = 700.0) -> float:
     return float(ohc_constant_density(t, max_depth_m=z_ref))
 
 
+# --------------------------------------------------------------------------- uncertainty (point)
+
+def integrated_uncertainty(mean_1d, sigma_1d, depths=DEPTHS, z_ref: float = 700.0,
+                           n_samples: int = 200, rho: float = RHO_TCHP, cp: float = CP_TCHP,
+                           rng=None) -> dict:
+    """Monte Carlo spread of TCHP, D26 and OHC under the model's per-depth uncertainty.
+
+    WHY MONTE CARLO, NOT AN ANALYTIC FORMULA
+    TCHP and D26 are not smooth functions of the profile — the 26 C crossing and the partial-layer
+    term make an analytic (delta-method) propagation awkward to get right across every edge case
+    (SST<26, whole-column-warm, land). Sampling candidate profiles and evaluating the SAME tested
+    scalar functions on each sample is simpler to verify and cannot silently mishandle an edge case
+    the closed-form derivative would need to special-case separately.
+
+    THE ASSUMPTION, NAMED, AND WHY IT MAKES THIS A LOWER BOUND
+    The model provides a per-depth VARIANCE with no cross-depth covariance term, so each sampled
+    profile draws every depth INDEPENDENTLY: `T_k ~ Normal(mean_k, sigma_k)`. This is the same
+    situation `tscast.py` already documents for T/S -> density ("the paper is explicit that T/S
+    error covariance is non-negligible, so propagating the two variances analytically would
+    understate the density error") — except here it is cross-DEPTH rather than cross-variable
+    covariance that is missing. Adjacent-depth errors are physically likely to be correlated (a
+    warm bias at 50 m usually accompanies one at 75 m), which independent sampling cannot capture.
+    So **this spread is a measured lower bound on the true uncertainty, not the true uncertainty**
+    — exactly the caveat this project already applies to sigma_rho instead of a propagated one.
+    There is no learned joint-uncertainty head for these derived quantities to fall back on instead
+    (unlike density), because nothing was trained to predict them jointly.
+
+    THE POINT ESTIMATE IS UNCHANGED
+    The reported `tchp_std` etc. is the spread of samples AROUND the existing, already-verified
+    point estimate (`tchp_from_profile(mean_1d)` and `d26_from_profile(mean_1d)`) — this function
+    adds a spread alongside those numbers and never recomputes or replaces them.
+
+    Returns
+        tchp_std, tchp_p10, tchp_p90   kJ/cm^2 -- spread of TCHP across samples
+        d26_std                        m       -- spread of D26 across samples (nan if no crossing
+                                                   in enough samples to compute a spread)
+        ohc_std                        GJ/m^2  -- spread of OHC_0-z_ref across samples
+        n_samples                      how many of the draws were finite for each quantity
+        assumption                     the caveat above, as a string, so it travels with the number
+    """
+    mean = np.asarray(mean_1d, dtype="float64")
+    sigma = np.asarray(sigma_1d, dtype="float64")
+    if mean.shape != (config.N_DEPTHS,) or sigma.shape != (config.N_DEPTHS,):
+        raise ValueError(f"expected {config.N_DEPTHS} depths, got mean {mean.shape} / "
+                         f"sigma {sigma.shape}")
+    rng = rng or np.random.default_rng()
+    z = np.asarray(depths, dtype="float64")
+    valid = np.isfinite(mean)
+
+    if not valid.any():
+        nan = float("nan")
+        return {"tchp_std": nan, "tchp_p10": nan, "tchp_p90": nan, "d26_std": nan, "ohc_std": nan,
+                "n_samples": 0, "assumption": _INDEPENDENCE_NOTE}
+
+    # One batch of independent per-depth draws, (n_samples, 15). Invalid depths stay NaN in every
+    # draw so a masked cell can never contribute a fabricated sample.
+    draws = rng.normal(mean[None, :], sigma[None, :], size=(n_samples, config.N_DEPTHS))
+    draws = np.where(valid[None, :], draws, np.nan)
+
+    tchp_samples = np.array([tchp_from_profile(draws[k], z, rho, cp) for k in range(n_samples)])
+    d26_samples = np.array([d26_from_profile(draws[k], z) for k in range(n_samples)])
+    # ohc_constant_density is already vectorised over leading dims -- one call, not a loop.
+    ohc_samples = ohc_constant_density(draws, max_depth_m=z_ref)
+
+    def _spread(samples):
+        fin = np.isfinite(samples)
+        if not fin.any():
+            return float("nan"), float("nan"), float("nan"), 0
+        s = samples[fin]
+        return float(np.std(s)), float(np.percentile(s, 10)), float(np.percentile(s, 90)), int(fin.sum())
+
+    t_std, t_p10, t_p90, t_n = _spread(tchp_samples)
+    d_std, _, _, d_n = _spread(d26_samples)
+    o_std, _, _, o_n = _spread(ohc_samples)
+
+    return {
+        "tchp_std": t_std, "tchp_p10": t_p10, "tchp_p90": t_p90,
+        "d26_std": d_std, "ohc_std": o_std,
+        "n_samples": {"tchp": t_n, "d26": d_n, "ohc": o_n},
+        "assumption": _INDEPENDENCE_NOTE,
+    }
+
+
+_INDEPENDENCE_NOTE = (
+    "Sampled assuming INDEPENDENT per-depth error (the model gives no cross-depth covariance). "
+    "Adjacent depths are physically likely to be correlated, so this spread is a measured LOWER "
+    "BOUND on the true uncertainty, not the true uncertainty -- the same caveat this project "
+    "already applies to density instead of propagating T/S variance analytically."
+)
+
+
 # --------------------------------------------------------------------------- field (whole grid)
 
 def heat_content_field(field: dict, z_ref: float = 700.0,

@@ -101,3 +101,42 @@ def test_field_values_equal_the_scalar_at_each_cell():
             s = hc.tchp_from_profile(temp[i, j], D)
             f = out["tchp"][i, j]
             assert (np.isnan(s) and np.isnan(f)) or abs(s - f) < 1e-9
+
+
+# --------------------------------------------------------------------------- uncertainty
+
+def test_uncertainty_is_zero_when_sigma_is_zero():
+    # No input spread -> no output spread, and the point estimate is untouched.
+    mean = np.array([29.5, 29.4, 29.2, 28.8, 28.3, 27.4, 26.6, 25.5, 24.0, 22.5,
+                     19.0, 15.0, 11.0, 9.0, 5.0], dtype="float64")
+    u = hc.integrated_uncertainty(mean, np.zeros(NZ), D, rng=np.random.default_rng(0))
+    assert u["tchp_std"] < 1e-9      # zero up to floating-point noise
+    assert u["ohc_std"] < 1e-9
+
+
+def test_uncertainty_grows_with_sigma():
+    mean = np.full(NZ, 28.0)
+    small = hc.integrated_uncertainty(mean, np.full(NZ, 0.2), D, rng=np.random.default_rng(1))
+    large = hc.integrated_uncertainty(mean, np.full(NZ, 1.0), D, rng=np.random.default_rng(1))
+    assert large["tchp_std"] > small["tchp_std"] > 0
+
+
+def test_uncertainty_band_brackets_the_point_estimate():
+    mean = np.array([29.5, 29.4, 29.2, 28.8, 28.3, 27.4, 26.6, 25.5, 24.0, 22.5,
+                     19.0, 15.0, 11.0, 9.0, 5.0], dtype="float64")
+    point = hc.tchp_from_profile(mean, D)
+    u = hc.integrated_uncertainty(mean, np.full(NZ, 0.5), D, rng=np.random.default_rng(2))
+    assert u["tchp_p10"] <= point <= u["tchp_p90"]
+
+
+def test_uncertainty_carries_the_independence_caveat():
+    # The lower-bound caveat must travel with the number, not live only in a docstring.
+    u = hc.integrated_uncertainty(np.full(NZ, 28.0), np.full(NZ, 0.3), D,
+                                  rng=np.random.default_rng(3))
+    assert "lower bound" in u["assumption"].lower()
+
+
+def test_uncertainty_all_nan_profile_is_nan_not_zero():
+    u = hc.integrated_uncertainty(np.full(NZ, np.nan), np.full(NZ, 0.5), D,
+                                  rng=np.random.default_rng(4))
+    assert np.isnan(u["tchp_std"]) and u["n_samples"] == 0

@@ -44,6 +44,25 @@ and D26 functions across the depth axis, and OHC is one vectorised `ohc_constant
 is no second implementation to drift from the scalar — the drift-safety rule `field.py` itself
 follows — and a test asserts field value == scalar value at each cell.
 
+## Uncertainty (added after Arjhun's review)
+
+Every other v2 surface shows ±2σ; TCHP originally showed a bare number. `integrated_uncertainty`
+now propagates the model's per-depth σ through the TCHP / D26 / OHC integrals by Monte Carlo (sample
+candidate profiles, evaluate the *same* tested scalar functions on each), and the point-inspect panel
+shows a ±1σ range beside each value.
+
+**Honest limit, stated on screen and in the number itself.** The model provides per-depth variance
+with **no cross-depth covariance**, so samples draw each depth independently. Adjacent-depth errors
+are physically likely correlated, so the reported spread is a measured **lower bound**, not the true
+uncertainty. This is the *same* situation the model already handles for T/S→density: `tscast.py`
+predicts a density-uncertainty head directly rather than propagating T/S variance analytically,
+"because the paper is explicit that T/S error covariance is non-negligible." There is no learned
+joint-uncertainty head for these derived quantities, so the sampled lower bound is the honest best
+available, and the caveat travels with the number (`assumption` field), not just in a docstring.
+Monte Carlo (not a delta-method formula) because the 26 °C crossing and partial-layer term make the
+analytic derivative awkward across the edge cases (SST<26, all-warm, land) that the scalar functions
+already handle correctly.
+
 ## Frozen-safety
 
 Additive, new-files-only: nothing modifies the checkpoint, the bundle, `dataset.py`, `inference.py`,

@@ -66,6 +66,7 @@ def build(date_str: str, version: str = "") -> dict:
     field = predict_field(TSCastPredictor(), date_str)
     products = hc.heat_content_field(field)
     products["temperature"] = field["temperature"]     # kept for the click-point profile panel
+    products["sigma"] = field["sigma"]                 # kept to propagate uncertainty at a point
     return products
 
 
@@ -159,10 +160,24 @@ def main() -> None:
         i, j = _cell(float(plat), float(plon))
         tchp_v, d26_v, ohc_v = (products["tchp"][i, j], products["d26"][i, j],
                                 products["ohc_0_zref"][i, j])
+        # Propagate the model's per-depth sigma through the integral for THIS cell, on demand.
+        u = hc.integrated_uncertainty(products["temperature"][i, j], products["sigma"][i, j])
         c = st.columns(3)
-        c[0].metric("TCHP", "—" if not np.isfinite(tchp_v) else f"{tchp_v:.0f}", help="kJ/cm²")
-        c[1].metric("D26", "—" if not np.isfinite(d26_v) else f"{d26_v:.0f} m")
-        c[2].metric("OHC 0–700", "—" if not np.isfinite(ohc_v) else f"{ohc_v:.2f}", help="GJ/m²")
+        c[0].metric("TCHP", "—" if not np.isfinite(tchp_v) else f"{tchp_v:.0f}",
+                    delta=None if not np.isfinite(u["tchp_std"]) else f"± {u['tchp_std']:.0f}",
+                    delta_color="off", help="kJ/cm² — delta is ±1σ from the model's uncertainty")
+        c[1].metric("D26", "—" if not np.isfinite(d26_v) else f"{d26_v:.0f} m",
+                    delta=None if not np.isfinite(u["d26_std"]) else f"± {u['d26_std']:.0f} m",
+                    delta_color="off")
+        c[2].metric("OHC 0–700", "—" if not np.isfinite(ohc_v) else f"{ohc_v:.2f}",
+                    delta=None if not np.isfinite(u["ohc_std"]) else f"± {u['ohc_std']:.2f}",
+                    delta_color="off", help="GJ/m²")
+        if np.isfinite(u["tchp_std"]):
+            st.caption("± values are **1σ** from the model's per-depth uncertainty, sampled through "
+                       "the integral. They assume independent per-depth error, so they are a "
+                       "**lower bound** — adjacent depths are likely correlated, which would widen "
+                       "them. (Same reason the model predicts density uncertainty directly rather "
+                       "than propagating it.)")
         _profile_panel(products["temperature"][i, j], float(plat), float(plon))
 
     with st.expander(f"About {name}"):

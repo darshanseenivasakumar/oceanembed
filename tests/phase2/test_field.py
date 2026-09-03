@@ -82,3 +82,36 @@ def test_predicting_a_field_does_not_mutate_the_predictor(predictor, field):
     from phase2.tscast_nio.field import predict_field
     predict_field(predictor, "2026-05-15")
     assert np.array_equal(predictor.ds.index, before)
+
+
+def test_provenance_names_the_promoted_run_not_unpromoted(field):
+    """The shipped checkpoint IS promoted, so the panel a jury reads must say which run it came from.
+
+    `promoted_from` lives in the metrics artifact, never in the checkpoint, so the original
+    `predictor.meta.get("promoted_from")` was always None and every cube / cyclone provenance panel
+    displayed "unpromoted" about the frozen, promoted model. Regression: this asserted the exact
+    name that promotion recorded, so a silent fallback to "unpromoted" fails here.
+    """
+    import json
+    from oceanembed import config as base
+
+    with open(base.art("tscast_stage1_metrics.json"), encoding="utf-8") as f:
+        expected = json.load(f)["promoted_from"]
+    assert expected, "the shipped metrics artifact carries no promoted_from to check against"
+    assert field["provenance"]["checkpoint"] == expected
+
+
+def test_an_unpromoted_checkpoint_is_not_credited_with_the_promotion(predictor, tmp_path):
+    """Reading the metrics file alone would pin the promotion onto ANY loaded checkpoint.
+
+    A checkpoint whose bytes are not the ones promotion hashed must come back "unpromoted", or the
+    provenance panel would launder an experimental model as the shipped one.
+    """
+    from phase2.tscast_nio.field import _promoted_from
+
+    class _Impostor:
+        checkpoint_path = str(tmp_path / "not_the_shipped_weights.pt")
+
+    (tmp_path / "not_the_shipped_weights.pt").write_bytes(b"different bytes")
+    assert _promoted_from(_Impostor()) == "unpromoted"
+    assert _promoted_from(predictor) != "unpromoted", "the real one should still be credited"

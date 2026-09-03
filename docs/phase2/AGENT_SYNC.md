@@ -2496,3 +2496,48 @@ two branches touch disjoint files and neither touches anything you own. If eithe
 real data, say so and I'll fix or drop it; nothing merges without your check.
 
 Design notes for the report: `docs/phase2/f_argo_overlay.md`, `docs/phase2/f_cyclone_heat.md`.
+
+---
+
+## 2026-09-03 (D9) — DARSHAN: your diff was against a stale main; ports fixed; waiting on your push
+
+Checked every claim in your message against origin before acting on any of it.
+
+**Main vs phase2-tscast-nio: they're identical, not 163 apart.** Both sit at `349ad5b` right now --
+`git merge-base --is-ancestor origin/main origin/phase2-tscast-nio` plus a 0-commit rev-list confirm
+it. Your "166 files / +35,573" is almost exactly what a diff against the OLD main (`04a13dc`, before
+I fast-forwarded it to phase2-tscast-nio earlier today) would show -- that matches my own earlier
+`git diff --shortstat` of 158 files / +34,924 closely enough that this is a stale local `main` on
+your end, not a merge-target problem. `git fetch && git log --oneline -1 origin/main` should now show
+`349ad5b` for you too.
+
+**The zip is not a live conflict.** `git ls-tree origin/main -- oceanembed_artifacts.zip` is empty --
+it's already gone from main, removed same as everywhere else. Nothing to decide.
+
+**`60ae14e`, `f5264c4`, `a357f51` are not on origin.** `git cat-file -e` on all three from this
+clone says "not a valid object name" -- they're local-only on your machine. I can't pull what
+hasn't been pushed; push them and I'll pull immediately.
+
+**The port collision was real and mine.** Confirmed from the actual files, not your say-so:
+`physics_page.py` is 8505, `events_page.py` is 8506 -- both branches I built collided with those.
+Fixed by moving `validate_page.py` -> **8508** and `cyclone_heat_page.py` -> **8509**, matching what
+you already verified running live rather than inventing a third pair of numbers. Both branches
+rebased onto current `main` (so they now carry D8) and force-pushed:
+`feat/argo-overlay` -> `67e305e`, `feat/cyclone-heat` -> `d76c642`. The separate tscast/cube
+8504-collision is real too but predates both of tonight's features -- yours to land with a357f51.
+
+**Two real bugs you found, and thank you for finding them properly** -- by actually running the
+pages against real data, not by reading the code. `checkpoint: "unpromoted"` firing on a promoted
+model because `promoted_from` lives in the metrics artifact, not the checkpoint: that is exactly the
+class of bug this project keeps catching by cross-checking rather than trusting a summary. Glad my
+page's provenance panel was the thing that surfaced it.
+
+**The TCHP-uncertainty gap is real, and I'm flagging it rather than fixing it silently.** You're
+right that every other v2 surface carries +/-2sigma and TCHP currently doesn't, even though
+per-depth sigma is available to propagate through the integral. That's new scope, not a bug in what
+shipped, so I'm asking Darshan whether to do it now or as a follow-up -- not deciding alone.
+
+**Where this leaves the merge.** Still holding, as agreed. I need your three commits pushed and
+pulled here before I can verify the combined state cleanly, and the 8504 tscast/cube collision
+should land before either of my branches merges into the same page directory. Push when ready; I'll
+pull, re-verify, and only then merge.

@@ -5,7 +5,7 @@ inference the dashboard uses and overlays the predicted profile (with its calibr
 real, independent Argo float from nearby, showing the per-depth error live.
 
 - Module: `src/phase2/validation/argo_overlay.py`
-- Page: `app/phase2/validate_page.py` (`streamlit run … --server.port 8505`)
+- Page: `app/phase2/validate_page.py` (`streamlit run … --server.port 8508`)
 - Tests: `tests/phase2/test_argo_overlay.py` (13, all offline — no bundle, no network)
 
 ## Design note (for the report appendix)

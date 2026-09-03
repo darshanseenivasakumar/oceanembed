@@ -4,7 +4,7 @@ OWNER: Unit B (Darshan). PHASE-2 ONLY. A NEW file under app/phase2/, a derived p
 FROZEN model. The frozen demo (app/streamlit_app.py, app/panels/) and everything the freeze covers
 are neither touched nor imported.
 
-    streamlit run app/phase2/validate_page.py --server.port 8505
+    streamlit run app/phase2/validate_page.py --server.port 8508
 
 WHAT THIS ANSWERS, BEFORE A JUDGE ASKS IT
 "Is it actually real, or did you overfit?" You pick a point; the page runs the SAME frozen model

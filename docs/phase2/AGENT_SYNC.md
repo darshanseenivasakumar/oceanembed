@@ -59,6 +59,62 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-09-03 [DARSHAN] frozen_manifest.json caught up to the satellite deliverable -- one checksum needs your machine
+
+Small, mechanical, on a branch -- `fix/manifest-satellite-headline` off main, NOT merged. Posting
+here so you see the ask before you go looking for why a manifest disagrees with PHASE2_STATUS.
+
+### What was wrong
+
+`artifacts/frozen_manifest.json` still named the GLORYS stage-2 run (density-OFF, 0.8548) as
+`headline`. That file predates both the satellite-input build and the `1d3c135` embargo fix -- it
+was frozen at `a5cdd3a`, back when GLORYS-in-the-encoder was still the plan. `PHASE2_STATUS.md`
+row 16 already calls `sat_7ch_s42` (0.9078, `input_source: satellite`) the shipped PS deliverable
+and 0.8548 a comparator; the manifest just never caught up. **No result changed** -- only which run
+the manifest calls the deliverable.
+
+### What changed
+
+`freeze_headline.py` now records one `deliverable` (tagged `input_source: satellite`) plus three
+comparators (tagged `glorys`), reading every number from each run's own metrics JSON. It also
+became presence-aware: a checkpoint that is not on the machine running the freeze gets its scores
+recorded and its checksum marked `checkpoint_present: false` / `checkpoint_sha256: null`, rather
+than the freeze refusing outright. `--verify` skips a pending run instead of failing it.
+
+[VERIFIED, this machine] Ran both freeze and `--verify` after the change:
+
+```
+[pend] deliverable_satellite              DELIVERABLE rmse=0.9078  checkpoint ABSENT (checksum pending)
+[ok]   glorys_comparator_stage2           comparator  rmse=0.8548  53e73e4f3a5cbbd1...
+[ok]   glorys_comparator_stage2_densityON comparator  rmse=0.8593  3b43ac09b43694c1...
+[pend] glorys_comparator_stage1_embargoed comparator  rmse=0.8645  checkpoint ABSENT (checksum pending)
+```
+
+### >>> ASK ARJHUN
+
+`tscast_stage1_sat_7ch_s42.pt` is not on this disk -- only its metrics JSON travelled in whatever
+bundle reached this machine. Your row 16 entry is the one that validated it, so it is presumably on
+yours. Once this branch is merged (or you pull it), run:
+
+    python scripts/phase2/freeze_headline.py
+
+on the machine that holds `sat_7ch_s42.pt`. That fills the one `null` checksum -- the deliverable's
+scores are already verified from the metrics file; only the byte-identity of the checkpoint itself
+is missing. If your machine also lacks `tscast_stage1_embargo_withUV_s42.pt`, that checksum stays
+pending too; say so rather than fabricating one, same as this entry does.
+
+### Re: your 09-01 FORENSIC AUDIT below
+
+Answering the parts still open as of this machine's current `main` (`2994e38`): `a5cdd3a` is
+merged and an ancestor of main. `basins.py`, per-basin `metrics.py`, and the currents-ablation
+plumbing are all present and tested. Stage-2 artifacts exist (`tscast_stage2_s2*`). The
+`PHASE2_STATUS.md:23` / `EXPERIMENT_LOG.md` staleness you flagged is fixed -- both now mark the
+pre-embargo numbers superseded rather than current, and `artifacts/INVALID_PRE_EMBARGO.md` records
+which runs are leaky. If any of that is still missing on YOUR disk, it is a sync gap, not a
+disagreement -- pull main before trusting a diff against it.
+
+---
+
 ## 2026-09-01 [ARJHUN] FORENSIC AUDIT. This machine is a generation behind and every number on it is LEAKY.
 
 Audit only -- no training, no feature work. Full detail in `docs/ARJHUN_EXECUTION_PLAN.md`; your

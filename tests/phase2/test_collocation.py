@@ -212,3 +212,76 @@ def test_repeated_queries_are_identical(engine, date):
 def test_rejects_an_invalid_spatial_method():
     with pytest.raises(ValueError):
         CollocationEngine(spatial_method="magic")
+
+
+# ---------------------------------------------------------------------------------------------
+# the daily era, and telling an empty Argo match from an empty Argo TABLE  (added 2026-09-03)
+# ---------------------------------------------------------------------------------------------
+def test_phase1_remains_the_default_and_its_argo_table_is_unchanged():
+    """Every published F1 number was measured on this pairing. Adding an era must not move it."""
+    e = CollocationEngine()
+    assert e.era == "phase1"
+    assert e.argo_table == "argo_test"
+
+
+def test_argo_table_follows_the_era_but_an_explicit_table_still_wins():
+    assert CollocationEngine(era="daily").argo_table == "argo_daily_period"
+    assert CollocationEngine(era="daily", argo_table="argo_test").argo_table == "argo_test"
+    with pytest.raises(ValueError):
+        CollocationEngine(era="2026")
+
+
+def test_argo_coverage_reports_what_the_table_holds_rather_than_asserting_it():
+    """The page used to explain every empty match as ocean sparsity. It can now read the span."""
+    p1 = CollocationEngine(era="phase1").argo_coverage()
+    assert p1 is not None and p1["years"] == [2022], p1
+
+    # THE BUG, AS A TEST: 2019-2021 dates were offered against a 2022-only table, so an empty
+    # match there said nothing about the ocean -- yet the UI blamed float sparsity.
+    e = CollocationEngine(era="phase1")
+    assert not e.argo_table_covers("2019-07-15")
+    assert not e.argo_table_covers("2021-07-15")
+    assert e.argo_table_covers("2022-07-15")
+
+
+@pytest.mark.skipif(
+    not os.path.isdir(os.path.join(config.DATA_PROCESSED, "daily_sat", "v001")),
+    reason="daily bundles not on this machine")
+def test_daily_era_collocates_real_2026_data_with_a_2026_argo_table():
+    e = CollocationEngine(era="daily")
+    cov = e.argo_coverage()
+    assert 2026 in cov["years"] and e.argo_table_covers("2026-06-18")
+
+    r = e.collocate(15.0, 65.0, "2026-06-18")
+    assert r.matched["datetime"] == "2026-06-18", "daily record must hit the exact day"
+    assert r.offsets["temporal_days"] == 0
+    gl = r.sources["glorys"]
+    assert 20.0 < gl["sst"] < 35.0 and 30.0 < gl["sss"] < 40.0
+    assert sum(v is not None for v in gl["temperature_profile"]) == config.N_DEPTHS
+
+    # satellite here is daily_sat/v001 -- real observations, and NOT the same numbers as GLORYS
+    sat = r.sources["satellite"]
+    assert sat is not None and sat["sst"] is not None
+    assert sat["sst"] != gl["sst"], "satellite and reanalysis SST must not be identical"
+
+    # the bundles carry no subsurface currents; that must be flagged, not silently None
+    assert "SUBSURFACE_CURRENTS_UNAVAILABLE" in r.flags
+    assert all(v is None for v in r.sources["subsurface"]["u_profile"])
+    assert any(v is not None for v in r.sources["subsurface"]["salinity_profile"])
+    assert r.provenance["era"] == "daily"
+    assert r.provenance["argo_table"] == "argo_daily_period"
+
+
+@pytest.mark.skipif(
+    not os.path.isdir(os.path.join(config.DATA_PROCESSED, "daily_sat", "v001")),
+    reason="daily bundles not on this machine")
+def test_daily_era_matches_a_float_that_is_actually_there():
+    """An era switch that returned None for everything would look like working code."""
+    import pandas as _pd
+    df = _pd.read_parquet(config.art("argo_daily_period.parquet"))
+    row = df.iloc[len(df) // 2]
+    e = CollocationEngine(era="daily")
+    r = e.collocate(float(row["lat"]), float(row["lon"]), _pd.Timestamp(row["date"]))
+    a = r.sources["argo"]
+    assert a is not None, "a float taken FROM the table must match against that table"
+    assert a["spatial_offset_km"] < 30.0 and abs(a["temporal_offset_days"]) <= 10

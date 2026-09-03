@@ -314,3 +314,77 @@ silently changing published magnitudes (77 km month 12 → 243 km month 8).
 Rendered live on 8506, toggled sources and all three field panels; on-screen numbers match the
 headless run exactly. 4 new tests (1 in test_events.py for the provenance fix, 3 in
 test_physics_v2.py for the page wiring). Full suite: **561 passed, 10 skipped** (was 557).
+
+---
+
+## 2026-09-03 (last) — collocation_page: taken from Unit B, message fixed, 2026 era added
+
+Taken with Arjhun's explicit authorization (as with `tscast_page.py`). Told Darshan via this entry.
+
+### The bug: an empty Argo match was explained as an empty OCEAN
+
+`argo_test.parquet` holds **2022 only** (32,836 rows; zero in 2019/2020/2021). The date picker
+offered all 48 grid dates, 12 per year — so **36 of 48 (75%)** fell in years the table has no rows
+for. On every one the page said:
+
+> "No Argo profile within tolerance. 2,455 floats across ~15 million km² is genuinely sparse —
+> that gap is the problem this project exists to fill."
+
+That asserts a fact about the ocean from an absence in a file. Measured at 15°N 65°E, open Arabian
+Sea, same point and tolerance: **no match 2019 / 2020 / 2021, match in 2022.** The only variable
+was the year. [VERIFIED]
+
+This is precisely the hazard `CollocationEngine`'s own docstring names — *"indistinguishable from
+genuinely unsampled ocean"* — which Darshan identified and solved for the v2 path by making the
+table caller-selected. The page still walked into it.
+
+### Fixed by making the page read coverage instead of describing the sea
+
+New on the engine: `argo_coverage()` (table, span, years, rows) and `argo_table_covers(when)`. The
+page now branches on evidence:
+
+* year NOT in the table → **warning**: *"No Argo data for 2019 in this table — this says nothing
+  about the ocean. argo_test spans 2022-01-01 to 2022-12-31 (32,836 rows). An empty match here is
+  a gap in the reference table, not an unsampled sea."*
+* year IS in the table → the sparsity explanation, which is now true when shown.
+
+The neighbouring `"satellite covers 24 of our 48 dates"` was accurate but hardcoded; it is now
+counted per era (`_satellite_coverage`), and the monthly-grid caveat is conditional on the era.
+
+### 2026 era added
+
+`CollocationEngine(era=...)`, `ERAS = ("phase1", "daily")`:
+
+| era | grids | satellite | argo table |
+|---|---|---|---|
+| `phase1` (default) | grids.npz, 48 monthly 2019-2022 | satellite_grids.npz (24 dates) | argo_test |
+| `daily` | `daily` bundle, 388 daily 2025-2026 | `daily_sat/v001` — real observations | argo_daily_period |
+
+`_npz` presents the daily bundles in the Phase-1 key layout, so `collocate()` needs no branch of
+its own and the two eras cannot drift into computing different things. `argo_table` now defaults
+FROM the era rather than being fixed at `argo_test`; an explicit table still overrides. That is not
+the "guess from the date" the docstring forbids — the era is a choice the caller states.
+
+The daily bundles carry no subsurface currents, so u/v profiles come back all-None with a
+`SUBSURFACE_CURRENTS_UNAVAILABLE` flag naming the bundle rather than implying an unsampled ocean.
+
+### Verified
+
+- **phase1 is byte-identical**: `CollocationEngine()` still era=phase1 / argo_test; all 20 original
+  tests pass untouched.
+- daily era at 15°N 65°E on 2026-06-18: exact day, 0 d offset, SST 29.98 (GLORYS) vs **29.52
+  (satellite — genuinely different numbers)**, 15/15 profile levels, provenance era/argo_table
+  recorded.
+- daily Argo matching **works**, not just "doesn't crash": a float taken from the table matched at
+  0.0 km / +0 d / 14 levels; live UI showed another at 71 km / −7 d.
+- Rendered live on 8502, both eras, with a successful Argo match on each (phase1: 53 km / +5 d).
+- Both message branches rendered and their exact text checked.
+- Explicit widget keys (`era`, `date_<era>`) added after the era was seen resetting under
+  automation — the sidebar is built in two blocks, and position-derived widget identity is one
+  rerun away from silently changing the record under the user.
+- 5 new tests; full suite **566 passed, 10 skipped** (was 561).
+
+### Not verified
+
+The warning branch's on-screen pixels. Its condition, inputs and exact string are all checked, but
+Streamlit's 48-item dropdown resisted automation and I did not select a 2019 date in the browser.

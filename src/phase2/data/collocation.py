@@ -71,6 +71,21 @@ DEFAULT_TOLERANCE_D = 10.0      # beyond this the record is REJECTed outright
 # of a 0.25 deg cell at the equator is ~19.6 km).
 SPATIAL_MAX_KM = 20.0
 
+#: The two eras this engine can collocate over. `era` selects the GRIDDED sources; the Argo table
+#: follows from it unless the caller overrides. Added 2026-09-03 -- before that the engine could
+#: only see the Phase-1 monthly record, so the F1 explorer showed 2019-2022 while every other v2
+#: surface showed 2025-2026.
+#:
+#:   phase1 -- 48 MONTHLY fields, 2019-2022, from the standalone npz files. Every published F1
+#:             number was measured here, so this stays the default and its behaviour is unchanged.
+#:   daily  -- 388 DAILY fields, 2025-06-01..2026-06-23, read from the v2 bundles. "glorys" is the
+#:             reanalysis bundle and "satellite" is daily_sat/v001, the genuine observations.
+ERAS = ("phase1", "daily")
+ERA_ARGO_TABLE = {"phase1": "argo_test", "daily": "argo_daily_period"}
+DAILY_BUNDLES = {"grids.npz": os.path.join("daily"),
+                 "satellite_grids.npz": os.path.join("daily_sat", "v001"),
+                 "subsurface.npz": os.path.join("daily")}
+
 EARTH_R_KM = 6371.0
 
 
@@ -105,33 +120,126 @@ class CollocationEngine:
     """
 
     def __init__(self, tolerance_days: float = DEFAULT_TOLERANCE_D,
-                 spatial_method: str = "nearest", argo_table: str = "argo_test"):
+                 spatial_method: str = "nearest", argo_table: str | None = None,
+                 era: str = "phase1"):
         """
+        era
+            Which gridded record to collocate over -- see `ERAS`. Default `"phase1"` keeps the
+            2019-2022 monthly behaviour every published F1 number was measured on.
+
         argo_table
             Which independent-Argo table to match against, WITHOUT the extension.
-            Default `"argo_test"` is 2022 only -- the table every published F1 number was
-            validated on, so the default keeps that behaviour byte-identical.
-            The v2 daily period is 2026, which `argo_test` cannot match at all: it returned
-            "no float within range" for every v2 prediction, which is indistinguishable from
-            genuinely unsampled ocean. v2 passes `"argo_daily_period"` instead.
-            Choosing the table is the CALLER's decision because only the caller knows which
-            period its prediction is in; guessing from the date would silently switch ground
-            truth underneath a comparison.
+            `"argo_test"` is 2022 only; `"argo_daily_period"` covers 2025-06..2026-06. Passing
+            the wrong one for the era is silent: it returns "no float within range" for every
+            point, which is INDISTINGUISHABLE FROM GENUINELY UNSAMPLED OCEAN. That is exactly
+            what the F1 explorer displayed on 36 of its 48 dates until 2026-09-03 -- it offered
+            2019-2021 dates against a 2022-only table and blamed the empty result on float
+            sparsity.
+
+            So the default now follows `era` (`ERA_ARGO_TABLE`) rather than being fixed. That is
+            not "guessing from the date", which this docstring has always warned against and
+            still forbids -- the era is a deliberate choice the caller states, and an explicit
+            `argo_table` still overrides it. Use `argo_coverage()` to report what the chosen
+            table actually spans instead of asserting it.
         """
         if spatial_method not in ("nearest", "bilinear"):
             raise ValueError(f"spatial_method must be 'nearest' or 'bilinear', got {spatial_method!r}")
+        if era not in ERAS:
+            raise ValueError(f"era must be one of {ERAS}, got {era!r}")
         self.tolerance_days = float(tolerance_days)
         self.spatial_method = spatial_method
-        self.argo_table = str(argo_table)
+        self.era = str(era)
+        self.argo_table = str(argo_table) if argo_table else ERA_ARGO_TABLE[self.era]
         self._cache: dict[str, Any] = {}
         self._argo: pd.DataFrame | None = None
 
     # ── source loading ─────────────────────────────────────────────────────
     def _npz(self, name: str):
+        """One gridded source, ALWAYS in the Phase-1 key layout.
+
+        The daily bundles store surface variables stacked in one `surface` array indexed by a
+        `channels` list, not as separate `sst`/`sss`/... keys. Presenting them here in the older
+        layout means `collocate()` needs no branch of its own: one code path produces both eras,
+        so they cannot drift into computing different things.
+        """
         if name not in self._cache:
-            p = os.path.join(config.DATA_PROCESSED, name)
-            self._cache[name] = dict(np.load(p, allow_pickle=False)) if os.path.exists(p) else None
+            if self.era == "daily":
+                self._cache[name] = self._daily_source(name)
+            else:
+                p = os.path.join(config.DATA_PROCESSED, name)
+                self._cache[name] = (dict(np.load(p, allow_pickle=False))
+                                     if os.path.exists(p) else None)
         return self._cache[name]
+
+    def _daily_bundle(self, rel: str):
+        """The raw daily bundle for one directory, loaded at most once per engine."""
+        key = f"__bundle:{rel}"
+        if key not in self._cache:
+            d = os.path.join(config.DATA_PROCESSED, rel)
+            if not os.path.isdir(d):
+                self._cache[key] = None
+            else:
+                from phase2.tscast_nio import dataset as _D
+                self._cache[key] = _D.load_daily(d)
+        return self._cache[key]
+
+    def _daily_source(self, name: str):
+        """A daily bundle, re-keyed to look like the Phase-1 npz it stands in for.
+
+        The view differs by which file it substitutes: `grids.npz` and `satellite_grids.npz` want
+        SURFACE u/v (time, lat, lon), while `subsurface.npz` wants u/v PROFILES
+        (time, lat, lon, depth). Handing back the surface arrays under the profile keys would let
+        `_val` index a 3-D array with four indices -- which happens to return None, but by
+        accident rather than by decision, and would break the moment `_val` stopped swallowing
+        IndexError.
+        """
+        rel = DAILY_BUNDLES.get(name)
+        if rel is None:
+            return None
+        b = self._daily_bundle(rel)
+        if b is None:
+            return None
+
+        ch = [str(c) for c in b["channels"]]
+        out = {"times": np.asarray(b["times"]).astype("datetime64[D]"),
+               "land_mask": np.asarray(b["land_mask"], bool),
+               "temp": np.asarray(b["temp"]),
+               "salinity": np.asarray(b["salinity"])}
+
+        if name == "subsurface.npz":
+            # The daily bundles carry NO subsurface currents -- temperature and salinity only.
+            # NaN makes `_val` return None per level, which is the truthful answer; `collocate`
+            # raises SUBSURFACE_CURRENTS_UNAVAILABLE so the absence is attributed to the bundle
+            # rather than read as an unsampled ocean.
+            nan = np.full(out["temp"].shape, np.nan, dtype="float32")
+            out["u"], out["v"] = nan, nan
+        else:
+            out.update({v: np.asarray(b["surface"][:, :, :, ch.index(v)])
+                        for v in ("sst", "sss", "ssh", "u", "v")})
+        return out
+
+    def argo_coverage(self) -> dict | None:
+        """What the Argo table in use ACTUALLY spans -- so a caller can tell "no float nearby"
+        from "this table holds nothing for that year".
+
+        The F1 explorer asserted the first explanation on dates where only the second was true.
+        A UI that wants to explain an empty match should read this rather than describe the
+        ocean from memory.
+        """
+        df = self._argo_table()
+        if df is None:
+            return None
+        d = pd.to_datetime(df["date"])
+        return {"table": self.argo_table,
+                "start": str(d.min().date()), "end": str(d.max().date()),
+                "years": sorted({int(y) for y in d.dt.year.unique()}),
+                "n_rows": int(len(df))}
+
+    def argo_table_covers(self, when) -> bool:
+        """Whether the table has ANY profile in the requested year. False means an empty match
+        says nothing about the ocean."""
+        cov = self.argo_coverage()
+        return bool(cov) and pd.Timestamp(when).year in cov["years"]
 
     def _argo_table(self) -> pd.DataFrame | None:
         if self._argo is None:
@@ -223,6 +331,9 @@ class CollocationEngine:
                 "datetime": str(pd.Timestamp(sub["times"][s_idx]).date()),
                 "temporal_offset_days": s_off,
             }
+            if self.era == "daily":
+                # Named so an all-None u/v profile is attributed to the bundle, not to the ocean.
+                flags.append("SUBSURFACE_CURRENTS_UNAVAILABLE")
         else:
             sources["subsurface"] = None
             flags.append("SUBSURFACE_UNAVAILABLE")
@@ -277,8 +388,15 @@ class CollocationEngine:
                 "tolerance_days": self.tolerance_days,
                 "grid": f"{config.N_LAT}x{config.N_LON}x{config.N_DEPTHS}",
                 "depths_m": list(config.DEPTHS),
-                "files": [f for f in ("grids.npz", "satellite_grids.npz", "subsurface.npz")
-                          if self._npz(f) is not None],
+                "era": self.era,
+                "argo_table": self.argo_table,
+                # De-duplicated because in the daily era `grids.npz` and `subsurface.npz` are both
+                # served from the SAME bundle directory, and listing it twice reads like two
+                # independent sources when there is one.
+                "files": sorted({(DAILY_BUNDLES[f].replace(os.sep, "/") if self.era == "daily"
+                                  else f)
+                                 for f in ("grids.npz", "satellite_grids.npz", "subsurface.npz")
+                                 if self._npz(f) is not None}),
             },
         )
         record.quality = self._quality(record)

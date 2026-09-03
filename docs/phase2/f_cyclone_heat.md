@@ -6,7 +6,7 @@ intensification — produced daily over the Bay of Bengal and Arabian Sea from s
 
 - Module: `src/phase2/derived/heat_content.py`
 - CLI: `scripts/phase2/make_heat_content.py --date YYYY-MM-DD [--range S E]` → NetCDF in `artifacts/derived/heat_content/`
-- Page: `app/phase2/cyclone_heat_page.py` (`streamlit run … --server.port 8506`)
+- Page: `app/phase2/cyclone_heat_page.py` (`streamlit run … --server.port 8509`)
 - Tests: `tests/phase2/test_heat_content.py` (10, all offline — synthetic profiles, no bundle)
 
 ## Design note (for the report appendix)

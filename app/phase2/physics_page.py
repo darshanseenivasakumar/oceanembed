@@ -11,20 +11,32 @@ the library did not compute, that is a bug.
 Charts are altair, which ships with Streamlit. `app/panels/_viz.py` records why that matters:
 a panel that ImportErrors on demo day is worse than a plainer chart.
 
-WHY THIS PAGE STAYED ON GLORYS UNTIL NOW (source toggle added 2026-09-03)
-Every field here but one comes from `phase2.physics.layers`/`ohc`, and MLD (density criterion),
-the barrier layer, and the real-density OHC all take a SALINITY array. The v2 satellite model
-predicts temperature only -- stage 2 (salinity + density) has never been trained on satellite
-input (open item, `docs/HANDOFF.md` 2026-09-02). So "wire this page onto v2" cannot mean "give it
-a source toggle and compute the same four fields" -- two of the four are not computable at all
-without a training run that has not happened, and the OHC that remains falls back to the
-CONSTANT-density approximation this file's own library explicitly calls "not the default and
-never should be" (`phase2/physics/ohc.py`).
+THE SOURCE TOGGLE (added 2026-09-03), AND THE ERA BUG IT FIXED
+This page used to read `data/processed/grids.npz` exclusively: Phase-1 GLORYS, 48 MONTHLY steps,
+2019-01-15..2022-12-15. So every panel showed 2022 while the shipped model two ports away ran on
+2025-2026 -- and nothing on screen said the two were different eras. `data/processed/daily` has
+carried GLORYS daily 2025-06-01..2026-06-23, salinity included, the whole time.
 
-The v2 branch below computes exactly what temperature alone supports -- thermocline depth, ILD,
-constant-density OHC -- and REFUSES MLD and the barrier layer rather than approximating them or
-silently falling back to GLORYS under a "v2" label. That refusal is the honest result, not a
-placeholder for a later fix.
+Both toggle positions now read the SAME DAY from the SAME bundle:
+
+  * "glorys"       -- the GLORYS12V1 target itself: all four fields, real density rho(S, theta).
+  * "v2 satellite" -- the shipped model's reconstruction: thermocline, ILD and a CONSTANT-density
+                      OHC. MLD and the barrier layer are REFUSED.
+
+That makes the toggle a model-vs-truth comparison on one grid and one date, which is what it
+should have been. It is not a comparison of two eras, and neither position is Phase-1 monthly.
+
+WHY THE REFUSAL IS NOT A MISSING FEATURE
+`salinity` sits in the very bundle the v2 branch reads, and the glorys branch uses it. It is
+GLORYS REANALYSIS -- target-side, byte-identical between both bundles -- not anything the seven
+satellite input channels produced. Borrowing it for a "v2 satellite" MLD would put reanalysis
+inside a number labelled satellite: the exact contamination the anti-GLORYS guard exists to catch,
+and what the PS excludes with "only surface satellite observations". The model carries a SURFACE
+`sss` input; nothing in it predicts salinity AT DEPTH, and stage 2, which would, has never been
+trained on satellite input. So the refusal is a compliance boundary, and the honest result.
+
+Section 3 alone still reads the Phase-1 2019-2022 monthly bundle, because a seasonal climatology
+needs several years per month and its published magnitudes were measured there. It says so.
 """
 from __future__ import annotations
 
@@ -68,21 +80,6 @@ def load():
             np.asarray(g["land_mask"], bool))
 
 
-@st.cache_data(show_spinner="Computing layers …")
-def layer_fields(k: int):
-    theta, sal, _, land = load()
-    t, sa = theta[k], sal[k]
-    mld = layers.mixed_layer_depth(sa, t)
-    ild = layers.isothermal_layer_depth(t)
-    blt = layers.barrier_layer_thickness(sa, t)
-    th = layers.thermocline(t)
-    heat = ohc.ohc(sa, t, 300.0)
-    out = {"MLD (density, m)": mld, "Thermocline depth (m)": th["depth"],
-           "Barrier layer (m)": blt, "OHC 0–300 m (GJ/m²)": heat,
-           "ILD (temperature, m)": ild}
-    return {k2: np.where(land, np.nan, v) for k2, v in out.items()}
-
-
 def _v2_version() -> str:
     """Cache key for the two v2 caches below. See `field.v2_cache_version` for why this exists."""
     from phase2.tscast_nio.field import v2_cache_version
@@ -106,16 +103,69 @@ def _v2_dates(version: str) -> list[str]:
     return [str(t) for t in times]
 
 
+@st.cache_data(show_spinner="Reading GLORYS at this date …")
+def layer_fields_glorys(date_str: str, version: str) -> dict:
+    """All four fields from GLORYS daily reanalysis — the model's own training target.
+
+    Reads `temp` and `salinity` straight out of the bundle the predictor ALREADY holds. Those two
+    arrays are byte-identical to `data/processed/daily` (checked 2026-09-03: both bundles carry the
+    same GLORYS12V1 target), so this costs no second load — and, more to the point, it guarantees
+    the two toggle positions are the same grid, the same day and the same file. That makes the
+    toggle a real model-vs-truth comparison instead of two different eras, which is what it was
+    when this page read the Phase-1 2019-2022 monthly grids and the v2 branch read 2025-2026.
+
+    The subsurface salinity here is GLORYS, NOT satellite-derived — which is exactly why
+    `layer_fields_v2` refuses to borrow it. See that function.
+    """
+    p = _v2_predictor(version)
+    t_idx, _ = p._time(date_str)
+    t = np.asarray(p.data["temp"][t_idx], "float64")
+    s = np.asarray(p.data["salinity"][t_idx], "float64")
+    land = np.asarray(p.data["land_mask"], bool)
+
+    th = layers.thermocline(t)
+    out = {"MLD (density, m)": layers.mixed_layer_depth(s, t),
+           "Thermocline depth (m)": th["depth"],
+           "Barrier layer (m)": layers.barrier_layer_thickness(s, t),
+           "OHC 0–300 m (GJ/m²)": ohc.ohc(s, t, 300.0),
+           "ILD (temperature, m)": layers.isothermal_layer_depth(t)}
+    out = {k: np.where(land, np.nan, v) for k, v in out.items()}
+    out.update({
+        "temperature": t, "salinity": s, "land_mask": land,
+        "date": str(np.asarray(p.data["times"])[t_idx])[:10],
+        "provenance": {
+            "source": "GLORYS12V1 daily reanalysis (the model's training target)",
+            "bundle": p.meta.get("bundle"),
+            "density": "real ρ(S, θ) from EOS-80 — not an assumed constant",
+            "note": "reanalysis, not an observation and not a model prediction",
+        },
+    })
+    return out
+
+
 @st.cache_data(show_spinner="Reconstructing from satellite …")
 def layer_fields_v2(date_str: str, version: str) -> dict:
     """Thermocline, ILD and constant-density OHC from the SHIPPED v2 model. Temperature only.
 
-    `"MLD (density, m)"` and `"Barrier layer (m)"` are present and `None` -- there is no salinity
-    to compute them from, and the caller must render that as a refusal, not skip the key and risk
-    a KeyError standing in for an explicit "not available" message.
+    `"MLD (density, m)"` and `"Barrier layer (m)"` are present and `None`, and the caller must
+    render that as a refusal -- not skip the key and let a KeyError stand in for an explicit
+    "not available".
+
+    WHY REFUSE, WHEN SALINITY IS SITTING RIGHT THERE
+    `p.data["salinity"]` exists in this very bundle and `layer_fields_glorys` above uses it. It is
+    GLORYS12V1 REANALYSIS -- the target side, byte-identical to the GLORYS bundle -- not anything
+    the satellite inputs produced. Combining it with v2's reconstructed temperature would put a
+    reanalysis field inside a number labelled "satellite", which is the exact contamination
+    `scripts/phase2/verify_sat_bundle.py` and the anti-GLORYS guard exist to prevent, and it is
+    what the PS means by "only surface satellite observations". The 7 input channels carry a
+    SURFACE `sss` (SMOS blend); nothing in this model predicts salinity AT DEPTH, and stage 2,
+    which would, has never been trained on satellite input.
+
+    So the refusal is a compliance boundary, not a missing feature. Switch the source toggle to
+    glorys to see all four fields honestly labelled as reanalysis.
 
     `"OHC 0–300 m (GJ/m²)"` here is `ohc_constant_density`, NOT the real-density `ohc.ohc` the
-    GLORYS panel shows -- see the module docstring. The two are not the same claim and must never
+    glorys panel shows -- see the module docstring. The two are not the same claim and must never
     be shown side by side without saying which is which.
     """
     from phase2.tscast_nio.field import predict_field
@@ -184,23 +234,20 @@ def main() -> None:
         st.stop()
         return
 
-    _, _, times, _ = load()
+    v2v = _v2_version()
+    dates = _v2_dates(v2v)
     with st.sidebar:
         st.header("Snapshot")
         source = st.radio(
-            "Surface source", ["v2 satellite", "glorys"], index=0,
-            help="v2 satellite = the shipped model, temperature only -- MLD and the barrier "
-                 "layer are refused, not approximated, because both need salinity and stage 2 "
-                 "has never been trained on satellite input. glorys = Phase-1 reanalysis, "
-                 "2019-2022 monthly, real density from S and theta -- all four fields.")
+            "Source", ["v2 satellite", "glorys"], index=0,
+            help="Both read the SAME day from the SAME bundle, so this is a model-vs-truth "
+                 "comparison, not two different eras. v2 satellite = the shipped model's "
+                 "reconstruction, temperature only -- MLD and the barrier layer are refused "
+                 "because borrowing GLORYS salinity would put reanalysis inside a number "
+                 "labelled satellite. glorys = the GLORYS12V1 target itself, real density "
+                 "from S and theta -- all four fields.")
         is_v2 = source == "v2 satellite"
-        if is_v2:
-            v2v = _v2_version()
-            v2_dates = _v2_dates(v2v)
-            date_str = st.selectbox("Date", options=v2_dates, index=len(v2_dates) - 6)
-        else:
-            idx = st.selectbox("Date", range(len(times)),
-                               format_func=lambda i: str(times[i]), index=len(times) - 6)
+        date_str = st.selectbox("Date", options=dates, index=len(dates) - 6)
         st.divider()
         st.caption("Profile inspector")
         p_lat = st.slider("Latitude (°N)", float(config.LAT[0]), float(config.LAT[-1]), 18.0, 0.25)
@@ -210,14 +257,15 @@ def main() -> None:
     if is_v2:
         st.caption("Mixed layer, barrier layer, thermocline and heat content — from the "
                    "**shipped v2 satellite model, temperature only**. MLD and the barrier layer "
-                   "need salinity, which this model does not predict; they are refused below, "
-                   "not approximated.")
+                   "need salinity AT DEPTH, which no satellite observes and this model does not "
+                   "predict; they are refused below, not approximated.")
     else:
-        st.caption("Mixed layer, barrier layer, thermocline and heat content — computed from "
-                   "**real seawater density** ρ(S, θ), not an assumed constant. Phase-1 GLORYS "
-                   "reanalysis, 2019–2022 monthly.")
+        st.caption("Mixed layer, barrier layer, thermocline and heat content — from the "
+                   "**GLORYS12V1 daily reanalysis**, the model's own training target, with "
+                   "**real seawater density** ρ(S, θ) rather than an assumed constant. "
+                   "Reanalysis, not an observation.")
 
-    fields = layer_fields_v2(date_str, v2v) if is_v2 else layer_fields(idx)
+    fields = layer_fields_v2(date_str, v2v) if is_v2 else layer_fields_glorys(date_str, v2v)
 
     # ---- 1. the maps -------------------------------------------------------------------
     st.subheader("1 · Structure across the basin")
@@ -304,11 +352,11 @@ def main() -> None:
         with st.expander("Provenance — what produced the fields above"):
             st.json(fields["provenance"])
     else:
-        theta, sal, _, land = load()
+        land = fields["land_mask"]
         if land[i, j]:
             st.warning(f"{config.LAT[i]:.2f}°N {config.LON[j]:.2f}°E is land.")
         else:
-            t_col, s_col = theta[idx, i, j], sal[idx, i, j]
+            t_col, s_col = fields["temperature"][i, j], fields["salinity"][i, j]
             prof = pd.DataFrame({"depth": config.DEPTHS, "temperature": t_col, "salinity": s_col})
             mld = float(fields["MLD (density, m)"][i, j])
             ild = float(fields["ILD (temperature, m)"][i, j])
@@ -335,15 +383,20 @@ def main() -> None:
             m2.metric("ILD (temperature)", f"{ild:.0f} m")
             m3.metric("Barrier layer", f"{ild - mld:.0f} m")
             m4.metric("Thermocline", f"{thd:.0f} m")
-            st.caption(f"{config.LAT[i]:.2f}°N {config.LON[j]:.2f}°E on {times[idx]}. "
-                       "Barrier layer = ILD − MLD: the layer that is isothermal but **not** "
-                       "isopycnal, because fresh water is holding it apart.")
+            st.caption(f"{config.LAT[i]:.2f}°N {config.LON[j]:.2f}°E on {fields['date']}. "
+                       "GLORYS reanalysis. Barrier layer = ILD − MLD: the layer that is "
+                       "isothermal but **not** isopycnal, because fresh water is holding it "
+                       "apart.")
+        with st.expander("Provenance — what produced the fields above"):
+            st.json(fields["provenance"])
 
     # ---- 3. the validated claim --------------------------------------------------------
     st.subheader("3 · The barrier layer is seasonal — and that is the result")
-    st.caption("This claim needs 4 years of monthly salinity and is measured from **GLORYS**, "
-               "regardless of the source toggle above — the v2 satellite model has no salinity "
-               "to reproduce it with.")
+    st.caption("Measured on **Phase-1 GLORYS monthly, 2019–2022** — a different bundle from the "
+               "2025–2026 daily one the panels above use, and unaffected by the source toggle. A "
+               "seasonal climatology needs several years per month; the 388-day daily bundle "
+               "covers each month about once, and recomputing on it would silently change the "
+               "published magnitudes below.")
     df = barrier_by_month()
     chart = alt.Chart(df).mark_bar().encode(
         x=alt.X("month:O", title="month"),

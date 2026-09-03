@@ -192,3 +192,60 @@ and now physics_page would have been a fourth. Factored the hashing logic into
 
 Stage 2 has never been trained on satellite input -- this is the reason MLD/barrier layer/real-OHC
 stay refused on v2, not a gap this change closes. `events_page.py` is still untouched, same reason.
+
+---
+
+## 2026-09-03 (later) — the "why does glorys show 2022" answer: it was reading the wrong bundle
+
+### The finding, and a correction to the entry above
+
+Arjhun asked why glorys mode showed 2022-07-15. Because `physics_page` read
+`data/processed/grids.npz` — Phase-1 GLORYS, 48 MONTHLY steps, 2019-01-15..2022-12-15 — which is
+all that file has. Meanwhile `data/processed/daily` has carried **GLORYS daily 2025-06-01..
+2026-06-23, salinity included**, the whole time.
+
+**This corrects the entry above.** That entry said MLD/barrier layer were refused on v2 because
+"stage 2 has never been trained on satellite input" — true, but I had also probed for salinity
+using the key `sal` when the actual key is `salinity`, concluded "salinity=NO", and framed the
+refusal as "there is no salinity to compute them from". There IS salinity: shape
+(388, 100, 240, 15), 0.498-40.172 psu, and it is **byte-identical between `daily` and
+`daily_sat/v001`** — both bundles carry the same GLORYS12V1 target-side field. [VERIFIED]
+
+The refusal is still correct, and the real reason is sharper: that salinity is REANALYSIS. Using
+it for a "v2 satellite" MLD would put a GLORYS field inside a number labelled satellite — the
+contamination the anti-GLORYS guard exists to catch, and what the PS excludes with "only surface
+satellite observations". The 7 input channels carry a SURFACE `sss` (SMOS blend); nothing predicts
+salinity AT DEPTH. So it is a compliance boundary, not an absence.
+
+### What changed
+
+Both toggle positions now read **the same day from the same bundle**:
+
+| | source | fields | density |
+|---|---|---|---|
+| `v2 satellite` | shipped model reconstruction | thermocline, ILD, OHC | constant (approximation) |
+| `glorys` | GLORYS12V1 target in the same bundle | **all four** | real ρ(S, θ) |
+
+`layer_fields_glorys` reads `temp`/`salinity` out of the predictor's already-loaded bundle, so it
+costs no second load and guarantees one grid, one date, one file. The old `layer_fields(idx)`
+(Phase-1 monthly) is deleted; nothing outside the page referenced it.
+
+That makes the toggle a **model-vs-truth comparison** rather than a comparison of two eras.
+Measured on 2026-06-18, thermocline model vs GLORYS: **bias +0.85 m, RMSE 23.09 m over 11,832
+cells** — a number that could not be produced at all while the two sides sat 1,300 days apart.
+
+Section 3 alone still reads Phase-1 2019-2022 monthly, and now says so explicitly: a seasonal
+climatology needs several years per month, the 388-day bundle covers each month about once, and
+recomputing on it would silently change the published 9.5 m / 7.1 m magnitudes.
+
+### Verified
+
+- glorys on 2026-06-18: MLD 20-125 m (11,062 cells), barrier layer 0-80 m (10,840), thermocline
+  2.5-175 m (11,832), ILD 20-150 m (10,840), OHC real-ρ 20.1-28.7 GJ/m² (9,492).
+- Rendered live, toggled both ways: **the date stays 2026-06-18 across the toggle** — the symptom
+  that started this is gone.
+- 3 new tests (10 in the file): both sources resolve the same requested day; glorys computes all
+  four with real density; and `layer_fields_v2` neither reads `salinity` in its body nor returns a
+  salinity array — the compliance boundary as an executable check, needed precisely BECAUSE the
+  salinity is sitting right there.
+- Full suite: **557 passed, 10 skipped**.

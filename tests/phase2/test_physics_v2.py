@@ -163,3 +163,66 @@ def test_v2_cache_version_is_one_function_not_three_copies():
                              ("cube_page_src", "app/phase2/cube_page.py")):
         src = open(os.path.join(ROOT, relpath), encoding="utf-8").read()
         assert "v2_cache_version" in src, f"{relpath} does not delegate to the shared helper"
+
+
+# --------------------------------------------------------------------------- glorys, same day
+
+
+def test_both_sources_read_the_same_day_from_the_same_bundle(physics_page):
+    """The toggle is a model-vs-truth comparison, not two eras.
+
+    This page shipped reading Phase-1 GLORYS monthly 2019-2022 while the model ran on 2025-2026,
+    with nothing on screen saying so -- the user question that started this. Both branches must
+    now resolve the same requested date.
+    """
+    v = physics_page._v2_version()
+    dates = physics_page._v2_dates(v)
+    d = dates[len(dates) - 6]
+    g = physics_page.layer_fields_glorys(d, v)
+    f2 = physics_page.layer_fields_v2(d, v)
+    assert g["date"] == d
+    assert f2["date"][:10] == d
+    assert not g["date"].startswith("2019") and not g["date"].startswith("2022")
+
+
+def test_glorys_source_computes_all_four_fields_with_real_density(physics_page):
+    """What v2 refuses, glorys supplies -- because there the salinity is honestly labelled."""
+    v = physics_page._v2_version()
+    dates = physics_page._v2_dates(v)
+    g = physics_page.layer_fields_glorys(dates[len(dates) - 6], v)
+
+    ocean = int((~g["land_mask"]).sum())
+    for name, lo, hi in (("MLD (density, m)", 0.0, 1000.0),
+                         ("Barrier layer (m)", 0.0, 1000.0),
+                         ("Thermocline depth (m)", 0.0, 1000.0),
+                         ("ILD (temperature, m)", 0.0, 1000.0),
+                         ("OHC 0–300 m (GJ/m²)", 0.0, 60.0)):
+        a = g[name]
+        assert a is not None, f"{name} must be computed on glorys, not refused"
+        fin = np.isfinite(a)
+        assert fin.sum() >= ocean * 0.5, f"{name}: only {fin.sum()} finite of {ocean} ocean cells"
+        assert lo <= np.nanmin(a) and np.nanmax(a) <= hi, f"{name} out of [{lo}, {hi}]"
+
+    assert np.isfinite(g["salinity"]).any(), "glorys branch must carry real subsurface salinity"
+    assert "ρ(S, θ)" in g["provenance"]["density"]
+
+
+def test_v2_never_borrows_glorys_salinity_for_a_satellite_labelled_number(physics_page):
+    """The compliance boundary, as a test.
+
+    Salinity IS present in the bundle v2 reads -- that is exactly why this needs a guard rather
+    than being self-evident. `layer_fields_v2` must not touch p.data["salinity"], or a reanalysis
+    field ends up inside a number the UI labels "satellite".
+    """
+    src = open(os.path.join(ROOT, "app/phase2/physics_page.py"), encoding="utf-8").read()
+    start = src.index("def layer_fields_v2")
+    end = src.index("\ndef ", start + 10)
+    body = src[start:end]
+    code = body[body.index('"""', body.index('"""') + 3) + 3:]      # past the docstring
+    assert "salinity" not in code, "layer_fields_v2 must not read salinity in its body"
+
+    v = physics_page._v2_version()
+    dates = physics_page._v2_dates(v)
+    f2 = physics_page.layer_fields_v2(dates[-1], v)
+    assert "salinity" not in f2, "the v2 result must not carry a salinity array at all"
+    assert f2["provenance"]["input_source"] == "satellite"

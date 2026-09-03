@@ -388,3 +388,64 @@ The daily bundles carry no subsurface currents, so u/v profiles come back all-No
 
 The warning branch's on-screen pixels. Its condition, inputs and exact string are all checked, but
 Streamlit's 48-item dropdown resisted automation and I did not select a 2019 date in the browser.
+
+---
+
+## 2026-09-04 — the depth-error chart: it already existed, and it was unreadable
+
+Arjhun asked for a jury-facing depth-vs-RMSE plot, believing the numbers were "just in a table".
+They were not — `tscast_page` has had exactly that chart beside the table all along. **It was
+rendering as a zigzag through itself**, which is very likely why it read as a table page.
+
+### The bug
+
+`mark_line(point=True)` with `x=RMSE`, `y=depth`. **Altair sorts a line by its X encoding unless
+given `order`**, and RMSE is not monotonic in depth (0.40 surface → 1.19 at 50 m → 1.08 at 75 m →
+1.22 at 100 m), so the line was drawn in ascending-RMSE order and crossed itself repeatedly.
+Nothing errored; the numbers were right; the picture said "unstable model". `validation_page`
+carried the identical defect in **both** of its panels. [VERIFIED]
+
+### The honesty correction that mattered more
+
+The brief was "your line beats climatology everywhere". **It does not.** At 1000 m climatology
+wins by 0.012 °C (0.293 vs 0.305) — **14 of 15 depths, not 15**. The chart now draws the band from
+the SIGNED difference and labels the crossover outright ("climatology wins by 0.012 °C here"),
+with a test asserting the label appears on the real data and does NOT appear when a model really
+does win everywhere. The page's existing copy already explained why this happens (the deep ocean
+barely varies, so climatology is near-unbeatable there); the chart no longer contradicts it.
+
+### What the chart now shows
+
+Model and climatology as 2px profiles ordered by depth, the gap between them shaded as one
+quantity (that gap IS the skill), a legend below the plot, and three selective annotations — the
+thermocline peak (our worst, 1.22 °C at 100 m), the widest gain (+0.56 °C at 200 m), and the
+crossover. Error is small at the surface, bulges through the thermocline where a surface field
+constrains depth least, and collapses below 500 m. The physics, at a glance.
+
+### Colour, computed rather than chosen
+
+Ran the palette validator instead of eyeballing:
+
+* old pair `#1f77b4` / `#999999` — the grey **FAILED** the chroma floor and sat at **2.78:1**.
+* first fix `#eb6834` passed on white and **FAILED** the dark lightness band (0.671). No theme is
+  pinned in this project, so Streamlit follows the viewer's browser — the demo laptop picks the
+  mode, not us.
+* shipped pair **`#2a78d6` / `#d95926`** passes all six checks in **both** modes (worst adjacent
+  CVD ΔE 25.4 protan, normal-vision 32.3, contrast ≥3:1). The Validation Lab's skill panel
+  (`#1baf7a`) passes alongside them.
+
+**Annotation ink was a live defect found by measuring the rendered DOM:** Streamlit themes axis
+text but NOT free `mark_text`, which defaults to **black — rgb(0,0,0) on rgb(14,17,23), 1.11:1,
+invisible**. Now `#787878`, the balanced dual-surface optimum (4.30:1 light, 4.28:1 dark).
+
+### Verified
+
+Rendered both pages and inspected the live SVG: annotations `rgb(120,120,120)` @12px, model line
+`rgb(42,120,214)` 2px, climatology `rgb(217,89,38)` 2px. 5 new tests in
+`tests/phase2/test_depth_chart.py`, one run as a negative control by hand (deleting `order`
+fails exactly the ordering test). Full suite **571 passed, 10 skipped** (was 566).
+
+### Still open, unrelated and unresolved
+
+The Validation Lab headline (**RMSE 0.9638 / 879 profiles**) still disagrees with the freeze
+manifest (**0.9078 / 962**). Flagged 2026-09-03, never traced.

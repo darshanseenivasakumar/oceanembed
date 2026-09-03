@@ -51,18 +51,31 @@ def _chart_per_depth(depths, rmse, clim, skill_vals):
         "value": np.concatenate([rmse, clim]),
         "series": ["our model (satellite)"] * len(depths) + ["climatology baseline"] * len(depths),
     })
-    left = alt.Chart(err).mark_line(point=True).encode(
+    # `order` is REQUIRED: altair sorts a line by its x encoding unless told otherwise, and RMSE is
+    # not monotonic in depth, so without it the line is drawn in ascending-RMSE order and zigzags
+    # through itself. Same defect as tscast_page carried until 2026-09-04.
+    left = alt.Chart(err).mark_line(
+        strokeWidth=2, point=alt.OverlayMarkDef(size=55, filled=True)
+    ).encode(
         x=alt.X("value:Q", title="RMSE (°C) — lower is better"),
         y=alt.Y("depth:Q", title="depth (m)", scale=alt.Scale(reverse=True)),
+        order=alt.Order("depth:Q"),
         color=alt.Color("series:N", title=None,
-                        scale=alt.Scale(range=["#888888", "#1f77b4"])),
+                        # Validator-checked in BOTH modes; the old #888888 failed the chroma floor
+                        # and sat at 2.78:1. See tscast_page.CLR_MODEL for the full note.
+                        scale=alt.Scale(domain=["our model (satellite)", "climatology baseline"],
+                                        range=["#2a78d6", "#d95926"]),
+                        legend=alt.Legend(orient="bottom", direction="horizontal", title=None)),
         tooltip=["depth", alt.Tooltip("value:Q", format=".3f"), "series"],
     ).properties(height=430, title="absolute error")
 
     sk = pd.DataFrame({"depth": depths, "skill": skill_vals})
-    right = alt.Chart(sk).mark_line(point=True, color="#2ca02c").encode(
+    right = alt.Chart(sk).mark_line(
+        strokeWidth=2, point=alt.OverlayMarkDef(size=55, filled=True), color="#1baf7a"
+    ).encode(
         x=alt.X("skill:Q", title="skill vs climatology — higher is better"),
         y=alt.Y("depth:Q", title=None, scale=alt.Scale(reverse=True)),
+        order=alt.Order("depth:Q"),
         tooltip=["depth", alt.Tooltip("skill:Q", format="+.3f")],
     ).properties(height=430, title="skill")
     zero = alt.Chart(pd.DataFrame({"x": [0.0]})).mark_rule(strokeDash=[4, 4]).encode(x="x:Q")

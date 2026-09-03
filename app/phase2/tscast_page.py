@@ -338,6 +338,110 @@ def render_argo_check(record: dict) -> None:
 
 # ── tab 2: the benchmark ───────────────────────────────────────────────────────────────
 
+#: Checked with the palette validator, not chosen by eye, and checked against BOTH surfaces --
+#: no theme is pinned in this project, so Streamlit follows the viewer's browser and the demo
+#: laptop decides the mode, not us. This pair passes all six checks in light AND dark:
+#: lightness band, chroma floor, CVD separation (worst adjacent dE 25.4 protan), normal-vision
+#: floor (32.3) and 3:1 contrast.
+#:
+#: The previous pair was #1f77b4 with #999999: the grey FAILED the chroma floor outright and sat
+#: at 2.78:1 contrast. The first fix, #eb6834, passed on white and FAILED the dark lightness band
+#: at 0.671 -- which is exactly why the rule is to validate per surface instead of flipping.
+CLR_MODEL, CLR_CLIM = "#2a78d6", "#d95926"
+
+#: Annotation ink. Streamlit themes AXIS text but NOT free `mark_text`, which defaults to BLACK --
+#: measured on the running page as rgb(0,0,0) on a rgb(14,17,23) surface, 1.11:1, invisible. Since
+#: no theme is pinned, this grey is the balanced optimum across both surfaces: 4.30:1 on the light
+#: surface and 4.28:1 on the dark one. Labels wear text ink, never a series colour.
+INK_ANNOTATION = "#787878"
+NAME_MODEL, NAME_CLIM = "TS-Cast-NIO v2", "climatology baseline"
+
+
+def _depth_error_chart(depths, rmse, clim) -> alt.LayerChart:
+    """RMSE against depth, ours vs the baseline. The one plot that shows we understand the ocean.
+
+    THE BUG THIS REPLACES
+    The old chart was `mark_line(point=True)` with x=RMSE and y=depth. Altair sorts a line by its
+    X encoding unless told otherwise, and RMSE is NOT monotonic in depth (0.40 at the surface,
+    1.19 at 50 m, 1.08 at 75 m, 1.22 at 100 m), so the line was drawn in ascending-RMSE order and
+    came out as a zigzag through itself. The numbers were right and the picture was unreadable --
+    which is worse than no picture, because it looks like the model is unstable. `order` fixes it.
+
+    WHAT THE SHAPE SAYS, AND WHAT IT MUST NOT OVERSTATE
+    Error is small at the surface (SST is half-observed), peaks in the THERMOCLINE where the
+    vertical gradient is steepest and a surface field constrains depth least, then collapses below
+    500 m where the ocean barely varies. That is the physics, visible at a glance.
+
+    But the model does NOT beat climatology everywhere: at 1000 m climatology wins by 0.012 degC
+    (0.293 vs 0.305). 14 of 15 depths, not 15. The shaded band is therefore drawn from the SIGNED
+    difference and the crossover is labelled outright, because a jury that later finds the one
+    depth we glossed over stops believing the fourteen we did not.
+    """
+    df = pd.DataFrame({"depth": depths, "model": rmse, "clim": clim})
+    df["gain"] = df["clim"] - df["model"]
+
+    long = pd.DataFrame({
+        "depth": list(depths) * 2,
+        "value": list(rmse) + list(clim),
+        "series": [NAME_MODEL] * len(depths) + [NAME_CLIM] * len(depths)})
+
+    y = alt.Y("depth:Q", title="depth (m)", scale=alt.Scale(reverse=True))
+    # Headroom on x so the direct labels sit INSIDE the plot. Without it they are clipped by the
+    # right edge -- the annotation that carries the argument is the one that gets cut.
+    x_max = float(max(max(rmse), max(clim))) * 1.5
+    x_scale = alt.Scale(domain=[0.0, x_max], nice=False)
+
+    # The gap between the curves IS the skill. Shaded so it reads as one quantity, not two lines
+    # that happen to be apart.
+    band = alt.Chart(df).mark_area(opacity=0.15, color=CLR_MODEL).encode(
+        y=y, x=alt.X("model:Q", title="RMSE (°C) — lower is better", scale=x_scale),
+        x2="clim:Q")
+
+    lines = alt.Chart(long).mark_line(
+        strokeWidth=2, point=alt.OverlayMarkDef(size=55, filled=True)
+    ).encode(
+        x=alt.X("value:Q", title="RMSE (°C) — lower is better", scale=x_scale),
+        y=y,
+        # WITHOUT THIS the line follows ascending RMSE instead of depth. See the docstring.
+        order=alt.Order("depth:Q"),
+        color=alt.Color("series:N", title=None,
+                        scale=alt.Scale(domain=[NAME_MODEL, NAME_CLIM],
+                                        range=[CLR_MODEL, CLR_CLIM]),
+                        legend=alt.Legend(orient="bottom", direction="horizontal",
+                                          title=None)),
+        tooltip=["depth", alt.Tooltip("value:Q", format=".4f"), "series"],
+    )
+
+    # Direct-label the two depths that carry the argument -- the extremes only, never every point.
+    k_gain = int(max(range(len(depths)), key=lambda i: df["gain"][i]))
+    k_worst = int(max(range(len(depths)), key=lambda i: rmse[i]))
+    notes = pd.DataFrame([
+        {"depth": depths[k_gain], "value": clim[k_gain],
+         "label": f"widest gain {df['gain'][k_gain]:+.2f} °C"},
+        {"depth": depths[k_worst], "value": rmse[k_worst],
+         "label": f"our worst {rmse[k_worst]:.2f} °C · thermocline"},
+    ])
+    text = alt.Chart(notes).mark_text(
+        align="left", dx=8, dy=-6, fontSize=12, color=INK_ANNOTATION
+    ).encode(y=y, x="value:Q", text="label:N")
+
+    layers = [band, lines, text]
+
+    # The one depth where the baseline wins. Called out rather than left for someone to find.
+    losing = df[df["gain"] < 0]
+    if not losing.empty:
+        r = losing.iloc[losing["gain"].argmin()]
+        layers.append(alt.Chart(pd.DataFrame([{
+            "depth": r["depth"], "value": max(r["model"], r["clim"]),
+            "label": f"climatology wins by {abs(r['gain']):.3f} °C here"}])
+        ).mark_text(align="left", dx=8, dy=10, fontSize=12, color=INK_ANNOTATION
+                    ).encode(y=y, x="value:Q", text="label:N"))
+
+    return alt.layer(*layers).properties(
+        height=430, title="error against independent Argo, by depth"
+    ).configure_axis(grid=True, gridOpacity=0.18, gridDash=[])
+
+
 def render_benchmark_tab(m: dict) -> None:
     st.subheader("How wrong is it, per depth, against floats it never saw")
     mm = m["metrics"]
@@ -368,19 +472,10 @@ def render_benchmark_tab(m: dict) -> None:
 
     df = pd.DataFrame(T.benchmark_rows(m))
 
-    err = pd.DataFrame({
-        "depth": depths * 2,
-        "value": [float(v) for v in mm["rmse"]] + [float(v) for v in mm["rmse_climatology"]],
-        "series": ["TS-Cast-NIO v2"] * len(depths) + ["climatology baseline"] * len(depths)})
-    chart = alt.Chart(err).mark_line(point=True).encode(
-        x=alt.X("value:Q", title="RMSE (°C) — lower is better"),
-        y=alt.Y("depth:Q", title="depth (m)", scale=alt.Scale(reverse=True)),
-        color=alt.Color("series:N", title=None,
-                        scale=alt.Scale(range=["#1f77b4", "#999999"])),
-        tooltip=["depth", alt.Tooltip("value:Q", format=".4f"), "series"],
-    ).properties(height=430, title="error against independent Argo, by depth")
+    chart = _depth_error_chart(depths, [float(v) for v in mm["rmse"]],
+                               [float(v) for v in mm["rmse_climatology"]])
 
-    left, right = st.columns([2, 3])
+    left, right = st.columns([3, 2])
     left.altair_chart(chart, use_container_width=True)
     right.dataframe(df, use_container_width=True, hide_index=True, height=430)
 

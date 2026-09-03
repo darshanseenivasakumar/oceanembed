@@ -74,8 +74,13 @@ def d26_from_profile(temp_1d, depths=DEPTHS) -> float:
         t_hi, t_lo = t[last], t[n_warm]                     # t_hi >= 26 > t_lo
         frac = (t_hi - ISO_C) / (t_hi - t_lo)               # 0..1 between the two levels
         return float(z[last] + frac * (z[n_warm] - z[last]))
-    # Whole valid column is warm: no crossing. Report the deepest valid level (a flagged case).
-    return float(z[np.nonzero(ok)[0].max()])
+    # No cold level sits directly below the warm layer, so there is nothing to interpolate against.
+    # Report the deepest CONTIGUOUS-WARM depth (z[last]) -- NOT the deepest valid level. When the
+    # column is genuinely warm to the seafloor these coincide; but when a NaN gap cut the warm layer
+    # off (valid water resumes deeper), z[last] refuses to claim the crossing lies below the gap.
+    # Returning the deepest-valid depth there let TCHP draw a warm triangle across the gap and
+    # produced 634 kJ/cm^2 on a gapped column -- inventing heat in water we cannot see.
+    return float(z[last])
 
 
 def tchp_from_profile(temp_1d, depths=DEPTHS, rho: float = RHO_TCHP, cp: float = CP_TCHP) -> float:
@@ -174,7 +179,7 @@ def integrated_uncertainty(mean_1d, sigma_1d, depths=DEPTHS, z_ref: float = 700.
     if not valid.any():
         nan = float("nan")
         return {"tchp_std": nan, "tchp_p10": nan, "tchp_p90": nan, "d26_std": nan, "ohc_std": nan,
-                "n_samples": 0, "assumption": _INDEPENDENCE_NOTE}
+                "n_samples": {"tchp": 0, "d26": 0, "ohc": 0}, "assumption": _INDEPENDENCE_NOTE}
 
     # One batch of independent per-depth draws, (n_samples, 15). Invalid depths stay NaN in every
     # draw so a masked cell can never contribute a fabricated sample.

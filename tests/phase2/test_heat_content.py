@@ -139,4 +139,17 @@ def test_uncertainty_carries_the_independence_caveat():
 def test_uncertainty_all_nan_profile_is_nan_not_zero():
     u = hc.integrated_uncertainty(np.full(NZ, np.nan), np.full(NZ, 0.5), D,
                                   rng=np.random.default_rng(4))
-    assert np.isnan(u["tchp_std"]) and u["n_samples"] == 0
+    assert np.isnan(u["tchp_std"])
+    assert u["n_samples"] == {"tchp": 0, "d26": 0, "ohc": 0}   # dict in every case, never a bare int
+
+
+def test_nan_gap_does_not_invent_a_deep_warm_layer():
+    # A NaN at 50 m with warm water above AND below must NOT push D26 to the deepest valid level and
+    # let TCHP integrate a warm triangle across the gap (that produced 634 kJ/cm^2 before the fix).
+    # D26 is bounded by the deepest depth we KNOW is warm (30 m here), not the seafloor.
+    temp = np.full(NZ, 29.0)
+    temp[5] = np.nan                                    # 50 m missing; 0–30 m warm, 75 m+ warm
+    d26 = hc.d26_from_profile(temp, D)
+    assert d26 == D[4], d26                             # 30 m — the deepest contiguous-warm level
+    tchp = hc.tchp_from_profile(temp, D)
+    assert 0.0 < tchp < 120.0, tchp                     # physical, not the 634 the gap used to give

@@ -161,7 +161,10 @@ def main() -> None:
         tchp_v, d26_v, ohc_v = (products["tchp"][i, j], products["d26"][i, j],
                                 products["ohc_0_zref"][i, j])
         # Propagate the model's per-depth sigma through the integral for THIS cell, on demand.
-        u = hc.integrated_uncertainty(products["temperature"][i, j], products["sigma"][i, j])
+        # Fixed seed so the displayed ± is STABLE across reruns — an unseeded MC would make the
+        # number flicker on every widget interaction, which reads as instability, not uncertainty.
+        u = hc.integrated_uncertainty(products["temperature"][i, j], products["sigma"][i, j],
+                                      rng=np.random.default_rng(0))
         c = st.columns(3)
         c[0].metric("TCHP", "—" if not np.isfinite(tchp_v) else f"{tchp_v:.0f}",
                     delta=None if not np.isfinite(u["tchp_std"]) else f"± {u['tchp_std']:.0f}",

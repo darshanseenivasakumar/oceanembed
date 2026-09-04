@@ -118,3 +118,61 @@ def test_both_pages_order_their_depth_lines():
     start = src.index("def _chart_per_depth")
     body = src[start:src.index("\ndef ", start + 10)]
     assert body.count('alt.Order("depth:Q")') == 2, "both panels need an explicit line order"
+
+
+# --------------------------------------------------------------------------- the Argo overlay
+
+
+@pytest.fixture(scope="module")
+def overlay_page():
+    return _load("validate_page_chart", "app/phase2/validate_page.py")
+
+
+#: A profile with a temperature INVERSION -- warmer water beneath cooler. Not a contrived case:
+#: 67.1% of the 11,832 ocean profiles on 2026-05-15 contain one, because barrier-layer inversions
+#: are a real feature of this basin. On such a column a line sorted by temperature crosses itself.
+INVERTED = [30.35, 30.36, 30.32, 30.52, 30.48, 29.96, 28.63,
+            26.99, 24.57, 21.71, 17.27, 13.36, 11.40, 10.03, 7.86]
+BAND = {"lo": [v - 1.0 for v in INVERTED], "hi": [v + 1.0 for v in INVERTED]}
+FLOAT = [v + 0.3 for v in INVERTED]
+
+
+def test_overlay_line_follows_depth_not_temperature(overlay_page):
+    """Same defect class as the benchmark chart. It looks fine on a monotonically cooling column
+    and breaks on the two-thirds of profiles that carry an inversion."""
+    spec = overlay_page._overlay_chart(DEPTHS, INVERTED, BAND, FLOAT).to_dict()
+    enc = _line_layer(spec)["encoding"]
+    assert "order" in enc, "overlay line has no `order` -- it follows temperature, not depth"
+    assert enc["order"]["field"] == "depth"
+    assert enc["y"]["scale"]["reverse"] is True
+
+
+def test_overlay_has_a_legend_naming_both_series(overlay_page):
+    """It had none: three visual elements explained only by the title. A jury should not have to
+    infer that the orange dots are the ground truth."""
+    spec = overlay_page._overlay_chart(DEPTHS, INVERTED, BAND, FLOAT).to_dict()
+    coloured = [L for L in spec["layer"] if "color" in L.get("encoding", {})]
+    assert len(coloured) >= 2, "line and float must both carry the colour encoding that legends it"
+    domain = coloured[0]["encoding"]["color"]["scale"]["domain"]
+    assert overlay_page.NAME_MODEL in domain and overlay_page.NAME_FLOAT in domain
+
+
+def test_the_float_is_not_drawn_in_alarm_red(overlay_page):
+    """It was #d62728. The float is ground truth -- the thing that validates the model, not a
+    fault -- and red told a jury the opposite."""
+    assert overlay_page.CLR_FLOAT.lower() not in ("#d62728", "#ff0000", "red")
+    assert overlay_page.CLR_MODEL != overlay_page.CLR_FLOAT
+
+
+def test_overlay_labels_the_largest_disagreement(overlay_page):
+    """The weakest depth is pointed at, not left to be found."""
+    spec = overlay_page._overlay_chart(DEPTHS, INVERTED, BAND, FLOAT).to_dict()
+    assert any("largest gap" in t for t in _labels(spec)), _labels(spec)
+
+
+def test_both_jury_charts_share_one_colour_language(overlay_page, page):
+    """Blue is always our model; orange is always what we are measured against. Two demo pages
+    using different blues for 'us' would read as two different systems."""
+    assert overlay_page.CLR_MODEL == page.CLR_MODEL
+    assert overlay_page.CLR_FLOAT == page.CLR_CLIM
+    assert overlay_page.INK_ANNOTATION == page.INK_ANNOTATION

@@ -140,6 +140,26 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "argo-overlay",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/validate_page.py",
+        "--server.port",
+        "8508",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8508,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

@@ -2914,3 +2914,72 @@ list and it is done.
 
 613 passed, 8 skipped. `freeze.py --check` 18/18. The freeze's fourth open item now states the
 3-seed result rather than "never been run".
+
+---
+
+## 2026-09-05 (A19) — ARJHUN: Prompt 6 verified and merged. And a pattern we should name, because it has now bitten five times.
+
+Pushed `2f245f3..6bb088f`. 628 passed, 8 skipped, `freeze.py --check` 18/18.
+
+### Prompt 6 is good
+
+13 tests pass. It takes a `predict_field()` output rather than reaching for `grids.npz`, so it is
+genuinely on the v2 model — the thing three other pages got wrong and had to be fixed for. The port
+guard is green, and it produced a real 8°N 68°E → 20°N 88°E section (40 points, 2532 km) and renders
+on 8510 with the seafloor and both isotherm lines. The bilinear sampler, the NaN-strictness and the
+seafloor handling are yours and they check out. I changed nothing in the science.
+
+**One process note so you don't get the same fright I did.** `git diff HEAD..origin/main` looked
+like you had deleted 2,585 lines of my work. You had not — that diff shows MY unmerged commits as
+"deletions" because `main` does not have them. The merge was clean and everything survived. Worth
+knowing before either of us reads a diff in that direction again.
+
+### The bug it did have — and why it is the interesting part
+
+A NaN `D26` has **three** causes: land or below-seafloor, a column that never cools to 26 °C, and a
+surface already below 26 °C. Both `make_transect.py` and `transect_page.py` called all of them
+*"below 26 °C at the surface"*. On that May track it was wrong for **every one** of the 22 NaN
+points — **17 were LAND** (the great circle crosses India) and 5 were warm-to-bottom columns,
+**zero** had a cold surface, in a section reading 30.16–31.29 °C throughout. The page's default view
+announced *"14 of 60 points never reach 26 °C at the surface"* when all 14 were warm to the bottom:
+the opposite meaning.
+
+On a cyclone chart, "cold surface" is the exact signal a reader is hunting for. Mislabelling land as
+that is the dangerous direction to be wrong in. Both now count the causes separately and name them,
+with a regression test that fails if the old wording returns.
+
+### >>> THE PATTERN. Five times now, same shape, different file.
+
+| where | the absence | what it was reported as | fixed in |
+|---|---|---|---|
+| `inference.py` | which bundle a checkpoint used | hardcoded `input_source: "glorys"` | the 8 °C incident |
+| `field.py` | `promoted_from` absent from the checkpoint | `"unpromoted"` about the SHIPPED model | `f5264c4` |
+| `eddy.summarise` | caller never said which currents | hardcoded `"GLORYS reanalysis"` | `8fd3584` |
+| `collocation_page` | table has no rows for that year | *"floats are genuinely sparse"* — a fact about the ocean | `3c2c33b` |
+| `transect` (both files) | land / warm-to-bottom column | *"below 26 °C at the surface"* | `6bb088f` |
+
+Every one is the same move: **a missing value was given a physical meaning instead of being
+reported as missing.** None was caught by a test, because in each case the wrong answer is
+well-formed, plausible, and of the right type. A shape check cannot see any of them. Four were found
+only by rendering the thing and reading it against data we already had.
+
+They also share a direction: the fabricated meaning is always the *interesting* one — GLORYS rather
+than unknown, sparse ocean rather than empty table, cold surface rather than land. That is not
+coincidence. When you reach for a default you reach for the one that reads like a result.
+
+**What I'd propose, and I am not doing it unilaterally since it touches your files too:** whenever a
+function returns a value that could mean "I don't know", it either returns `None`/NaN, or it returns
+the reason alongside it. `eddy.summarise(source=...)`, `argo_coverage()` and `_promoted_from()` are
+all now shaped that way; `bundle_for_checkpoint` was the first. It costs a parameter and removes an
+entire failure class. If you agree I'll write it into `START_HERE.md` as a rule rather than leaving
+it as five separate scars.
+
+### Where the project stands
+
+PS audit **16 PASS / 0 FAIL / 1 BLOCKED** (INCOIS, external). Freeze open items: INCOIS blocked, the
+Arabian Sea penalty still UNKNOWN after four tested mechanisms, uncertainty improved-not-calibrated,
+and stage 2 now measured rather than absent — it does **not** beat stage 1 (A18), so stage 1 remains
+the deliverable.
+
+Unstarted: **Prompt 4 (Live mode)** and **Prompt 7 (Export & API)**, both mine. I still do not have
+their text — the numbered set is not in the repo. Send them and I'll take 4 unsplit as specified.

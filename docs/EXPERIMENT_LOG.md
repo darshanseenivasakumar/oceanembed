@@ -93,3 +93,51 @@ error, and the metrics JSON is what `freeze.py`, `frozen_manifest.json` and ever
 Stage 1 has recorded both all along. `train_stage2.py` fixed; this run's artifact backfilled from
 its own checkpoint and labelled `bundle_fields_backfilled` rather than presented as recorded at
 training time.
+
+## E-S2-SAT-02 — the 3-seed check, and the retraction of E-S2-SAT-01's temperature reading
+
+**Question.** E-S2-SAT-01 measured stage-2 temperature at 0.8854 against stage 1's 0.9078 on the
+same 962 profiles — 0.0224 better — and refused to call it an improvement on one seed. Does it hold?
+
+**No. It does not.** Seeds 43 and 44 added, matched on every axis (`stage2_seed_check.py` asserts
+input_source, daily_dir, T_SEQ, both periods, argo_profiles, argo_table, w_density, beta_nll, n and
+the stage-1 baseline are identical across legs — all ok):
+
+| seed | stage-2 T RMSE | vs stage-1 0.9078 |
+|---|---|---|
+| 42 | 0.8854 | **+0.0224** better |
+| 43 | 0.9095 | −0.0018 worse |
+| 44 | 0.9158 | −0.0080 worse |
+
+mean **+0.0042**, spread **0.0304**, sd 0.0160. **The sign does not hold.** Seed 42 was the lucky
+leg, and its 0.0224 sits well inside the seed spread. This is the third time this project has seen
+an effect at ±0.02 °C fail to survive a reseed — wind's ablation flipped −0.0149 → +0.0111, the SSH
+contrast was 1 of 3, and now this. The rule earns its keep again.
+
+**RETRACTION.** E-S2-SAT-01 recorded "0.0224 below stage 1's" with the caveat that one seed was not
+enough. The caveat was right and the number is now superseded: **stage 2 does not improve
+temperature on satellite input.** The entry stands as written — historical, not edited — and this
+is its correction.
+
+**Salinity and density are new claims with no stage-1 counterpart, so the question is stability:**
+
+| | s42 | s43 | s44 | mean | spread |
+|---|---|---|---|---|---|
+| salinity RMSE (psu) | 0.2571 | 0.2777 | 0.2737 | **0.2695** | 0.0207 |
+| density RMSE (kg m⁻³) | 0.2900 | 0.3050 | 0.3166 | **0.3039** | 0.0266 |
+| density calibration ratio | 1.245 | 1.281 | 1.491 | 1.339 | **0.246** |
+
+Salinity is reasonably stable — 0.0207 psu spread on a 0.2695 mean, ~8%. Density RMSE likewise
+(~9%). **The density calibration RATIO is not**: 0.246 spread on a 1.339 mean, ~18%, and that ratio
+is the uncertainty-quality indicator. No stage-2 uncertainty claim should be quoted from one run.
+
+**Consequence for `physics_page`.** Salinity being stable and independently validated is what MLD
+by density and the barrier layer would need, and that part is now supported. But stage 2 is not
+promoted, not frozen, and does not beat stage 1 on temperature — so wiring those panels to it would
+put the page's headline barrier-layer claim behind an unpromoted model. That is a decision, not a
+detail, and it is not taken here.
+
+**Code change this required.** `train_stage2.py` hardcoded `base.SEED` in five places, so a seed
+sweep was impossible without editing the file. It now takes `--seed` and threads one value through
+sample draw, weight init and data order, exactly as `train_stage1.py` does — including stage 1's
+"seed AFTER build: init consumes the RNG" ordering.

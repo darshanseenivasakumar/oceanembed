@@ -136,6 +136,10 @@ def _stage1_comparison(tag: str | None = None) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", type=int, default=None,
+                    help="override the config SEED. Stage 2 hardcoded it in five places, so a "
+                         "seed sweep was impossible without editing the file -- and its salinity "
+                         "and density numbers are new, unreplicated claims that need one.")
     ap.add_argument("--epochs", type=int, default=25)
     ap.add_argument("--train-samples", type=int, default=60000)
     ap.add_argument("--test-samples", type=int, default=12000)
@@ -165,6 +169,9 @@ def main() -> None:
                        if a.device == "auto" else a.device)
     print(f"device : {dev}   beta-NLL: {a.beta}   eq.5 weight: {a.w_density}")
 
+    # One seed for EVERYTHING: sample draw, weight init, data order. A leg of a seed sweep that
+    # differed in any of these would not be a matched comparison.
+    seed = int(a.seed if a.seed is not None else base.SEED)
     d = D.load_daily(a.daily_dir)
     if "salinity" not in d:
         raise SystemExit(
@@ -195,12 +202,12 @@ def main() -> None:
     clim = np.load(base.art("climatology.npy"))
 
     ds_tr = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
-                             tr_t, t_seq=t_seq, max_samples=a.train_samples, seed=base.SEED,
+                             tr_t, t_seq=t_seq, max_samples=a.train_samples, seed=seed,
                              clim=clim, return_clim=True,
                              salinity=d["salinity"], return_salinity=True)
     ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              te_t, norm=ds_tr.norm, t_seq=t_seq, max_samples=a.test_samples,
-                             seed=base.SEED + 1, clim=clim, return_clim=True,
+                             seed=seed + 1, clim=clim, return_clim=True,
                              salinity=d["salinity"], return_salinity=True)
     print(f"train {len(ds_tr):,} samples  |  held-out GLORYS {len(ds_te):,}")
 
@@ -212,13 +219,13 @@ def main() -> None:
     print(f"salinity target: mean {ds_tr.s_mean.mean():.3f} psu, "
           f"std {ds_tr.s_std.mean():.3f} psu (train split only)")
 
-    torch.manual_seed(base.SEED)
+    torch.manual_seed(seed)
     latent = a.latent or config.LATENT_DIM
     model = TSCastNIO(a.encoder, len(d["channels"]), t_seq=1, p=config.P, latent=latent,
                       residual=not a.no_residual, decoder="simple", stage=2).to(dev)
     n_all = sum(q.numel() for q in model.parameters())
     print(f"params : {n_all:,} total, latent {latent}, decoder simple, stage 2")
-    torch.manual_seed(base.SEED)
+    torch.manual_seed(seed)                         # seed AFTER build: init consumes the RNG
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
 
     loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True, num_workers=a.num_workers)
@@ -402,7 +409,7 @@ def main() -> None:
     suffix = f"_{a.tag}" if a.tag else ""
     ck = base.art(f"tscast_stage2{suffix}.pt")
     torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
-                "encoder": a.encoder, "seed": base.SEED, "residual": not a.no_residual,
+                "encoder": a.encoder, "seed": seed, "residual": not a.no_residual,
                 "channels": d["channels"], "P": config.P, "T_SEQ": t_seq, "built_t_seq": 1,
                 # WHICH bundle, recorded in the checkpoint itself. It used to live
                 # only in the sibling metrics JSON, so a consumer holding just the
@@ -452,7 +459,7 @@ def main() -> None:
                           "'boundary_overlap_v1' and are NOT comparable to these."),
         "n_targets_embargoed": int(n_embargoed),
         "channels": [str(c) for c in d["channels"]],
-        "device": str(dev), "latent": latent, "n_params": n_all, "seed": base.SEED,
+        "device": str(dev), "latent": latent, "n_params": n_all, "seed": seed,
         "epochs_requested": a.epochs, "epochs_run": len(curve), "best_epoch": best["epoch"],
         "best_heldout_total": round(best["nll"], 4),
         "patience": a.patience, "weight_decay": a.weight_decay, "lr": a.lr,

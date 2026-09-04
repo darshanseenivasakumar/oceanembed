@@ -6,7 +6,8 @@ below points at the file that owns it, because duplicated facts drift and the st
 someone reads.
 
 Written 2026-08-26 by Unit A (Arjhun). If it disagrees with the file it points to, **the pointed-at
-file wins.**
+file wins.** Rule 8 added 2026-09-05, after the same failure had recurred five times in five
+different files and no test had caught any of them.
 
 ---
 
@@ -106,6 +107,11 @@ From `CLAUDE.md` and hard experience. Every one of these was learned by finding 
    them.
 7. **A shape check is not a validity check.** Ask of every array: *could this have been produced
    without real data behind it?*
+8. **An absence is not a value.** When something is missing — a file, a year of data, a caller's
+   context, water at that depth — say it is missing. Never substitute the meaning it would have
+   had. A function that can mean *"I don't know"* either returns `None`/NaN, or returns **the
+   reason alongside the value**. `bundle_for_checkpoint` was the first to do this; `argo_coverage`,
+   `eddy.summarise(source=...)` and `field._promoted_from` now do.
 
 ### The question in rule 7 has now caught five bugs
 `.gitignore` excluding `src/oceanembed/data/` · 46 m of extrapolated "500 m" values · SSS stacked
@@ -114,6 +120,28 @@ where the real error was 2.0 °C · the model painting 1000 m temperatures in th
 
 All five: **correct arrays, plausible values, wrong data.** Unit B's phrasing, now the L1 rule in
 `VALIDATION_PROTOCOL.md` — *plausible values are not proof of a correct array.*
+
+### Rule 8 has now caught five of its own, and rule 7 could not see any of them
+
+| where | the absence | what it was reported as |
+|---|---|---|
+| `inference.py` | which bundle a checkpoint used | hardcoded `input_source: "glorys"` |
+| `field.py` | `promoted_from` lives in the metrics, not the `.pt` | `"unpromoted"` — about the SHIPPED model |
+| `eddy.summarise` | the caller never said which currents | hardcoded `"GLORYS reanalysis"` |
+| `collocation_page` | the Argo table holds no rows for that year | *"floats are genuinely sparse"* — a claim about the ocean |
+| `transect` (script + page) | land, or a column that never cools | *"below 26 °C at the surface"* |
+
+**Rule 7 asks whether an array could have been produced without real data. Rule 8 asks the
+opposite: was there any data at all, and did we invent its meaning?** Every entry above is
+well-formed, plausible and correctly typed, so no shape check and no value check can see it — the
+array is fine; the *label* is fabricated. Four were caught only by rendering the thing and reading
+it against data we already had.
+
+They also share a direction, which is the part worth remembering: **the invented meaning is always
+the interesting one.** GLORYS rather than unknown; sparse ocean rather than empty table; cold
+surface rather than land. That is not chance. A default gets reached for precisely because it reads
+like a result — so the fabricated answer is, by construction, the one most likely to end up on a
+slide.
 
 ---
 

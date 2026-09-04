@@ -8,6 +8,7 @@ The four risks, in order of how quietly they would corrupt a section:
 """
 from __future__ import annotations
 
+import os
 import numpy as np
 import pytest
 
@@ -178,3 +179,35 @@ def test_isotherm_line_opens_a_gap_where_the_water_is_too_cold():
     assert np.isnan(line).any() and np.isfinite(line).any(), (
         "the isotherm line should be present where warm and gapped where cold"
     )
+
+
+def test_a_missing_D26_is_not_reported_as_a_cold_surface():
+    """Three different things make D26 undefined, and only one of them is a temperature fact.
+
+    `make_transect.py` used to print every NaN D26 as "points below 26 C at the surface". On an
+    8N 68E -> 20N 88E track for 2026-05-15 that was wrong for all 22 of them: 17 were LAND (the
+    great circle crosses India) and 5 were columns that never cool to 26 C, while the surface read
+    30.16-31.29 C throughout. Reporting land as a temperature condition is the same error class as
+    letting a missing value read as zero -- and on a cyclone-relevant chart it is the more
+    dangerous direction, since "cold surface" is the signal a reader is looking for.
+    """
+    import numpy as np
+    from phase2.derived import transect as T
+
+    depths = np.asarray(config.DEPTHS, dtype="float64")
+    warm_to_bottom = np.full(len(depths), 29.0)          # never crosses 26
+    all_nan = np.full(len(depths), np.nan)               # land
+    cools = np.linspace(30.0, 8.0, len(depths))          # crosses 26 properly
+
+    assert np.isnan(T.isotherm_depth(warm_to_bottom, depths, 26.0))
+    assert np.isnan(T.isotherm_depth(all_nan, depths, 26.0))
+    d = T.isotherm_depth(cools, depths, 26.0)
+    assert np.isfinite(d) and 0.0 < d < 1000.0
+
+    # the reporting must be able to tell them apart -- the source is the guard
+    src = open(os.path.join(os.path.dirname(__file__), "..", "..",
+                            "scripts", "phase2", "make_transect.py"), encoding="utf-8").read()
+    assert "below 26 C at the surface)" not in src, (
+        "the old wording is back: it reports land and warm-to-bottom columns as a cold surface")
+    for cause in ("no valid water", "never cool to 26 C", "surface already below 26 C"):
+        assert cause in src, f"the D26 report no longer distinguishes: {cause}"

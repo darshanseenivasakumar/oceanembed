@@ -69,8 +69,30 @@ def main() -> None:
     if np.isfinite(temp[:, 0]).any():
         print(f"  surface {np.nanmin(temp[:, 0]):.2f}..{np.nanmax(temp[:, 0]):.2f} C")
     if np.isfinite(d26).any():
+        # A NaN D26 has THREE causes and they are not interchangeable. This line used to call all
+        # of them "below 26 C at the surface" -- on an 8N 68E -> 20N 88E track in May that was
+        # wrong for every one of the 22 NaN points: 17 were LAND (the great circle crosses India)
+        # and 5 were columns that never cool to 26 C. Zero had a cold surface, in a basin reading
+        # 30-31 C. Reporting land as a temperature condition is the same error class as letting a
+        # missing value read as zero.
+        temp_arr = np.asarray(sec["temperature"])
+        land = warm_all = cold_surf = 0
+        for row, isnan in zip(temp_arr, np.isnan(d26)):
+            if not isnan:
+                continue
+            fin = np.isfinite(row)
+            if not fin.any():
+                land += 1
+            elif row[fin][0] < 26.0:
+                cold_surf += 1
+            elif np.nanmin(row) > 26.0:
+                warm_all += 1
+        why = ", ".join(p for p in (
+            f"{land} no valid water (land or dry cell)" if land else "",
+            f"{warm_all} never cool to 26 C" if warm_all else "",
+            f"{cold_surf} surface already below 26 C" if cold_surf else "") if p)
         print(f"  D26 {np.nanmin(d26):.1f}..{np.nanmax(d26):.1f} m "
-              f"({int(np.isnan(d26).sum())} points below 26 C at the surface)")
+              f"({int(np.isnan(d26).sum())} points without a D26" + (f": {why})" if why else ")"))
 
 
 if __name__ == "__main__":

@@ -164,8 +164,31 @@ def main() -> None:
 
     d26 = sec["d26"]
     if np.isfinite(d26).any():
-        st.caption(f"26 °C isotherm depth along this line: {np.nanmin(d26):.0f}–{np.nanmax(d26):.0f} m "
-                   f"({int(np.isnan(d26).sum())} of {d26.size} points never reach 26 °C at the surface).")
+        # Same fix as scripts/phase2/make_transect.py: a NaN D26 has three causes and only one is a
+        # temperature fact. Measured on an 8N 68E -> 20N 88E May track, all 22 NaN points were land
+        # (17) or warm-to-bottom (5) and NONE had a cold surface, while the surface read 30-31 C.
+        # On a cyclone-relevant chart "cold surface" is the signal a reader is hunting for, so
+        # mislabelling land as that is the dangerous direction to be wrong in.
+        t_arr = np.asarray(sec["temperature"])
+        land = warm = cold = 0
+        for row, isnan in zip(t_arr, np.isnan(d26)):
+            if not isnan:
+                continue
+            fin = np.isfinite(row)
+            if not fin.any():
+                land += 1
+            elif row[fin][0] < 26.0:
+                cold += 1
+            elif np.nanmin(row) > 26.0:
+                warm += 1
+        why = ", ".join(p for p in (
+            f"{land} land or below the seafloor" if land else "",
+            f"{warm} never cool to 26 °C" if warm else "",
+            f"{cold} already below 26 °C at the surface" if cold else "") if p)
+        st.caption(
+            f"26 °C isotherm depth along this line: {np.nanmin(d26):.0f}–{np.nanmax(d26):.0f} m "
+            f"({int(np.isnan(d26).sum())} of {d26.size} points have no 26 °C crossing"
+            + (f": {why})." if why else ")."))
 
 
 if __name__ == "__main__":

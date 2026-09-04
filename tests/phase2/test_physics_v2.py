@@ -136,7 +136,7 @@ def test_v2_never_calls_the_salinity_functions(physics_page):
     be structurally absent, not merely unexercised on today's inputs.
     """
     src = open(os.path.join(ROOT, "app/phase2/physics_page.py"), encoding="utf-8").read()
-    start = src.index("def layer_fields_v2")
+    start = src.index("def layer_fields_v2(")
     end = src.index("\n@st.cache_data", start + 10) if "\n@st.cache_data" in src[start + 10:] \
         else src.index("\ndef ", start + 10)
     body = src[start:end]
@@ -215,7 +215,7 @@ def test_v2_never_borrows_glorys_salinity_for_a_satellite_labelled_number(physic
     field ends up inside a number the UI labels "satellite".
     """
     src = open(os.path.join(ROOT, "app/phase2/physics_page.py"), encoding="utf-8").read()
-    start = src.index("def layer_fields_v2")
+    start = src.index("def layer_fields_v2(")
     end = src.index("\ndef ", start + 10)
     body = src[start:end]
     code = body[body.index('"""', body.index('"""') + 3) + 3:]      # past the docstring
@@ -274,3 +274,39 @@ def test_events_detects_plausible_eddies_and_fronts_on_both_sources(events_page)
         assert 10.0 < s["mean_radius_km"] < 300.0
         assert fr["n_fronts"] > 0
         assert np.isfinite(vort).sum() > 5_000
+
+
+def test_stage2_uses_PREDICTED_salinity_never_the_bundle_s_glorys_salinity(physics_page):
+    """The stage-2 source is allowed salinity -- but only the salinity the MODEL produced.
+
+    `layer_fields_v2` refuses MLD outright because the only salinity available to it is the GLORYS
+    target sitting in the same bundle, and using that inside a satellite-labelled number is the
+    contamination the anti-GLORYS guard exists to catch. Stage 2 is allowed the fields precisely
+    because it predicts salinity itself. If this function ever reached into `predictor.data` or the
+    bundle for salinity, it would be committing the exact violation stage 1 refuses -- while
+    looking more capable, not less.
+    """
+    src = open(os.path.join(ROOT, "app/phase2/physics_page.py"), encoding="utf-8").read()
+    start = src.index("def layer_fields_v2_stage2(")
+    end = src.index("\ndef ", start + 10)
+    body = src[start:end]
+    code = body[body.index('"""', body.index('"""') + 3) + 3:]      # past the docstring
+
+    assert 'predict_field(' in code, "stage 2 must get its fields from the model"
+    assert 'f["salinity"]' in code, "stage 2 must read the PREDICTED salinity"
+    for forbidden in ('data["salinity"]', "data['salinity']", ".data[", "load_daily("):
+        assert forbidden not in code, (
+            f"{forbidden} in layer_fields_v2_stage2 -- that reaches past the model into the "
+            f"bundle, where the salinity is GLORYS")
+
+
+def test_stage2_reports_its_own_error_against_the_reanalysis(physics_page):
+    """A layer depth always looks plausible. The stage-2 MLD is ~14 m shallow and the map does not
+    show it, so the page must compute the comparison and print it rather than let a reader assume."""
+    assert hasattr(physics_page, "stage2_vs_glorys")
+    src = open(os.path.join(ROOT, "app/phase2/physics_page.py"), encoding="utf-8").read()
+    assert "stage2_vs_glorys(date_str" in src, "the comparison must actually be rendered"
+    fn = src[src.index("def stage2_vs_glorys("):]
+    for field in ("MLD (density, m)", "Barrier layer (m)", "OHC 0–300 m (GJ/m²)"):
+        assert field in fn, f"{field} must be in the comparison"
+    assert "bias" in fn and "RMSE" in fn

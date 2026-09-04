@@ -141,3 +141,54 @@ detail, and it is not taken here.
 sweep was impossible without editing the file. It now takes `--seed` and threads one value through
 sample draw, weight init and data order, exactly as `train_stage1.py` does — including stage 1's
 "seed AFTER build: init consumes the RNG" ordering.
+
+## E-S2-SAT-03 — physics_page wired to stage 2, and what the wiring measured
+
+**Done as asked.** `physics_page` gained a third source, "v2 stage-2 (unpromoted)", computing all
+four structure fields from temperature AND salinity the model predicted — no reanalysis in them.
+This is the first time MLD-by-density, the barrier layer and a real-density OHC exist on this
+project from satellite input alone.
+
+**Two guards fired on their own, which is the point of having them.** With a stage-2 checkpoint
+loaded, `field.predict_field` reports `checkpoint: "unpromoted"` (the sha does not match what
+promotion recorded) and `sigma_is_calibrated: False` — *"calibration was fitted on a stage-1 model,
+this record is stage 2"*. Neither needed a special case for stage 2.
+
+**A bug this exposed, fixed first.** `_calibration_applies_to` matched on T_SEQ and channels only.
+A stage-2 checkpoint carries the SAME T_SEQ 11 and the SAME seven channels as the stage-1 model it
+was trained beside, so the shipped scales — fitted on stage 1's residuals — sailed through every
+check and would have rescaled stage-2 sigma by a stage-1 factor. Exactly the failure that function
+exists to prevent, along an axis it did not look at. Stage is now matched first.
+
+### The measurement that matters: stage 2 vs GLORYS, 2026-06-18, per ocean cell
+
+| field | bias (s2 − glorys) | RMSE | median s2 | median glorys |
+|---|---|---|---|---|
+| **MLD (density, m)** | **−14.12** | **21.34** | 20.0 | 50.0 |
+| **Barrier layer (m)** | **+8.88** | **19.00** | 20.0 | 0.0 |
+| ILD (temperature, m) | −5.85 | 16.44 | 50.0 | 50.0 |
+| Thermocline depth (m) | −1.80 | 24.12 | 87.5 | 87.5 |
+| OHC 0–300 m (GJ/m²) | **−0.024** | **0.664** | 25.0 | 25.1 |
+
+**OHC survives; MLD and the barrier layer do not.** The cause is upstream and measurable: surface
+salinity carries **+0.19 psu of bias** (RMSE 0.59 at 0 m, 0.54 at 5 m, 0.43 at 10 m). The MLD
+criterion is a **0.03 kg m⁻³** density threshold from 10 m, and ~0.19 psu is roughly 0.15 kg m⁻³ —
+five times the threshold. So the criterion trips at the wrong depth systematically. An integral
+(OHC) is far less sensitive than a threshold crossing, which is why it is unaffected.
+
+This is precisely the failure `tests/phase2/test_physics.py` opens by warning about: *"a layer
+depth is a single number that always looks plausible, so shape tests prove almost nothing about
+it."* The stage-2 MLD map looks like an MLD map. Only the comparison shows it is 14 m shallow.
+
+**Consequence for the page's published claim.** Section 3 reports the validated seasonal result as
+**BoB 9.5 m vs Arabian 7.1 m — a 2.4 m difference**. The stage-2 barrier layer's bias alone is
+**+8.9 m**, nearly four times that signal. It therefore cannot support the claim, and section 3 is
+NOT computed from it; it stays on the record it was measured on.
+
+**So the page computes this comparison live and prints it above the maps**, rather than leaving it
+in this log. A reader who opens the stage-2 source sees the bias table and the warning before the
+first map, on the date they selected. The panels are shown as asked — with their error stated, not
+hidden.
+
+**Standing recommendation.** Do not use the stage-2 MLD or barrier layer for any claim. OHC from
+stage 2 is defensible. Fixing this needs a better surface-salinity head, not a UI change.

@@ -151,6 +151,19 @@ def _calibration_applies_to(cal: dict, provenance: dict) -> tuple[bool, str]:
     a mismatch leaves sigma RAW with the reason recorded, rather than being quietly applied or
     quietly dropped.
     """
+    # STAGE FIRST. A stage-2 checkpoint carries the same T_SEQ and the same seven channels as the
+    # stage-1 one it was trained beside, so neither check below can tell them apart -- yet its
+    # temperature head is a different network with a different error distribution, and the shipped
+    # scales were fitted on stage 1's residuals (`is_shipped_model: true`, checkpoint
+    # tscast_stage1.pt). Without this the scales sail through every other test and rescale a
+    # stage-2 sigma by a stage-1 factor, which is precisely the failure this function exists to
+    # prevent -- just along an axis it did not look at. Absent means 1: the artifact predates
+    # stage 2, and it was fitted on stage 1.
+    want_stage, got_stage = int(cal.get("stage", 1)), int(provenance.get("stage", 1) or 1)
+    if want_stage != got_stage:
+        return False, (f"calibration was fitted on a stage-{want_stage} model, this record is "
+                       f"stage {got_stage}")
+
     want_t, got_t = cal.get("T_SEQ"), provenance.get("T_SEQ")
     want_c = [str(c) for c in cal.get("channels", [])]
     got_c = [str(c) for c in provenance.get("channels", [])]

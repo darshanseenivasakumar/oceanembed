@@ -112,17 +112,32 @@ def predict_field(predictor, date, batch_size: int = 512, device: str | None = N
         dev = torch.device(device) if device else next(predictor.model.parameters()).device
         mus, lvs = [], []
         predictor.model.eval()
+        s_mus, s_lvs = [], []
+        stage = int(getattr(predictor, "stage", 1))
         with torch.no_grad():
             for x, g, _, _, _, cp, mo in DataLoader(ds, batch_size=batch_size, shuffle=False):
                 x, g, cp, mo = (t.to(dev) for t in (x, g, cp, mo))
-                mu, lv = predictor.model(x, g, cp, mo)
-                mus.append(mu.cpu().numpy())
-                lvs.append(lv.cpu().numpy())
+                out = predictor.model(x, g, cp, mo)
+                mus.append(out[0].cpu().numpy())
+                lvs.append(out[1].cpu().numpy())
+                if stage == 2:
+                    # out = (mu_t, logvar_t, mu_s, logvar_s, logvar_rho). Same order the point
+                    # path unpacks in inference.py -- one definition of the v2 prediction.
+                    s_mus.append(out[2].cpu().numpy())
+                    s_lvs.append(out[3].cpu().numpy())
     finally:
         ds.index = saved                                            # never leave it mutated
 
     mu = np.concatenate(mus) * predictor.y_std + predictor.y_mean
     sigma = np.sqrt(np.exp(np.concatenate(lvs))) * predictor.y_std
+
+    # Salinity, denormalised with ITS OWN mean and std -- scaling it with temperature's would be a
+    # units error nothing downstream could catch, which is why the predictor refuses a stage-2
+    # checkpoint that does not carry six normalisation entries.
+    sal = sig_s = None
+    if stage == 2:
+        sal = np.concatenate(s_mus) * predictor.s_std + predictor.s_mean
+        sig_s = np.sqrt(np.exp(np.concatenate(s_lvs))) * predictor.s_std
 
     # The calibrated sigma, decided by the SAME function the point path uses.
     #
@@ -138,6 +153,7 @@ def predict_field(predictor, date, batch_size: int = 512, device: str | None = N
     if cal:
         applied, why = _output._calibration_applies_to(cal, {
             "T_SEQ": predictor.meta.get("T_SEQ"),
+            "stage": stage,          # without this a stage-2 field takes stage-1's scales
             "channels": [str(c) for c in predictor.data["channels"]]})
         if applied:
             for k, d in enumerate(config.DEPTHS):
@@ -150,16 +166,27 @@ def predict_field(predictor, date, batch_size: int = 512, device: str | None = N
     S = np.full(shape, np.nan)
     T[ii, jj, :] = mu
     S[ii, jj, :] = sigma
+    SAL = SIG_S = RHO = None
+    if stage == 2:
+        SAL, SIG_S = np.full(shape, np.nan), np.full(shape, np.nan)
+        SAL[ii, jj, :], SIG_S[ii, jj, :] = sal, sig_s
 
     # Below the seafloor there is no ocean. The GLORYS target is NaN there, and a reconstruction
     # that filled it with a number would be inventing water.
     valid = np.isfinite(temp_truth) & ocean[:, :, None]
     T[~valid] = np.nan
     S[~valid] = np.nan
+    if stage == 2:
+        SAL[~valid] = np.nan
+        SIG_S[~valid] = np.nan
+        from phase2.physics import seawater as _sw
+        RHO = _sw.density(SAL, T)          # EOS-80, the same call the point path makes
 
     return {
         "date": str(np.asarray(predictor.data["times"])[t_idx]),
         "temperature": T, "sigma": S, "valid_mask": valid, "land_mask": land,
+        # None on stage 1 -- absent, not zero. A caller that needs salinity must check.
+        "stage": stage, "salinity": SAL, "sigma_s": SIG_S, "density": RHO,
         "provenance": {
             "model": "tscast-nio-stage1",
             "input_source": predictor.data.get("input_source", "unknown"),

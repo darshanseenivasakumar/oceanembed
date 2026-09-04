@@ -143,6 +143,95 @@ def layer_fields_glorys(date_str: str, version: str) -> dict:
     return out
 
 
+#: The stage-2 run wired below. NOT the deliverable: unpromoted, unfrozen, and measured over three
+#: seeds (E-S2-SAT-02) as NOT better than stage 1 on temperature -- +0.0224 on seed 42 but -0.0018
+#: and -0.0080 on 43 and 44, mean +0.0042 inside a 0.0304 spread. What it does bring is salinity,
+#: scored against independent Argo PSAL at 0.2695 psu mean over those seeds (spread 0.0207), which
+#: is the only thing that makes MLD-by-density, the barrier layer and a real-density OHC possible
+#: at all on satellite input.
+STAGE2_CHECKPOINT = "tscast_stage2_sat_s2.pt"
+STAGE2_SEEDS = "salinity 0.2695 psu mean over seeds 42/43/44 (spread 0.0207), vs independent Argo"
+
+
+def _v2s2_version() -> str:
+    """Cache key for the STAGE-2 predictor. `v2_cache_version` hashes the stage-1 checkpoint, so
+    reusing it here would pin a stage-2 cache to a file that never changes when stage 2 does."""
+    import hashlib
+    from phase2.tscast_nio import dataset as _D, field as _F, inference as _I
+    h = hashlib.sha256()
+    for q in (config.art(STAGE2_CHECKPOINT), _I.__file__, _D.__file__, _F.__file__):
+        try:
+            st_ = os.stat(q)
+            h.update(f"{q}:{st_.st_mtime_ns}:{st_.st_size}".encode())
+        except OSError:
+            h.update(f"{q}:missing".encode())
+    return h.hexdigest()[:16]
+
+
+@st.cache_resource(show_spinner="Loading the stage-2 model …")
+def _v2s2_predictor(version: str):
+    from phase2.tscast_nio.inference import TSCastPredictor
+    return TSCastPredictor(checkpoint=config.art(STAGE2_CHECKPOINT))
+
+
+@st.cache_data(show_spinner="Measuring stage 2 against the reanalysis …")
+def stage2_vs_glorys(date_str: str, v2v: str, s2v: str) -> list[dict]:
+    """How far each stage-2 field sits from GLORYS on THIS date, per ocean cell.
+
+    Shown on the page rather than kept in a log, because a layer depth is a single number that
+    always looks plausible -- `tests/phase2/test_physics.py` opens with exactly that warning. The
+    stage-2 MLD map looks like an MLD map; only the comparison shows it is ~14 m shallow. GLORYS is
+    the model's own training TARGET, so this is error against the thing it was trained to predict,
+    not against an independent observation.
+    """
+    s2 = layer_fields_v2_stage2(date_str, s2v)
+    gl = layer_fields_glorys(date_str, v2v)
+    rows = []
+    for k in ("MLD (density, m)", "Barrier layer (m)", "ILD (temperature, m)",
+              "Thermocline depth (m)", "OHC 0–300 m (GJ/m²)"):
+        a, b = np.asarray(s2[k], "float64"), np.asarray(gl[k], "float64")
+        ok = np.isfinite(a) & np.isfinite(b)
+        if not ok.any():
+            continue
+        diff = a[ok] - b[ok]
+        rows.append({"field": k, "cells": int(ok.sum()),
+                     "bias (stage2 − glorys)": round(float(np.mean(diff)), 3),
+                     "RMSE": round(float(np.sqrt(np.mean(diff ** 2))), 3),
+                     "median stage2": round(float(np.median(a[ok])), 1),
+                     "median glorys": round(float(np.median(b[ok])), 1)})
+    return rows
+
+
+@st.cache_data(show_spinner="Reconstructing T and S from satellite …")
+def layer_fields_v2_stage2(date_str: str, version: str) -> dict:
+    """All four structure fields from PREDICTED temperature AND salinity.
+
+    This is the only source on this page where MLD, the barrier layer and the real-density OHC come
+    from the model rather than from reanalysis -- stage 1 predicts temperature only, which is why
+    it refuses them. Every field here goes through the SAME `phase2.physics` functions the glorys
+    column uses; the difference is entirely in what T and S are.
+    """
+    from phase2.tscast_nio.field import predict_field
+
+    f = predict_field(_v2s2_predictor(version), date_str)
+    if f.get("salinity") is None:
+        raise RuntimeError(f"{STAGE2_CHECKPOINT} did not return salinity -- not a stage-2 model")
+    t, sa = f["temperature"], f["salinity"]
+    th = layers.thermocline(t)
+    return {
+        "MLD (density, m)": layers.mixed_layer_depth(sa, t),
+        "Thermocline depth (m)": th["depth"],
+        "Barrier layer (m)": layers.barrier_layer_thickness(sa, t),
+        "OHC 0–300 m (GJ/m²)": ohc.ohc(sa, t, 300.0),
+        "ILD (temperature, m)": layers.isothermal_layer_depth(t),
+        "temperature": t,
+        "salinity": sa,
+        "land_mask": f["land_mask"],
+        "date": f["date"],
+        "provenance": f["provenance"],
+    }
+
+
 @st.cache_data(show_spinner="Reconstructing from satellite …")
 def layer_fields_v2(date_str: str, version: str) -> dict:
     """Thermocline, ILD and constant-density OHC from the SHIPPED v2 model. Temperature only.
@@ -239,13 +328,15 @@ def main() -> None:
     with st.sidebar:
         st.header("Snapshot")
         source = st.radio(
-            "Source", ["v2 satellite", "glorys"], index=0,
-            help="Both read the SAME day from the SAME bundle, so this is a model-vs-truth "
-                 "comparison, not two different eras. v2 satellite = the shipped model's "
-                 "reconstruction, temperature only -- MLD and the barrier layer are refused "
-                 "because borrowing GLORYS salinity would put reanalysis inside a number "
-                 "labelled satellite. glorys = the GLORYS12V1 target itself, real density "
-                 "from S and theta -- all four fields.")
+            "Source", ["v2 satellite", "v2 stage-2 (unpromoted)", "glorys"], index=0,
+            help="All three read the SAME day from the SAME bundle, so this is a model-vs-truth "
+                 "comparison, not two different eras. v2 satellite = the SHIPPED model, "
+                 "temperature only -- MLD and the barrier layer are refused because borrowing "
+                 "GLORYS salinity would put reanalysis inside a number labelled satellite. "
+                 "v2 stage-2 = an UNPROMOTED run that predicts salinity at depth too, so it can "
+                 "compute all four from the model alone -- but it is not the deliverable and is "
+                 "not better than stage 1 on temperature. glorys = the GLORYS12V1 target itself.")
+        is_s2 = source == "v2 stage-2 (unpromoted)"
         is_v2 = source == "v2 satellite"
         date_str = st.selectbox("Date", options=dates, index=len(dates) - 6)
         st.divider()
@@ -254,7 +345,39 @@ def main() -> None:
         p_lon = st.slider("Longitude (°E)", float(config.LON[0]), float(config.LON[-1]), 88.0, 0.25)
 
     st.title("Ocean structure")
-    if is_v2:
+    if is_s2:
+        st.caption("Mixed layer, barrier layer, thermocline and heat content — all four from an "
+                   "**unpromoted stage-2 run**, computed from temperature AND salinity that the "
+                   "model itself predicted. No reanalysis enters these numbers.")
+        st.warning(
+            f"**This is NOT the shipped deliverable.** `{STAGE2_CHECKPOINT}` is unpromoted and "
+            f"unfrozen. Measured over three seeds (E-S2-SAT-02) it is **not better than stage 1 "
+            f"on temperature** — +0.0224 on seed 42, but −0.0018 and −0.0080 on 43 and 44, a mean "
+            f"of +0.0042 inside a 0.0304 spread, so the sign does not hold. What it does add is "
+            f"salinity at depth: {STAGE2_SEEDS}. Its density calibration ratio is the least "
+            f"stable quantity in the run (1.245 / 1.281 / 1.491), so read the σ here as "
+            f"indicative only. Switch to **glorys** for the reanalysis truth, or **v2 satellite** "
+            f"for the model that is actually shipped."
+        )
+        cmp_rows = stage2_vs_glorys(date_str, v2v, _v2s2_version())
+        st.dataframe(pd.DataFrame(cmp_rows), hide_index=True, width="stretch")
+        by = {r["field"]: r for r in cmp_rows}
+        mld, blt = by.get("MLD (density, m)"), by.get("Barrier layer (m)")
+        if mld and blt:
+            st.error(
+                f"**Read that table before using the first two maps.** On this date the stage-2 "
+                f"MLD sits **{mld['bias (stage2 − glorys)']:+.1f} m** from the reanalysis "
+                f"(RMSE {mld['RMSE']:.1f} m) and the barrier layer "
+                f"**{blt['bias (stage2 − glorys)']:+.1f} m** (RMSE {blt['RMSE']:.1f} m). Section 3 "
+                f"below reports the validated seasonal claim as a **2.4 m** difference between "
+                f"basins — smaller than this bias — so **the stage-2 barrier layer cannot support "
+                f"that claim** and section 3 is not computed from it. The cause is upstream: "
+                f"surface salinity carries about +0.19 psu of bias, and the MLD criterion is a "
+                f"0.03 kg/m³ density threshold, which roughly 0.19 psu already exceeds five times "
+                f"over. OHC survives it (bias ≈ −0.02 GJ/m²) because an integral is far less "
+                f"sensitive than a threshold crossing."
+            )
+    elif is_v2:
         st.caption("Mixed layer, barrier layer, thermocline and heat content — from the "
                    "**shipped v2 satellite model, temperature only**. MLD and the barrier layer "
                    "need salinity AT DEPTH, which no satellite observes and this model does not "
@@ -265,7 +388,12 @@ def main() -> None:
                    "**real seawater density** ρ(S, θ) rather than an assumed constant. "
                    "Reanalysis, not an observation.")
 
-    fields = layer_fields_v2(date_str, v2v) if is_v2 else layer_fields_glorys(date_str, v2v)
+    if is_s2:
+        fields = layer_fields_v2_stage2(date_str, _v2s2_version())
+    elif is_v2:
+        fields = layer_fields_v2(date_str, v2v)
+    else:
+        fields = layer_fields_glorys(date_str, v2v)
 
     # ---- 1. the maps -------------------------------------------------------------------
     st.subheader("1 · Structure across the basin")
@@ -294,7 +422,18 @@ def main() -> None:
         st.altair_chart(_map(fields["OHC 0–300 m (GJ/m²)"], ohc_title, "inferno"),
                         use_container_width=True)
 
-    if is_v2:
+    if is_s2:
+        st.info(
+            "**All four fields above come from the model, with no reanalysis in them.** MLD uses "
+            "the DENSITY criterion (de Boyer Montégut et al. 2004, 0.03 kg/m³ from 10 m) on "
+            "ρ(S, θ) built from PREDICTED salinity, and the barrier layer is ILD − MLD from the "
+            "same pair — so the OHC here is the real-density integral, not the constant-density "
+            "approximation the shipped stage-1 model is limited to. That is the whole reason to "
+            "look at this source. What you are trusting in exchange is a salinity head measured "
+            "at 0.2695 psu against independent Argo and an unpromoted checkpoint; the barrier "
+            "layer inherits every assumption in BOTH criteria, on top of that."
+        )
+    elif is_v2:
         st.info(
             "**Thermocline and OHC above are real v2 output; MLD and the barrier layer are "
             "refused, not approximated.** OHC here uses an ASSUMED CONSTANT density — the "

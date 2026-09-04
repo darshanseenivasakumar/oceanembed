@@ -128,20 +128,53 @@ def scored_numbers(metrics_path: str) -> dict:
 def do_freeze() -> int:
     os.makedirs(FROZEN_DIR, exist_ok=True)
 
-    # A run with no metrics file cannot be recorded -- there would be no number to stamp.
-    no_metrics = [r["key"] for r in RUNS
-                  if not os.path.exists(os.path.join(ARTIFACTS, r["metrics"]))]
-    if no_metrics:
-        print(f"{BAD} cannot freeze, metrics JSON missing for: {no_metrics}")
+    # The manifest as it stands. Read BEFORE the refusal check, because a run recorded by the
+    # other machine is not an unrecordable run -- it is one this disk cannot re-verify.
+    previous: dict = {}
+    if os.path.exists(MANIFEST):
+        try:
+            with open(MANIFEST, encoding="utf-8") as f:
+                previous = (json.load(f) or {}).get("claims") or {}
+        except (OSError, json.JSONDecodeError):
+            previous = {}                            # unreadable: freeze from scratch, say nothing false
+
+    # A run with no metrics file AND no prior record cannot be recorded -- there would be no
+    # number to stamp. With a prior record there is: it was verified on the machine that holds the
+    # file, and this run carries it forward rather than deleting it.
+    #
+    # NEITHER MACHINE HOLDS ALL FOUR RUNS. The stage-2 GLORYS comparators exist only on Darshan's
+    # disk -- not their checkpoints, not their metrics JSONs, and they are not in git either, so
+    # their scores (0.8548 / 0.8593) survive ONLY in this manifest. The satellite deliverable and
+    # the embargoed comparator exist only on Arjhun's. A freeze that rebuilt every entry from local
+    # files therefore could not run at all on Arjhun's machine, and on Darshan's it would have
+    # nulled the deliverable. Accumulating is not a convenience here; it is the only way the
+    # manifest can describe the project rather than one laptop.
+    unrecordable = [r["key"] for r in RUNS
+                    if not os.path.exists(os.path.join(ARTIFACTS, r["metrics"]))
+                    and not previous.get(r["key"], {}).get("overall_rmse")]
+    if unrecordable:
+        print(f"{BAD} cannot freeze, no metrics JSON and no prior record for: {unrecordable}")
         return 1
 
     print("=" * 72)
     print("FREEZING")
     print("=" * 72)
     claims: dict = {}
-    n_frozen = n_pending = 0
+    n_frozen = n_pending = n_elsewhere = 0
     for r in RUNS:
-        nums = scored_numbers(os.path.join(ARTIFACTS, r["metrics"]))
+        prior = previous.get(r["key"], {})
+        metrics_path = os.path.join(ARTIFACTS, r["metrics"])
+        if os.path.exists(metrics_path):
+            nums = scored_numbers(metrics_path)
+        else:
+            # Carried from the previous manifest: this disk cannot re-read the metrics, so the
+            # numbers are quoted, not re-verified. Said in the record rather than left implied.
+            nums = {k: v for k, v in prior.items()
+                    if k not in ("role", "deliverable", "input_source", "metrics_file",
+                                 "checkpoint", "checkpoint_present", "checkpoint_sha256",
+                                 "checkpoint_bytes", "checkpoint_note",
+                                 "checkpoint_frozen_elsewhere", "scores_carried_forward")}
+            nums["scores_carried_forward"] = True
         ck_src = os.path.join(ARTIFACTS, r["checkpoint"])
         present = os.path.exists(ck_src)
         entry = {
@@ -172,15 +205,39 @@ def do_freeze() -> int:
             rmse = entry.get("overall_rmse")
             print(f"{OK} {r['key']:34s} {tag:11s} rmse={rmse:.4f}  {entry['checkpoint_sha256'][:16]}...")
         else:
-            entry["checkpoint_sha256"] = None
-            entry["checkpoint_bytes"] = None
-            entry["checkpoint_note"] = ("checkpoint not on this machine -- scores are verified from "
-                                        "the metrics file; re-run the freeze where this .pt lives "
-                                        "to fill the checksum.")
-            n_pending += 1
+            # THIS MANIFEST SPANS TWO MACHINES, so a freeze must ACCUMULATE, not overwrite.
+            # Neither disk holds all four checkpoints: the stage-2 GLORYS comparators were frozen
+            # on Darshan's, the satellite deliverable and the embargoed comparator live on
+            # Arjhun's. Rebuilding every entry from local presence alone meant whoever ran the
+            # freeze LAST silently nulled the other machine's checksums -- destroying the only
+            # record that those bytes produced 0.8548 and 0.8593. Verified before it could happen:
+            # running this on Arjhun's machine on 2026-09-04 would have wiped 53e73e4f... and
+            # 3b43ac09... So a checksum already in the manifest is carried forward and labelled
+            # frozen-elsewhere; only a genuinely unknown one stays pending.
+            prior = previous.get(r["key"], {})
+            inherited = prior.get("checkpoint_sha256")
             tag = "DELIVERABLE" if r["deliverable"] else "comparator"
             rmse = entry.get("overall_rmse")
-            print(f"{PEND} {r['key']:34s} {tag:11s} rmse={rmse:.4f}  checkpoint ABSENT (checksum pending)")
+            if inherited:
+                entry["checkpoint_sha256"] = inherited
+                entry["checkpoint_bytes"] = prior.get("checkpoint_bytes")
+                entry["checkpoint_frozen_elsewhere"] = True
+                entry["checkpoint_note"] = (
+                    "frozen on another machine; checksum carried forward from the previous "
+                    "manifest and NOT re-verified here, because this disk does not hold the file. "
+                    "Re-run the freeze where it lives to re-verify.")
+                n_elsewhere += 1
+                print(f"{OK} {r['key']:34s} {tag:11s} rmse={rmse:.4f}  {inherited[:16]}... "
+                      f"(frozen elsewhere, carried forward)")
+            else:
+                entry["checkpoint_sha256"] = None
+                entry["checkpoint_bytes"] = None
+                entry["checkpoint_note"] = ("checkpoint not on this machine -- scores are verified "
+                                            "from the metrics file; re-run the freeze where this "
+                                            ".pt lives to fill the checksum.")
+                n_pending += 1
+                print(f"{PEND} {r['key']:34s} {tag:11s} rmse={rmse:.4f}  "
+                      f"checkpoint ABSENT (checksum pending)")
         claims[r["key"]] = entry
 
     deliverable_key = next((r["key"] for r in RUNS if r["deliverable"]), None)

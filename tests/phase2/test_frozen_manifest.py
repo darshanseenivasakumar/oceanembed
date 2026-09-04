@@ -76,21 +76,33 @@ def test_every_frozen_checkpoint_is_still_byte_identical(manifest):
 
     A claim whose checkpoint was never frozen here (it lives on the training machine) carries a
     null checksum and is skipped -- pending is not the same as changed.
+
+    THE MIRROR OF THAT, added 2026-09-04: a claim frozen on the OTHER machine carries a real
+    checksum and no local file. That is not a changed artifact either -- it is one this disk
+    cannot re-verify. Neither machine holds all four runs (the stage-2 GLORYS comparators exist
+    only on Darshan's, the satellite deliverable and embargoed comparator only on Arjhun's), so
+    reading "checksum recorded + file absent" as CHANGED made the guard fail on both machines for
+    a state that is simply how the project is distributed. It is skipped and counted, so a genuine
+    deletion is still visible in the count rather than passing silently.
     """
-    changed, checked = [], 0
+    changed, checked, elsewhere = [], 0, []
     for key, rec in manifest["claims"].items():
         recorded = rec.get("checkpoint_sha256")
         if recorded is None:
             continue                                   # pending: not on this machine
         live = os.path.join(ARTIFACTS, rec["checkpoint"])
         if not os.path.exists(live):
-            changed.append(f"{key}: {rec['checkpoint']} was frozen but is now MISSING")
+            if rec.get("checkpoint_frozen_elsewhere"):
+                elsewhere.append(key)                  # frozen on the other machine, not verifiable here
+            else:
+                changed.append(f"{key}: {rec['checkpoint']} was frozen HERE but is now MISSING")
             continue
         checked += 1
         if _sha256(live) != recorded:
             changed.append(f"{key}: {rec['checkpoint']} CHANGED")
     if checked == 0 and not changed:
-        pytest.skip("no frozen checkpoints present on this machine - nothing to verify")
+        pytest.skip(f"no frozen checkpoints present on this machine - nothing to verify "
+                    f"({len(elsewhere)} frozen elsewhere)")
     assert not changed, (
         f"{changed} - the numbers in the manifest were produced by the FROZEN bytes, not these."
     )

@@ -3,8 +3,8 @@
   "supersedes": "the 2026-09-01 manifest (frozen at a5cdd3a) that named the GLORYS stage-2 run 0.8548 as HEADLINE. That predates the satellite-input build and the deeper _window() embargo fix (1d3c135); 0.8548 is a comparator, not the deliverable.",
   "authoritative_source": "PHASE2_STATUS.md row 16 (the PS deliverable); docs/HANDOFF.md.",
   "deliverable_key": "deliverable_satellite",
-  "frozen_at": "2026-09-03T18:25:02+00:00",
-  "git_commit": "2994e3853cd9a2085d4bff091590c0dc3c155ba9",
+  "frozen_at": "2026-09-04T06:59:54+00:00",
+  "git_commit": "4dadbfa49511c670dec98f6e5ff90acc46fcb55b",
   "frozen_copy_dir": "artifacts/frozen/",
   "claims": {
     "deliverable_satellite": {
@@ -13,7 +13,7 @@
       "input_source": "satellite",
       "metrics_file": "tscast_stage1_sat_7ch_s42_metrics.json",
       "checkpoint": "tscast_stage1_sat_7ch_s42.pt",
-      "checkpoint_present": false,
+      "checkpoint_present": true,
       "seed": 42,
       "channels": [
         "sst",
@@ -48,9 +48,8 @@
       "overall_rmse_climatology": 1.2258696056864993,
       "overall_n": 12829,
       "n_depths": 15,
-      "checkpoint_sha256": null,
-      "checkpoint_bytes": null,
-      "checkpoint_note": "checkpoint not on this machine -- scores are verified from the metrics file; re-run the freeze where this .pt lives to fill the checksum."
+      "checkpoint_sha256": "53848bb52533752d15a4e25f6e0fb038297bd32671606b290dd0260e991441ae",
+      "checkpoint_bytes": 2214831
     },
     "glorys_comparator_stage2": {
       "role": "GLORYS-INPUT COMPARATOR, not the deliverable (fails the satellite-only PS requirement). Ships T+S+rho. This is the run an earlier manifest wrongly named 'headline'.",
@@ -58,7 +57,7 @@
       "input_source": "glorys",
       "metrics_file": "tscast_stage2_s2_nodensity_metrics.json",
       "checkpoint": "tscast_stage2_s2_nodensity.pt",
-      "checkpoint_present": true,
+      "checkpoint_present": false,
       "seed": 42,
       "channels": [
         "sst",
@@ -91,8 +90,11 @@
       "overall_rmse_climatology": 1.2258696056864993,
       "overall_n": 12829,
       "n_depths": 15,
+      "scores_carried_forward": true,
       "checkpoint_sha256": "53e73e4f3a5cbbd14a2fe0e54f79ea5bb35abc3f21755d02d02bbeefbc483f4c",
-      "checkpoint_bytes": 2261397
+      "checkpoint_bytes": 2261397,
+      "checkpoint_frozen_elsewhere": true,
+      "checkpoint_note": "frozen on another machine; checksum carried forward from the previous manifest and NOT re-verified here, because this disk does not hold the file. Re-run the freeze where it lives to re-verify."
     },
     "glorys_comparator_stage2_densityON": {
       "role": "GLORYS stage-2 with the paper's eq.5 density loss ON -- the physics-ablation control for the run above.",
@@ -100,7 +102,7 @@
       "input_source": "glorys",
       "metrics_file": "tscast_stage2_s2_metrics.json",
       "checkpoint": "tscast_stage2_s2.pt",
-      "checkpoint_present": true,
+      "checkpoint_present": false,
       "seed": 42,
       "channels": [
         "sst",
@@ -133,8 +135,11 @@
       "overall_rmse_climatology": 1.2258696056864993,
       "overall_n": 12829,
       "n_depths": 15,
+      "scores_carried_forward": true,
       "checkpoint_sha256": "3b43ac09b43694c156b4cc28de9490b01b0de8aeae3a18969c4cc0cdb2900ae8",
-      "checkpoint_bytes": 2260953
+      "checkpoint_bytes": 2260953,
+      "checkpoint_frozen_elsewhere": true,
+      "checkpoint_note": "frozen on another machine; checksum carried forward from the previous manifest and NOT re-verified here, because this disk does not hold the file. Re-run the freeze where it lives to re-verify."
     },
     "glorys_comparator_stage1_embargoed": {
       "role": "GLORYS stage-1 (withUV) after the 1d3c135 _window() embargo -- a comparator, and the leak-corrected successor to the pre-embargo stage-1 runs.",
@@ -142,7 +147,7 @@
       "input_source": "glorys",
       "metrics_file": "tscast_stage1_embargo_withUV_s42_metrics.json",
       "checkpoint": "tscast_stage1_embargo_withUV_s42.pt",
-      "checkpoint_present": false,
+      "checkpoint_present": true,
       "seed": 42,
       "channels": [
         "sst",
@@ -176,9 +181,8 @@
       "overall_rmse_climatology": 1.2258696056864993,
       "overall_n": 12829,
       "n_depths": 15,
-      "checkpoint_sha256": null,
-      "checkpoint_bytes": null,
-      "checkpoint_note": "checkpoint not on this machine -- scores are verified from the metrics file; re-run the freeze where this .pt lives to fill the checksum."
+      "checkpoint_sha256": "63e93cbda1f5d814d669117bbb4748da8855b4c58362f0e03a4e199b4f82d162",
+      "checkpoint_bytes": 2215033
     }
   },
   "pre_embargo_invalid": "artifacts/INVALID_PRE_EMBARGO.md -- the pre-embargo stage-1 runs (0.8611 withUV, 0.9024 noUV, 0.9267 tseq31) are leaky. Never quote.",

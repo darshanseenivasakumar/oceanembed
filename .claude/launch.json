@@ -160,6 +160,26 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "cyclone-heat",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/cyclone_heat_page.py",
+        "--server.port",
+        "8509",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8509,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

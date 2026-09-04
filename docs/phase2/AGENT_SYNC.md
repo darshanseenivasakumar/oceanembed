@@ -2755,3 +2755,112 @@ any calendar day is **2**. A Hobday 11-day window therefore draws ~11 samples fr
 cycle, and a 90th percentile with no interannual spread cannot separate "unusually warm for this
 date" from "this date." Hobday wants 30 years, ~10 as a floor. "We have daily now" is exactly the
 argument that will be used to reopen this; the honest refusal is **13 months, not enough years**.
+
+---
+
+## 2026-09-05 (A18) — ARJHUN: stage 2 IS trained on satellite. It does not beat stage 1. Two of its four physics fields are not usable.
+
+Pushed to `phase2-tscast-nio` (`161a922..6d3a826`). The fourth freeze open item — "stage 2 has
+never been run on satellite input" — is closed. What closed it is not the good news it sounds like,
+so read the three findings before quoting anything.
+
+### 1. It does NOT improve temperature. Seed 42 was the lucky leg.
+
+The first run scored T **0.8854** against stage 1's 0.9078 on the SAME 962 profiles, n=12,829 —
+0.0224 better. I refused to call that an improvement on one seed. Seeds 43 and 44 say the refusal
+was right:
+
+| seed | stage-2 T | vs stage 1 |
+|---|---|---|
+| 42 | 0.8854 | **+0.0224** better |
+| 43 | 0.9095 | −0.0018 worse |
+| 44 | 0.9158 | −0.0080 worse |
+
+mean **+0.0042**, spread **0.0304**, sd 0.0160. **The sign does not hold.** Third time this project
+has watched an effect at ±0.02 °C fail a reseed — wind flipped −0.0149 → +0.0111, the SSH contrast
+was 1 of 3, now this. `E-S2-SAT-01` stands unedited as the historical record; `E-S2-SAT-02` is its
+retraction. **Stage 2 is unpromoted and unfrozen. Stage 1 remains the deliverable.**
+
+Salinity and density are new claims with no stage-1 counterpart, so the question was stability:
+
+| | s42 | s43 | s44 | mean | spread |
+|---|---|---|---|---|---|
+| salinity RMSE (psu) | 0.2571 | 0.2777 | 0.2737 | **0.2695** | 0.0207 (~8%) |
+| density RMSE (kg m⁻³) | 0.2900 | 0.3050 | 0.3166 | **0.3039** | 0.0266 (~9%) |
+| density calibration ratio | 1.245 | 1.281 | 1.491 | 1.339 | **0.246 (~18%)** |
+
+Salinity is stable. **The density calibration ratio is not**, and it is the uncertainty-quality
+indicator — so no stage-2 uncertainty number should be quoted from a single run.
+
+`train_stage2.py` had hardcoded `base.SEED` in five places, so this sweep was impossible without
+editing the file. It now takes `--seed` and threads one value through sample draw, weight init and
+data order exactly as `train_stage1.py` does. `scripts/phase2/stage2_seed_check.py` asserts the
+legs are MATCHED (input_source, daily_dir, T_SEQ, both periods, argo_profiles, argo_table,
+w_density, beta_nll, n, stage-1 baseline — all identical) before comparing anything.
+
+### 2. >>> A BUG IN SHARED CODE THAT AFFECTS YOU — `output._calibration_applies_to`
+
+It matched on **T_SEQ and channels only**. A stage-2 checkpoint carries the SAME T_SEQ 11 and the
+SAME seven channels as the stage-1 model it was trained beside — so the shipped calibration scales,
+fitted on **stage 1's residuals**, passed every check and would have rescaled a stage-2 sigma by a
+stage-1 factor. That is precisely the failure that function's own docstring exists to prevent,
+along an axis it did not look at, and it would have looked completely normal on screen.
+
+Stage is now matched first (`cal.get("stage", 1)` vs the record's; absent means 1, since the
+artifact predates stage 2 and was fitted on stage 1). `field.py` passes `stage` too — without it a
+stage-2 FIELD took stage-1 scales even after the fix. If you build anything on the calibration
+block, pull before you do.
+
+### 3. physics_page is wired to stage 2 — and two of its four fields are not usable
+
+Arjhun asked for the wiring, so it is there: a third source, "v2 stage-2 (unpromoted)", computing
+all four structure fields from temperature AND salinity the model predicted, no reanalysis in them.
+First time MLD-by-density, the barrier layer and a real-density OHC exist here from satellite input
+alone. Both honesty guards fired without special-casing — `checkpoint: "unpromoted"` and
+`sigma_is_calibrated: False, "calibration was fitted on a stage-1 model, this record is stage 2"`.
+
+**Then I measured it against GLORYS on the same day, per ocean cell:**
+
+| field | bias (s2 − glorys) | RMSE | median s2 | median glorys |
+|---|---|---|---|---|
+| **MLD (density, m)** | **−14.12** | **21.34** | 20.0 | 50.0 |
+| **Barrier layer (m)** | **+8.88** | **19.00** | 20.0 | 0.0 |
+| ILD (temperature, m) | −5.85 | 16.44 | 50.0 | 50.0 |
+| Thermocline depth (m) | −1.80 | 24.12 | 87.5 | 87.5 |
+| OHC 0–300 m (GJ/m²) | **−0.024** | **0.664** | 25.0 | 25.1 |
+
+**OHC survives. MLD and the barrier layer do not.** The cause is upstream and measurable: surface
+salinity carries **+0.19 psu of bias** (RMSE 0.59 at 0 m, 0.54 at 5 m). The MLD criterion is a
+**0.03 kg m⁻³** density threshold from 10 m, and ~0.19 psu is roughly 0.15 kg m⁻³ — five times it.
+The criterion trips at the wrong depth systematically. An integral tolerates that error; a
+threshold crossing does not.
+
+This is the failure `tests/phase2/test_physics.py` opens by warning about: *"a layer depth is a
+single number that always looks plausible, so shape tests prove almost nothing about it."* The
+stage-2 MLD map looks exactly like an MLD map.
+
+**The part that matters for the jury.** Section 3's validated claim is **BoB 9.5 m vs Arabian
+7.1 m — a 2.4 m signal**. The stage-2 barrier layer's bias alone is **+8.9 m**, nearly four times
+it. So section 3 is **NOT** computed from stage 2, and the page runs the comparison **live** and
+prints the bias table plus a warning **above** the maps, on whatever date the reader picked. The
+panels are shown as asked, with their error stated rather than hidden.
+
+**Standing recommendation, on the record: do not use the stage-2 MLD or barrier layer for any
+claim. Its OHC is defensible.** Fixing this needs a better surface-salinity head, not a UI change,
+and it is not something to attempt before the 10th.
+
+### What you will hit when you pull
+
+`tscast_stage2_sat_s2.pt` and its two seed siblings are gitignored and stay on this machine, so the
+"v2 stage-2 (unpromoted)" source will fail to load a checkpoint on yours. The other two sources are
+unaffected. The three metrics JSONs travelled, so every number above is reproducible from them; the
+checkpoints are 2.2 MB each if you want that source live and we move them out of band.
+
+`argo_daily_period_ts.parquet` also stays here — 59,066 rows, ~4,334 profiles, salinity on 100% of
+them. Its guards held: `argo_test.parquet` and `argo_daily_period.parquet` untouched, and
+temperature **identical where the tables overlap** (max |difference| 0.000000 °C across 59,039
+rows), so stage-2 salinity sits on the same profiles as the stage-1 headline. That was D3 on your
+list and it is done.
+
+613 passed, 8 skipped. `freeze.py --check` 18/18. The freeze's fourth open item now states the
+3-seed result rather than "never been run".

@@ -2653,3 +2653,105 @@ it: `alt.data_transformers.disable_max_rows()`. Your file, your call.
 
 Both branches still additive, nothing frozen touched. Merges still held on your three unpushed
 commits + the 8504 collision.
+
+---
+
+## 2026-09-04 (A17) — ARJHUN: manifest checksum filled, but the freeze had to change first. PULL.
+
+### Your ASK is done — and running it as written would have destroyed what it was meant to complete
+
+`freeze_headline.py` rebuilt every claim from LOCAL presence and never read the existing manifest,
+so an absent checkpoint got `checkpoint_sha256 = None` unconditionally. On this machine that meant
+nulling `53e73e4f...` and `3b43ac09...` — the two stage-2 comparators you had just frozen. Whoever
+ran the freeze **last** silently erased the other's provenance.
+
+The asymmetry is worse than the note assumed. [VERIFIED, this machine]
+
+| run | metrics JSON here | checkpoint here | in git |
+|---|---|---|---|
+| `deliverable_satellite` | yes | yes | yes |
+| `glorys_comparator_stage2` | **NO** | **NO** | **no** |
+| `glorys_comparator_stage2_densityON` | **NO** | **NO** | **no** |
+| `glorys_comparator_stage1_embargoed` | yes | yes | yes |
+
+The stage-2 comparators have neither checkpoint **nor metrics JSON** here, and are not in git, so
+**0.8548 and 0.8593 survive only inside `frozen_manifest.json`**. The freeze could not run here at
+all — it refused on the missing metrics. On your machine it would have nulled the deliverable.
+Accumulating is not a convenience; it is the only way this manifest can describe the project
+rather than one laptop.
+
+### What changed in `freeze_headline.py`
+
+* a checksum already recorded is **carried forward** and labelled `checkpoint_frozen_elsewhere`,
+  never overwritten with null
+* scores carry forward when the metrics JSON is absent, flagged `scores_carried_forward`, so a
+  quoted number is never mistaken for a re-read one
+* the refusal fires only when a run has neither local metrics nor a prior record — *unrecordable*,
+  as opposed to merely *not here*
+
+`test_every_frozen_checkpoint_is_still_byte_identical` had the mirror of the same blind spot: it
+already knew "pending is not the same as changed" for a null checksum, but read "checksum recorded
++ file absent" as CHANGED. Same argument — frozen-elsewhere is not changed either. It now skips
+those and counts them, and still FAILS on a checkpoint frozen HERE that goes missing (I injected
+that case to confirm).
+
+### Result
+
+```
+deliverable_satellite               null -> 53848bb5...  FILLED     rmse 0.9078
+glorys_comparator_stage2                   53e73e4f...  preserved  rmse 0.8548
+glorys_comparator_stage2_densityON         3b43ac09...  preserved  rmse 0.8593
+glorys_comparator_stage1_embargoed  null -> 63e93cbd...  FILLED     rmse 0.8645
+```
+
+The deliverable's checksum equals the shipped `tscast_stage1.pt` byte for byte. **No RMSE moved.
+0 pending.** 611 passed, 8 skipped, `freeze.py --check` 18/18.
+
+### >>> PULL `phase2-tscast-nio` BEFORE YOU TOUCH THE MANIFEST OR ANY PAGE
+
+I merged `origin/main` in (your Prompt 1 + 3 merges), so this branch is main plus 8 commits you do
+not have. Re-running the old `freeze_headline.py` against the new manifest would re-null the
+carried checksums.
+
+Beyond the manifest, these are in that push:
+
+1. **`physics_page`, `events_page`, `collocation_page` were all rendering 2019–2022** while the
+   shipped model runs 2025–2026. All three now read the daily bundles with a source toggle.
+   `physics_page` **refuses** MLD and the barrier layer on v2 rather than approximating them —
+   both need salinity, and stage 2 has never been trained on satellite input.
+2. **`eddy.summarise()` hardcoded** `"source": "GLORYS reanalysis surface currents"`. It receives a
+   list of eddies and cannot know what produced them — accidentally true while the only caller read
+   the Phase-1 grids, and false the moment `events_page` read the satellite bundle. Fed GLOBCURRENT,
+   it still reported GLORYS. Now `summarise(eddies, *, source=...)`, defaulting to an explicit
+   "unspecified" so an un-updated caller reads as unknown rather than confidently wrong.
+3. **Both jury charts were drawn in the wrong order.** `mark_line` with a quantitative `x` and
+   `y=depth` and no `order` encoding: Altair sorts the line by X, so the benchmark chart connected
+   points by ascending RMSE and the Argo overlay by ascending temperature. The overlay looked fine
+   on a cooling column — but **67.1% of the 11,832 ocean profiles carry a temperature inversion**,
+   so on two thirds of the points a jury could click, the line crossed itself. Both fixed, both
+   regression-tested, and they now share one palette (blue = our model, orange = what we are
+   measured against) validated for CVD and contrast on both surfaces.
+4. **`collocation_page` explained an empty Argo match as an empty ocean.** `argo_test` holds 2022
+   only, the picker offered all 48 dates, so on 36 of 48 the "floats are genuinely sparse" line was
+   describing the sea from an absence in a file. Engine gained `argo_coverage()` /
+   `argo_table_covers()`; the page now distinguishes the two causes. It also gained a `daily` era.
+
+### Answering D11: I am NOT taking the `cube_page` MaxRowsError fix
+
+Measured, not argued: `st.altair_chart` never calls `chart.to_dict()` — it strips the data and
+ships it via Arrow, so the 5,000-row cap does not apply. The live `physics_page` renders altair
+rect maps at **10,996 / 11,832 / 10,794 / 9,492 marks** with no `disable_max_rows()` anywhere. And
+I rendered your pre-fix `cyclone_heat_page` at 8506 and 8509 — the same full-grid altair
+`mark_rect` — and its map drew fine. `to_dict()` **does** raise at 11,832 rows, so your line is
+harmless insurance for any non-Streamlit path, but I am not adding it to `cube_page` for a failure
+I have measured does not occur there. Send a real traceback and I will take it.
+
+### Still deferred, and the reason has CHANGED — do not let this reopen
+
+Prompt 2 (MHW). The old blocker was "our 48 files are monthly." That is no longer the reason: the
+daily bundle covers **365 of 366 calendar days**. The blocker is now **duration**, not cadence —
+342 calendar days have exactly **1** observation, 23 have 2, and the maximum independent years at
+any calendar day is **2**. A Hobday 11-day window therefore draws ~11 samples from a single annual
+cycle, and a 90th percentile with no interannual spread cannot separate "unusually warm for this
+date" from "this date." Hobday wants 30 years, ~10 as a floor. "We have daily now" is exactly the
+argument that will be used to reopen this; the honest refusal is **13 months, not enough years**.

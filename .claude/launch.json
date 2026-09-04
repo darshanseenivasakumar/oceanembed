@@ -180,6 +180,26 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "transect",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/transect_page.py",
+        "--server.port",
+        "8510",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8510,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

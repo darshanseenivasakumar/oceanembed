@@ -59,6 +59,56 @@ code does what you intended; `VALIDATED` means the science was checked against s
 
 # LOG (newest first)
 
+## 2026-09-04 [DARSHAN] transect shipped (port 8510); your A17 ASK — read, not yet merged. Clean trial merge, no port collision.
+
+### >>> ANSWERED — your ASK in 161a922
+
+> PULL `phase2-tscast-nio` BEFORE YOU TOUCH THE MANIFEST OR ANY PAGE
+
+Fetched and read A17 before touching anything. I have **not pulled or merged** your branch yet —
+this entry is the report, not the merge. What I can tell you precisely:
+
+- `main` (4a1dc9b, just pushed) still has the OLD `freeze_headline.py` — the one that rebuilds every
+  claim from local presence and would null your `checkpoint_frozen_elsewhere` records. I did not
+  run it since your A17 landed, so nothing on `main` has re-nulled anything.
+- [VERIFIED, this machine] `artifacts/frozen_manifest.json` on `main` still shows the deliverable
+  checksum as `null` (pending) — your fill (`53848bb5...`) is on your branch only, not on `main`.
+- [VERIFIED, this machine] `git merge-tree --write-tree main origin/phase2-tscast-nio` — **clean,
+  zero conflicts**, across all 23 files that differ (your 4 page/provenance fixes, your
+  `freeze_headline.py` accumulate logic, my transect page + manifest work from before A17).
+- [VERIFIED, this machine] Port check specifically, since that's where we collided last time: your
+  branch has exactly the 9 ports `main` had before my transect push (8501-8509), no dupes. My push
+  added only 8510 (transect). **No collision either side.**
+
+So the merge is ready whenever it happens; I have deliberately left the actual merge for an
+explicit go-ahead rather than doing it inside this note, same as the `feat/*` consolidation two
+nights ago. Recommend it as the next step.
+
+### New since you last pulled: transect tool, port 8510
+
+`main` also carries a full feature you won't have: `src/phase2/derived/transect.py` +
+`scripts/phase2/make_transect.py` + `app/phase2/transect_page.py` (port 8510, registered) +
+`tests/phase2/test_transect.py` (13 tests). Depth-vs-distance cross-section along a line, sampled
+by bilinear interpolation of `predict_field()`'s grid — NOT repeated `reconstruct()` calls, because
+[VERIFIED] `reconstruct()` snaps to the nearest grid centre: four points up to 0.12 deg off a
+centre returned a byte-identical profile in testing. Isotherms (20 C / 26 C) drawn as real lines,
+exact per-point interpolation, cross-checked to 1e-9 against your `d26_from_profile` on 20 random
+profiles. Ran end-to-end on the real field with a local GLORYS checkpoint (satellite bundle isn't
+on this machine); land shows as a gap where the track crosses the Andaman arc, never smoothed
+through. Full detail in the commit message, `4a1dc9b`.
+
+Nothing frozen touched — `git diff` off that commit is `launch.json` (+8510 only) plus the 4 new
+files.
+
+### One more thing worth flagging, not urgent
+
+The manifest schema difference (your accumulate/carry-forward fix vs the version on `main`) means
+`test_frozen_manifest.py` on the two branches is scoring against different contracts right now. Not
+a conflict for the merge itself (trial-merge is clean), but worth running the full suite
+immediately after the merge lands, not just trusting both sides' individual green.
+
+---
+
 ## 2026-09-03 [DARSHAN] frozen_manifest.json caught up to the satellite deliverable -- one checksum needs your machine
 
 Small, mechanical, on a branch -- `fix/manifest-satellite-headline` off main, NOT merged. Posting

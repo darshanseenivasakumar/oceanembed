@@ -128,7 +128,7 @@ def build(check: Check) -> dict:
                  "cause is UNKNOWN. Four mechanisms tested, none supported.",
                  "Uncertainty is improved, not calibrated: 2-sigma covers 80.1% at 50 m against a "
                  "95.4% nominal. No confidence percentage is displayed anywhere.",
-                 "Stage 2 (salinity + density) has never been run on satellite input.",
+                 "Stage 2 HAS now been run on satellite input (2026-09-05, tag sat_s2, seed 42): T 0.8854, S 0.2571 psu, density 0.2900 kg/m-3 on the SAME 962 Argo profiles / n=12829 as stage 1, salinity scored against independent Argo PSAL. It is NOT promoted and NOT frozen -- stage 1 remains the deliverable. Its T sits 0.0224 below stage 1's 0.9078, which is the same +/-0.02 scale at which the ablations required 3 seeds before a sign was believed, so ONE SEED IS NOT ENOUGH to claim stage 2 improves temperature.",
                  "accept.py has one known pre-existing failure comparing two LEGACY Phase-1 "
                  "artifacts whose profile-retention rules differ; the RMSE agreement it also "
                  "checks passes at 0.0213 degC. Neither artifact underwrites the shipped model."):

@@ -438,7 +438,14 @@ def main() -> None:
         "eos": "EOS-80 / UNESCO (1983), Fofonoff & Millard -- the same reference the paper cites",
         "trained_on": trained_on,
         "train_period": list(train_period), "test_period": list(test_period),
+        # WHICH bundle, in the METRICS too -- not only in the checkpoint. `data: "daily"` is a
+        # CADENCE, not a path, and it is the same ambiguity `bundle_for_checkpoint` blames for the
+        # 8 degC dashboard error. Stage 1 records input_source/daily_dir here; stage 2 recorded
+        # them only in the .pt, so anyone reading this JSON -- freeze.py, frozen_manifest.json,
+        # every dashboard -- could not tell a satellite run from a GLORYS one.
         "data": "daily", "T_SEQ": t_seq,
+        "daily_dir": (a.daily_dir or ("data/processed/daily" if a.data == "daily" else None)),
+        "input_source": d.get("input_source", "unknown"),
         "protocol": "embargoed_v2",
         "protocol_note": ("training targets whose T_SEQ window would reach into the test block are "
                           "dropped; test indices unchanged. Runs before 2026-08-31 used "

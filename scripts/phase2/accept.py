@@ -699,6 +699,76 @@ def check_v2_stage2() -> tuple[bool, list[str]]:
     return all(c for c, _ in checks), lines
 
 
+
+def check_viz_foundation() -> tuple[bool, list[str]]:
+    """The shared viz layer, falsified rather than imported.
+
+    Every assertion below is a case where the OLD code returns a well-formed, plausible, wrong
+    answer -- which is the only kind of failure worth a check here.
+    """
+    import numpy as np
+
+    from oceanembed import config as base
+    from phase2.derived import mapframe as MF
+    from phase2.derived import profile_features as pf
+    from phase2.derived import transect as T
+    from phase2.physics.seawater import sound_speed, sound_speed_in_range
+
+    checks: list[tuple[bool, str]] = []
+    Z = np.asarray(base.DEPTHS, dtype="float64")
+
+    # 1. Mackenzie against the published check value, and against its own argument order.
+    c = float(sound_speed(35.0, 25.0, 1000.0))
+    checks.append((abs(c - 1550.744) < 5e-3,
+                   f"sound_speed(S=35, theta=25, z=1000) = {c:.4f}, published 1550.744"))
+    swapped = float(sound_speed(25.0, 35.0, 1000.0))
+    checks.append((abs(swapped - c) > 10.0,
+                   f"swapping S and theta moves it {abs(swapped - c):.2f} m/s -- the order is "
+                   f"load-bearing and the test would be empty if it were not"))
+
+    # 2. Roughly a sixth of the surface is outside Mackenzie's quoted envelope, so the mask must
+    #    actually refuse something rather than being decorative.
+    checks.append((not bool(sound_speed_in_range(20.0, 25.0, 0.0))
+                   and bool(sound_speed_in_range(35.0, 25.0, 1000.0)),
+                   "the validity mask rejects the Ganges/Meghna plume (S=20) and accepts open ocean"))
+
+    # 3. The failure profile_features was written for: a density column that visibly crosses 24.0
+    #    returns NaN from the isotherm finder, silently, at every point.
+    col = np.array([21.50, 21.52, 21.60, 21.85, 22.10, 22.60, 23.20, 23.91,
+                    24.97, 25.58, 26.10, 26.55, 26.90, 27.10, 27.25])
+    old = T.isotherm_depth(col, Z, 24.0)
+    new, reason = pf.crossing_depth(col, Z, 24.0, direction="increasing")
+    checks.append((np.isnan(old) and reason == pf.OK and 100.0 < new < 125.0,
+                   f"a rising sigma-theta column: isotherm_depth -> NaN, crossing_depth -> "
+                   f"{new:.1f} m ({reason})"))
+
+    # 4. A monotone-falling profile has NOT reached its minimum inside the grid. Reporting the
+    #    deepest level would put a grid artifact on a basin map for ~95% of cells.
+    _, why = pf.extremum_depth(np.linspace(1540.0, 1490.0, len(Z)), Z, "min")
+    checks.append((why == pf.AT_DEEPEST_LEVEL,
+                   f"a minimum on the last level is refused, not reported as 1000 m ({why})"))
+
+    # 5. Land is land even though its value is also NaN. Testing "is it finite" first would label
+    #    the whole coastline as bathymetry.
+    v = np.array([[np.nan, 20.0], [np.nan, np.nan]])
+    land = np.array([[True, False], [False, False]])
+    kind = np.asarray(MF.level_frame(v, land, [5.0, 5.25], [45.0, 45.25])["kind"]).reshape(2, 2)
+    checks.append((kind[0, 0] == MF.LAND and kind[1, 0] == MF.SEAFLOOR and kind[0, 1] == MF.WATER,
+                   "a NaN on land reads as land; a NaN in the ocean reads as below the seafloor"))
+
+    # 6. An unevidenced caveat is the one this project has repeatedly had to go back and check.
+    from phase2.viz_explainer import Caveat
+    try:
+        Caveat("uses GLORYS salinity", "the deliverable predicts temperature only", "")
+        refused = False
+    except ValueError:
+        refused = True
+    checks.append((refused, "a caveat with no evidence is refused at construction"))
+
+    lines = [("     " + ("ok   " if c else "FAIL ") + m) for c, m in checks]
+    return all(c for c, _ in checks), lines
+
+
 CHECKS = [
     ("F1 collocation", "phase2.data.collocation", check_f1),
     ("F2b volume", "phase2.cube.volume", check_f2b),
@@ -709,6 +779,7 @@ CHECKS = [
     ("v2 TS-Cast-NIO", "phase2.tscast_nio.metrics", check_v2_tscast),
     ("v2 UI", "phase2.tscast_nio.ui_tables", check_v2_ui),
     ("v2 stage 2", "phase2.tscast_nio.train.train_stage2", check_v2_stage2),
+    ("viz foundation", "phase2.derived.profile_features", check_viz_foundation),
 ]
 
 

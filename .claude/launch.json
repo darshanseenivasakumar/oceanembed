@@ -239,6 +239,26 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "uncertainty",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/uncertainty_page.py",
+        "--server.port",
+        "8513",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8513,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

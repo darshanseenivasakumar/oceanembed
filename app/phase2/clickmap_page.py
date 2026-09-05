@@ -57,15 +57,10 @@ st.set_page_config(page_title="OceanEmbed — Click a point", layout="wide")
 # which ships data via Arrow rather than inlining it in the chart spec.
 alt.data_transformers.disable_max_rows()
 
-HALF = 0.125                          # half of the 0.25 deg grid spacing
-#: The basin's true aspect. Longitude spans 60 deg and latitude 25, and at the mean latitude of
-#: 17.5 deg a degree of longitude is cos(17.5) = 0.954 as long as a degree of latitude, so
-#: (60 x 0.954) / 25 = 2.29. Width and height are BOTH pinned rather than letting the container
-#: decide: with use_container_width the plot came out at 1.6 and the Bay of Bengal was the wrong
-#: shape, which defeats a page whose whole premise is that a reader recognises where they clicked.
-MAP_ASPECT = (60.0 * 0.954) / 25.0
-MAP_WIDTH = 900
-MAP_HEIGHT = int(round(MAP_WIDTH / MAP_ASPECT))
+#: Cell edges and the basin's true 2.29:1 aspect both live in `mapframe` -- the uncertainty map
+#: needs the identical geometry, and the sonic-layer map will be the third caller. Two maps of one
+#: basin drawn to two different aspects is a difference a reader would read as data.
+MAP_WIDTH, MAP_HEIGHT = MF.map_size(900)
 CLR_MODEL = "#2a78d6"
 #: Land and below-seafloor cells. Drawn, not omitted -- see `map_chart`.
 CLR_NOT_WATER = "#3d3d3d"
@@ -77,12 +72,10 @@ def slice_frame(date_str: str, depth_m: float, stage: int, version: str,
     """One depth level as a long frame of clickable cells, land and seafloor included."""
     f = _fields.field(date_str, stage, version, _fields.DEFAULT_KEEP, device)
     k = MF.nearest_level(v2config.DEPTHS, depth_m)
-    d = MF.level_frame(np.asarray(f["temperature"])[:, :, k],
-                       f["land_mask"], base.LAT, base.LON,
-                       extra={"sigma": np.asarray(f["sigma"])[:, :, k]})
+    d = MF.add_edges(MF.level_frame(np.asarray(f["temperature"])[:, :, k],
+                                    f["land_mask"], base.LAT, base.LON,
+                                    extra={"sigma": np.asarray(f["sigma"])[:, :, k]}))
     df = pd.DataFrame(d)
-    df["lon0"], df["lon1"] = df["lon"] - HALF, df["lon"] + HALF
-    df["lat0"], df["lat1"] = df["lat"] - HALF, df["lat"] + HALF
     df.attrs["level_m"] = float(v2config.DEPTHS[k])
     df.attrs["date"] = f["date"]
     return df
@@ -105,12 +98,8 @@ def profile_at(i: int, j: int, date_str: str, stage: int, version: str,
 def map_chart(df: pd.DataFrame, level_m: float, picked: tuple | None):
     """The depth slice. `selection_point` carries i/j back so a click resolves to a grid cell.
 
-    ASPECT IS NOT DECORATION. Longitude spans 60 deg and latitude 25, and at this basin's mean
-    latitude a degree of longitude is cos(17.5 deg) = 0.954 as long as a degree of latitude, so the
-    true width:height is (60 x 0.954) / 25 = 2.29. Drawn square, the Bay of Bengal is the wrong
-    shape and a reader's geographic intuition -- the thing this whole page depends on -- stops
-    working. BOTH width and height are pinned rather than letting the container decide: under
-    use_container_width the plot came out at 1.6 and the basin was visibly stretched.
+    Geometry -- the true 2.29:1 aspect and the half-cell edges -- comes from `mapframe`, which
+    carries the reasoning. Both dimensions are pinned; `use_container_width` gave 1.6.
 
     THE SELECTED CELL GETS A MARKER, NOT AN OPACITY TWEAK. At 240 columns each cell is a few
     pixels; dimming the other 23,999 by 15% is invisible. A crosshair drawn from the resolved

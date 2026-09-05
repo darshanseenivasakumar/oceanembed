@@ -7,6 +7,8 @@ below all use a NON-SQUARE grid: with n_lat == n_lon a transposition is invisibl
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
@@ -147,7 +149,6 @@ def test_nearest_level_snaps_to_a_real_sampled_depth(asked, expect):
 # ==================================================== against the real model
 
 def _have_model():
-    import os
     return (os.path.exists(base.art("tscast_stage1.pt"))
             and os.path.isdir(os.path.join("data", "processed", "daily_sat", "v001")))
 
@@ -201,3 +202,35 @@ def test_the_classification_accounts_for_every_cell_and_matches_the_models_ocean
     c = MF.counts(MF.level_frame(temp[:, :, 0], f["land_mask"], base.LAT, base.LON))
     assert sum(c.values()) == base.N_LAT * base.N_LON == 24000
     assert c[MF.WATER] + c[MF.SEAFLOOR] == int((~np.asarray(f["land_mask"], bool)).sum())
+
+
+def test_every_field_the_map_pages_encode_is_one_the_frame_actually_produces():
+    """A page that encodes a column `level_frame` does not return draws an EMPTY chart -- Vega-Lite
+    resolves the missing field to null for every row and renders nothing, with no error anywhere.
+
+    So the contract between the library and its callers is checked structurally, by reading what
+    the pages ask Altair for. This is the check that would have caught the rename if `add_edges`
+    had produced `x0/x1` while the pages still asked for `lon0/lon1`.
+    """
+    import re
+
+    pages = ["app/phase2/clickmap_page.py", "app/phase2/uncertainty_page.py"]
+    frame = MF.add_edges(MF.level_frame(
+        np.zeros((base.N_LAT, base.N_LON)), np.zeros((base.N_LAT, base.N_LON), bool),
+        base.LAT, base.LON, extra={"sigma": np.zeros((base.N_LAT, base.N_LON))}))
+
+    checked = 0
+    for rel in pages:
+        path = os.path.join(os.path.dirname(__file__), "..", "..", rel)
+        if not os.path.exists(path):
+            continue                       # that feature is not on this branch
+        checked += 1
+        src = open(path, encoding="utf-8").read()
+        # field references in Altair shorthand: "name:Q", "name:N", "name:O"
+        used = set(re.findall(r'"([a-z_0-9]+):[QNOT]"', src))
+        # a page may legitimately encode columns it adds itself, so only the ones the frame is
+        # expected to supply are required
+        supplied = {"lat", "lon", "lat0", "lat1", "lon0", "lon1", "value", "sigma", "kind", "i", "j"}
+        missing = (used & supplied) - set(frame)
+        assert not missing, f"{rel} encodes {sorted(missing)}, which level_frame does not produce"
+    assert checked >= 1, "no map page found to check"

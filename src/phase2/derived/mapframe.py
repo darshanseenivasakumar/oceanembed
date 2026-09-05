@@ -96,3 +96,33 @@ def counts(frame: dict) -> dict[str, int]:
     """
     kind = np.asarray(frame["kind"])
     return {k: int((kind == k).sum()) for k in KINDS}
+
+
+# --------------------------------------------------------------------------- map geometry
+
+#: Half of the 0.25 deg grid spacing. `mark_rect` against a continuous scale has no idea how wide
+#: a cell is unless it is given explicit edges -- without them Vega-Lite picks a default band and
+#: the basin renders as a handful of enormous blocks. [VERIFIED: that is what the first click map
+#: drew.]
+HALF_CELL = 0.125
+
+#: The basin's TRUE width:height. Longitude spans 60 deg and latitude 25, and at the mean latitude
+#: of 17.5 deg a degree of longitude is cos(17.5) = 0.954 as long as a degree of latitude, so
+#: (60 x 0.954) / 25 = 2.29. Drawn square -- which is what `use_container_width` produced, 1.6 --
+#: the Bay of Bengal is the wrong shape, and a reader's geographic intuition stops working. That
+#: intuition is the whole premise of a click map, so both dimensions get pinned.
+ASPECT = (60.0 * 0.954) / 25.0
+
+
+def map_size(width: int = 900) -> tuple[int, int]:
+    """(width, height) holding the basin's true aspect. Pass both to `.properties`."""
+    return int(width), int(round(width / ASPECT))
+
+
+def add_edges(frame: dict) -> dict:
+    """Add lon0/lon1/lat0/lat1 cell edges to a `level_frame` result, in place, and return it."""
+    frame["lon0"] = frame["lon"] - HALF_CELL
+    frame["lon1"] = frame["lon"] + HALF_CELL
+    frame["lat0"] = frame["lat"] - HALF_CELL
+    frame["lat1"] = frame["lat"] + HALF_CELL
+    return frame

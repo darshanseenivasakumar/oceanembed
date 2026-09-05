@@ -3150,3 +3150,116 @@ label is wrong the page is understating its own uncertainty quality — worth a 
 it touches nothing you own except `tests/phase2/test_launch_ports.py`, where `_app_pages()`
 substring-matched `set_page_config` and so collected a *helper that documented not having one*. It
 parses with `ast` now — the same fix the API's `async def` guard needed.
+
+---
+
+## A21 — 2026-09-05 — ARJHUN
+
+Branch `phase2-viz-foundation` is **pushed** (5 commits, `d9ff4aa..7af3e71`). Note that Prompt 7
+reaches origin for the first time through it, not through `phase2-tscast-nio` — if you want the
+export API separate, say so and I'll split it onto its own branch off `phase2-tscast-nio`.
+
+F3 is on `phase2-viz-uncertainty`, forked from the foundation.
+
+### A bug in `predict_field` that had never been exercised
+
+Arjhun turned on the GPU toggle the click map added and got:
+
+```
+Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
+```
+
+`predict_field` sent `x, g, cp, mo` to `device` and left the model wherever it loaded — always CPU,
+because `TSCastPredictor` loads with `map_location="cpu"` and never moves it. **The `device`
+parameter has been broken for as long as it has existed**, and nothing had ever passed it: the
+"4.1× speedup, agrees to 6.9e-4 °C" line in `field.py`'s own header was measured by moving the
+model *by hand*, which is exactly why the argument's own failure went unnoticed.
+
+The model now moves with the batch and moves **back** in the `finally`, beside `ds.index` and for
+the same reason — the predictor is a process-wide singleton, and leaving it on the GPU would
+silently change the device of every later reconstruction, including the NetCDF export that
+`field.py` deliberately keeps on CPU. Measured after the fix, same date, same predictor:
+
+```
+CPU     37.57 s      CUDA  8.86 s      4.24x
+max |CPU - CUDA| temperature   6.866e-04 degC over 153,291 cells
+max |CPU - CUDA| sigma         2.427e-04 degC
+model back on cpu afterwards   yes
+```
+
+6.9e-4 °C is float32 noise against 0.9078 — and it independently reproduces the number the header
+already claimed, which is now a measurement rather than a recollection. `7af3e71`.
+
+### F3 — the uncertainty map, port 8513
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/phase2/uncertainty_page.py --server.port 8513
+```
+
+Colour is temperature, opacity is confidence, exactly as the spec asks. Three things I added or
+changed, each for a stated reason:
+
+**A second view mode, "uncertainty alone".** Opacity over a dark ground pulls every hue toward the
+background, so a low-confidence *warm* cell reads as a cool one — the double encoding contaminates
+the very channel it sits on. One click drops the temperature hue and shows σ on an inferno scale,
+so that reading is checkable rather than something a reader has to trust. It also turns out to be
+the better picture: the bright band sits on the **Somali Current** and the southern Arabian Sea
+eddy field, dark in the quiet Bay of Bengal interior.
+
+**The opacity domain is per-view, and the two end values are printed in °C.** σ at 5 m and σ at
+1000 m differ enough in size that one fixed range would render whole depths uniformly vivid or
+uniformly faded. So the domain is the 2nd–98th percentile at the shown depth — and because that
+makes cross-view comparison invalid unless you know it, the numbers are in the caption.
+
+**A σ-versus-depth panel and a calibration panel**, because "uncertainty as transparency" is the
+feature's own title and a map alone does not deliver it. Measured on 2026-06-23: least certain at
+**100 m** (median σ 1.197 °C), most certain at **500 m** (0.265 °C).
+
+That is worth pausing on. The largest calibration scale factor in
+`artifacts/uncertainty_calibration.json` is **also at 100 m (×1.4583)**. So two independent signals
+land on the same depth: the raw model is least certain at the thermocline **and** was most
+overconfident there. The page states both, and both are pinned by tests.
+
+The calibration panel shows the number that matters and does not flatter it: **±2σ covers 91.2%
+against a nominal 95.4%**, −4.2 points, on 908 profiles held out after 2026-04-01. A page about
+uncertainty that overstated its own uncertainty would be self-refuting.
+
+### The spec's acceptance check for F3 was checking the wrong quantity
+
+Verbatim: *"sigma range at the rendered depth is finite and within the calibration artifact's known
+range (~0.89–1.46)"*. Those are dimensionless **scale factors that multiply σ**; σ itself is in °C.
+The check compares two different quantities and would pass or fail for the wrong reason.
+
+What is checked instead, and it is much stronger: reconstruct the field twice, once with
+`predictor.calibration` switched off, and assert **depth by depth** that
+`calibrated_sigma / raw_sigma` equals the artifact's published factor to `rtol=1e-5`. Plus that
+calibration moves σ and **not** temperature — a scale applied to the wrong array would leave a
+still-plausible ocean that nothing downstream could catch.
+
+### Also added
+
+`scripts/phase2/accept.py` gains a `viz foundation` check, in the house falsification style rather
+than an import test — 7 assertions, each a case where the old code returns a well-formed plausible
+wrong answer:
+
+```
+ok   sound_speed(S=35, theta=25, z=1000) = 1550.7440, published 1550.744
+ok   swapping S and theta moves it 10.74 m/s -- the order is load-bearing
+ok   the validity mask rejects the Ganges/Meghna plume (S=20) and accepts open ocean
+ok   a rising sigma-theta column: isotherm_depth -> NaN, crossing_depth -> 102.1 m (ok)
+ok   a minimum on the last level is refused, not reported as 1000 m (at_deepest_level)
+ok   a NaN on land reads as land; a NaN in the ocean reads as below the seafloor
+ok   a caveat with no evidence is refused at construction
+```
+
+The map geometry — the 2.29 aspect and the half-cell edges — moved into `derived/mapframe.py`
+rather than being copied into a second page. F7's sonic-layer map will be the third caller.
+
+### Still open with you, from A20
+
+1. **Run `scripts/phase2/probe_buoys.py` on your network.** RAMA covers our whole window and five
+   moorings sit in our box, but every data request dies here at ~43.5 s while metadata answers in
+   1.4 s. If it reaches the data layer there, F6 is alive.
+2. **The unlocked predictor** on `cube_page:78`, `physics_page:89` and `:171`, `tscast_page:123`.
+3. **The footers on your nine pages** — waiting on your go-ahead; append-only when it comes.
+4. `transect_page.py:62` takes a `version` cache-key parameter that line 148 never passes.

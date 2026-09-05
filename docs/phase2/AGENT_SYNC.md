@@ -3371,3 +3371,90 @@ page claimed. That is now the third bug in this batch found only by rendering th
 2. **The unlocked predictor** on `cube_page:78`, `physics_page:89` and `:171`, `tscast_page:123`.
 3. **The footers on your nine pages** — waiting on your go-ahead; append-only when it comes.
 4. `transect_page.py:62` takes a `version` cache-key parameter that line 148 never passes.
+
+---
+
+## A23 — 2026-09-05 — ARJHUN
+
+F2, the transect upgrades, is on `phase2-viz-transect`. It extends **your** page and library, which
+the spec explicitly assigns me ("you are extending them, not starting fresh") — but three of the
+changes are bug fixes to code you wrote, so they are listed first.
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/phase2/transect_page.py --server.port 8510
+```
+
+### Three bugs in the shipped page
+
+**1 · The cache key was never passed.** `build_section` took a `version` argument and `main` never
+supplied it, so its `st.cache_data` never invalidated when the checkpoint changed. That is the exact
+mechanism behind the 8 °C dashboard error of 2026-09-02 — the seam was there, nothing went through
+it. It now takes `_fields.version(stage)`.
+
+**2 · The date was a free text box.** `_time()` is an argmin with no bound, so typing `1850-01-01`
+returned bundle index 0 and a complete, plausible section with no warning. It is a picker over the
+model's real calendar now, which is what `_fields.date_picker` was built for.
+
+**3 · The colour legend understated the model's own uncertainty.** It read *"Model spread (°C, 1σ —
+NOT calibrated)"*. `predict_field` applies the per-depth calibration scales whenever
+`_calibration_applies_to` passes, which for the shipped stage-1 model it **does** — I verified this
+building F3. The caption now reads the provenance instead of asserting, and correctly shows
+**σ calibrated** on stage 1 and **σ RAW (uncalibrated)** on stage 2.
+
+That third one is the interesting direction: every other honesty bug in this project has been a
+page claiming more than it had. This one claimed less.
+
+### What the upgrade added, in the spec's own order
+
+**1 · Model vs GLORYS vs Argo.** Side-by-side sections plus independent floats scattered on the
+model panel, coloured by model−float error. The pairing is the point, and the caption says it:
+
+```
+Model - GLORYS over this section: bias +0.011, RMSE 0.560 degC over 747 section points
+3 independent Argo profiles within 75 km and +-5 days: pooled RMSE 0.795 degC, offsets 2-60 km
+```
+
+GLORYS is the training target, so 0.560 is agreement with what the model was **fitted to**. 0.795
+against Argo is the one number here it was not. The page states that distinction rather than
+letting the smaller number stand as the better one.
+
+Every float carries its `offset_km` and `temporal_offset_days` into the tooltip. A float 60 km and
+4 days away is a weaker check than one 2 km and same-day, and a panel that hides that is
+overstating its own validation.
+
+**2 · The sliding slice** — and it had a bug of its own in my first draft. Clipping each endpoint
+against the grid independently lets one end stop at the boundary while the other keeps going, so
+the track silently **shrinks** instead of sliding: a control that promises to hold a line's shape
+and quietly deforms it. `transect.slide` clips the SHIFT instead, bounded by whichever end reaches
+the edge first, so the span is preserved by construction and the page says when a request was
+trimmed.
+
+**3 · Isopycnal contours** and **4 · sound-speed contours**, both via `contour_line`. On a real
+8N 68E → 20N 88E stage-2 section, the 24 kg/m³ isopycnal is resolved at **26 of 60 points** by
+`contour_line` and at **0 of 60** by `isotherm_line`. That is the foundation branch paying for
+itself, and it is now a test.
+
+The 20 lines that used to reconstruct a missing-D26 explanation by re-reading the temperature array
+are gone — the primitive returns the reason with the depth, so the caption reads
+*"20 °C isotherm drawn at 45 of 60 points — 15 never reach it"* for any contour, not just D26.
+
+### The source menu, same shape as physics_page
+
+`v2 satellite (temperature only)` | `v2 stage-2 (unpromoted)` | `glorys`. On stage 1 the three
+salinity-dependent contours are **refused with a message naming why**, not hidden — the same
+compliance boundary, and the same reasoning as F7.
+
+### A practical note that has now cost me three restarts
+
+**Streamlit does not reload deep imports.** Editing `app/phase2/*.py` triggers a rerun; editing
+`src/phase2/**` does not, so the server keeps the old module and you get an `AttributeError` for a
+function that plainly exists on disk. Restart the server after any library change. The port test
+does not catch this and neither does pytest.
+
+### Still open with you, unchanged
+
+1. **`scripts/phase2/probe_buoys.py` on your network** (F6 depends on it).
+2. **The unlocked predictor** on `cube_page:78`, `physics_page:89`/`:171`, `tscast_page:123`.
+3. **The footers on your nine pages** — waiting on your go-ahead.
+4. **The hybrid source question from A22** — whether `v2 temperature + GLORYS salinity` should be
+   offered at all, given physics_page refuses it for MLD.

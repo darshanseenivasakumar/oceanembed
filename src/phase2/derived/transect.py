@@ -109,37 +109,45 @@ def bilinear_at(field_2d, lat, lon, lat_grid, lon_grid) -> float:
     return float(top * (1 - ty) + bot * ty)
 
 
-def sample_transect(track, field_dict) -> dict:
-    """Sample a `predict_field()` output along a track into a (n_points, 15) section.
+def sample_transect(track, field_dict, *, keys=("temperature", "sigma")) -> dict:
+    """Sample a `predict_field()` output along a track into (n_points, 15) sections.
 
     track       : (lat, lon, distance_km) from `track_points`.
-    field_dict  : output of `phase2.tscast_nio.field.predict_field` -- needs 'temperature' and
-                  'sigma', each (100, 240, 15), NaN on land / below the seafloor.
+    field_dict  : output of `phase2.tscast_nio.field.predict_field`. Each named key must be
+                  (100, 240, 15), NaN on land / below the seafloor.
+    keys        : which fields to sample. The default is the original pair, so every existing
+                  caller is unchanged; pass ("temperature", "sigma", "salinity") to carry the
+                  salinity a density or sound-speed overlay needs.
 
-    Returns temperature and sigma as (n_points, 15), plus the track arrays and DEPTHS, so the
-    caller plots distance (x) against depth (y) directly. Every value comes through bilinear_at,
-    so land and the seafloor are gaps, per depth.
+    Returns one (n_points, 15) array per key, plus the track arrays and DEPTHS, so the caller
+    plots distance (x) against depth (y) directly. Every value comes through bilinear_at, so land
+    and the seafloor are gaps, per depth.
     """
     lat, lon, dist = track
     lat = np.asarray(lat, dtype="float64")
     lon = np.asarray(lon, dtype="float64")
-    temp = np.asarray(field_dict["temperature"], dtype="float64")
-    sig = np.asarray(field_dict["sigma"], dtype="float64")
-    n_lat, n_lon, n_d = temp.shape
-    if (n_lat, n_lon, n_d) != (config.N_LAT, config.N_LON, config.N_DEPTHS):
-        raise ValueError(f"field is {temp.shape}, expected "
-                         f"{(config.N_LAT, config.N_LON, config.N_DEPTHS)}")
+    keys = tuple(keys)
+    missing = [k for k in keys if field_dict.get(k) is None]
+    if missing:
+        raise KeyError(f"the field carries no {missing}; a stage-1 field has no salinity")
+
+    arrays = {k: np.asarray(field_dict[k], dtype="float64") for k in keys}
+    want = (config.N_LAT, config.N_LON, config.N_DEPTHS)
+    for name, a in arrays.items():
+        if a.shape != want:
+            raise ValueError(f"{name} is {a.shape}, expected {want}")
+    n_d = want[2]
 
     lat_grid = np.asarray(config.LAT, dtype="float64")
     lon_grid = np.asarray(config.LON, dtype="float64")
-    T = np.full((lat.size, n_d), np.nan)
-    S = np.full((lat.size, n_d), np.nan)
+    out = {name: np.full((lat.size, n_d), np.nan) for name in keys}
     for k in range(lat.size):
         for d in range(n_d):
-            T[k, d] = bilinear_at(temp[:, :, d], lat[k], lon[k], lat_grid, lon_grid)
-            S[k, d] = bilinear_at(sig[:, :, d], lat[k], lon[k], lat_grid, lon_grid)
-    return {"temperature": T, "sigma": S, "lat": lat, "lon": lon,
-            "distance_km": np.asarray(dist, dtype="float64"), "depths": DEPTHS.copy()}
+            for name, a in arrays.items():
+                out[name][k, d] = bilinear_at(a[:, :, d], lat[k], lon[k], lat_grid, lon_grid)
+    out.update({"lat": lat, "lon": lon,
+                "distance_km": np.asarray(dist, dtype="float64"), "depths": DEPTHS.copy()})
+    return out
 
 
 # --------------------------------------------------------------------- isotherms
@@ -179,3 +187,103 @@ def isotherm_line(section: dict, threshold_c: float = 26.0) -> np.ndarray:
     T = section["temperature"]
     z = section["depths"]
     return np.array([isotherm_depth(T[k], z, threshold_c) for k in range(T.shape[0])])
+
+
+# ------------------------------------------------------------------ derived overlays
+
+def add_derived(section: dict) -> dict:
+    """Add sigma_theta and sound_speed to a section that already carries temperature AND salinity.
+
+    In place, and returns the same dict. Both are computed level by level from the section's own
+    sampled values, so a gap in either input is a gap in the output rather than a number bridged
+    across the seafloor.
+
+    THE OVERLAYS THESE FEED CANNOT USE `isotherm_line`
+    Density and sound speed both change in the opposite sense to temperature over most of the
+    column, and `isotherm_depth` returns NaN unless the SURFACE value already exceeds the
+    threshold. Use `profile_features.contour_line(..., direction="increasing")` instead; see that
+    module's docstring for the measurement.
+    """
+    if "salinity" not in section:
+        raise KeyError("add_derived needs a section sampled with keys including 'salinity'")
+    from phase2.physics.seawater import sigma_theta, sound_speed
+
+    t = np.asarray(section["temperature"], dtype="float64")
+    s = np.asarray(section["salinity"], dtype="float64")
+    z = np.asarray(section["depths"], dtype="float64")
+    section["sigma_theta"] = sigma_theta(s, t)
+    section["sound_speed"] = sound_speed(s, t, z[None, :])
+    return section
+
+
+def floats_near_track(track, when, field_dict, *, max_km: float = 75.0, search_days: float = 5.0,
+                      key: str = "temperature", engine=None) -> list[dict]:
+    """Independent Argo profiles lying near the track, positioned ALONG it. -> list of dicts.
+
+    Each float is placed at the along-track distance of its nearest track point, so it can be
+    scattered straight onto a (distance x depth) section. The model profile is sampled at the
+    FLOAT's own position by `bilinear_at`, not at the nearest track point -- the float is what is
+    being compared against, so the model has to be read where the float actually was.
+
+    `offset_km` and `temporal_offset_days` travel with every match: a float 60 km and 4 days away
+    is a weaker check than one 5 km and same-day, and a panel that hides that is overstating its
+    own validation. Returns [] when nothing is in the window, which the caller must show honestly
+    rather than drawing an empty overlay that reads as agreement.
+    """
+    from phase2.validation.argo_overlay import find_nearest_profiles
+
+    lat, lon, dist = (np.asarray(a, dtype="float64") for a in track)
+    span = max(float(lat.max() - lat.min()), float(lon.max() - lon.min())) / 2.0
+    mid_lat = float((lat.max() + lat.min()) / 2.0)
+    mid_lon = float((lon.max() + lon.min()) / 2.0)
+    # A generous k: `find_nearest_profiles` ranks by distance to the CENTRE, so on a long track a
+    # small k would return only floats bunched near the midpoint and silently drop both ends.
+    matches = find_nearest_profiles(mid_lat, mid_lon, when, k=400,
+                                    search_deg=span + max_km / 100.0 + 0.5,
+                                    search_days=search_days, engine=engine)
+
+    arr = np.asarray(field_dict[key], dtype="float64")
+    lat_grid = np.asarray(config.LAT, dtype="float64")
+    lon_grid = np.asarray(config.LON, dtype="float64")
+    depths = DEPTHS
+    out: list[dict] = []
+    for m in matches:
+        d_to_track = haversine_km(m.latitude, m.longitude, lat, lon)
+        i = int(np.argmin(d_to_track))
+        if float(d_to_track[i]) > float(max_km):
+            continue
+        model = np.array([bilinear_at(arr[:, :, k], m.latitude, m.longitude, lat_grid, lon_grid)
+                          for k in range(depths.size)])
+        floatp = np.array([np.nan if v is None else float(v) for v in m.temperature_profile])
+        both = np.isfinite(model) & np.isfinite(floatp)
+        if not both.any():
+            continue                      # no overlapping level: a real absence, not a zero error
+        out.append({
+            "lat": float(m.latitude), "lon": float(m.longitude), "datetime": str(m.datetime),
+            "distance_km": float(dist[i]), "offset_km": float(d_to_track[i]),
+            "temporal_offset_days": float(m.temporal_offset_days),
+            "depths": depths.copy(), "float": floatp, "model": model,
+            "error": np.where(both, model - floatp, np.nan),
+            "n_levels_compared": int(both.sum()),
+            "rmse": float(np.sqrt(np.mean((model[both] - floatp[both]) ** 2))),
+        })
+    out.sort(key=lambda d: d["distance_km"])
+    return out
+
+
+def slide(lon0: float, lon1: float, shift: float, lon_min: float, lon_max: float):
+    """Move a track east/west by `shift` degrees WITHOUT changing its shape. -> (lon0, lon1, used).
+
+    The obvious implementation -- clip each endpoint against the grid independently -- lets one end
+    stop at the boundary while the other keeps going, so the track silently SHRINKS instead of
+    sliding. A control that promises to hold a line's shape and quietly deforms it is worse than no
+    control: the section changes and nothing says so.
+
+    Clipping the SHIFT instead, bounded by whichever end reaches the edge first, preserves the span
+    by construction. `used` differs from `shift` exactly when the request was trimmed, so a caller
+    can say so.
+    """
+    room_east = float(lon_max) - max(float(lon0), float(lon1))
+    room_west = float(lon_min) - min(float(lon0), float(lon1))
+    used = float(np.clip(float(shift), room_west, room_east))
+    return float(lon0) + used, float(lon1) + used, used

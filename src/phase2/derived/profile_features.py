@@ -54,11 +54,13 @@ WRONG_DIRECTION = "wrong_direction"        # attained, but only crossing the way
 AT_DEEPEST_LEVEL = "at_deepest_level"      # extremum on the last level -> the true one is deeper
 AT_SHALLOWEST_LEVEL = "at_shallowest_level"
 NO_LEVELS_BELOW = "no_levels_below"        # `below_m` excluded every finite level
+COLUMN_TOO_SHALLOW = "column_too_shallow"  # the water is too shallow for the feature to exist
 
 #: Every reason, in a fixed order, so the integer codes the *_field helpers return are stable
 #: across runs and across machines. Appending is safe; reordering is not.
 REASONS = (OK, MULTIPLE_CROSSINGS, NO_DATA, TOO_FEW_LEVELS, OUTSIDE_PROFILE_RANGE,
-           WRONG_DIRECTION, AT_DEEPEST_LEVEL, AT_SHALLOWEST_LEVEL, NO_LEVELS_BELOW)
+           WRONG_DIRECTION, AT_DEEPEST_LEVEL, AT_SHALLOWEST_LEVEL, NO_LEVELS_BELOW,
+           COLUMN_TOO_SHALLOW)
 REASON_CODE = {r: i for i, r in enumerate(REASONS)}
 CODE_REASON = {i: r for r, i in REASON_CODE.items()}
 

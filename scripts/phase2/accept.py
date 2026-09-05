@@ -756,7 +756,22 @@ def check_viz_foundation() -> tuple[bool, list[str]]:
     checks.append((kind[0, 0] == MF.LAND and kind[1, 0] == MF.SEAFLOOR and kind[0, 1] == MF.WATER,
                    "a NaN on land reads as land; a NaN in the ocean reads as below the seafloor"))
 
-    # 6. An unevidenced caveat is the one this project has repeatedly had to go back and check.
+    # 6. A sound channel cannot exist in ten metres of water. Without the column guard, 336 of 848
+    #    supposedly-resolved cells on real GLORYS T/S were shelf artifacts reporting an "axis" at
+    #    5-30 m -- a number, not an error, and entirely plausible-looking on a map.
+    try:
+        from phase2.derived import acoustics as AC
+        shelf = np.full(len(Z), np.nan)
+        shelf[:3] = [1543.3, 1543.2, 1543.4]
+        _, shelf_why = AC.sofar_axis(shelf)
+        _, relaxed_why = AC.sofar_axis(shelf, min_column_m=0.0)
+        checks.append((shelf_why == AC.TOO_SHALLOW and relaxed_why == AC.OK,
+                       f"a 10 m Palk-Strait column is refused a SOFAR axis ({shelf_why}), and the "
+                       f"guard is what does it -- relaxed, the artifact returns ({relaxed_why})"))
+    except ImportError:
+        pass
+
+    # 7. An unevidenced caveat is the one this project has repeatedly had to go back and check.
     from phase2.viz_explainer import Caveat
     try:
         Caveat("uses GLORYS salinity", "the deliverable predicts temperature only", "")

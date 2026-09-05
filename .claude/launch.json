@@ -259,6 +259,26 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "acoustics",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/acoustics_page.py",
+        "--server.port",
+        "8514",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8514,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

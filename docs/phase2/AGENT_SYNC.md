@@ -3263,3 +3263,111 @@ rather than being copied into a second page. F7's sonic-layer map will be the th
 2. **The unlocked predictor** on `cube_page:78`, `physics_page:89` and `:171`, `tscast_page:123`.
 3. **The footers on your nine pages** — waiting on your go-ahead; append-only when it comes.
 4. `transect_page.py:62` takes a `version` cache-key parameter that line 148 never passes.
+
+---
+
+## A22 — 2026-09-05 — ARJHUN
+
+F7 acoustics is on `phase2-novelty-acoustics`, off the foundation. Port **8514**.
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/phase2/acoustics_page.py --server.port 8514
+```
+
+Sound-speed profile at any clicked cell, sonic layer depth basin-wide, and an honest answer about
+the SOFAR axis. This one raised **a question for you** and **found a bug in its own first draft**.
+
+### The question: your spec asks for something physics_page already refuses
+
+The spec's COMPANION-SALINITY HONESTY RULE says to compute sound speed from v2 temperature plus
+GLORYS salinity, labelled. But `physics_page` — which I wrote — **refuses exactly that combination**
+for MLD, in these words:
+
+> Combining it with v2's reconstructed temperature would put a reanalysis field inside a number
+> labelled "satellite", which is the exact contamination `verify_sat_bundle.py` and the anti-GLORYS
+> guard exist to prevent, and it is what the PS means by "only surface satellite observations".
+
+Two pages in one app, on the same data, one refusing what the other offers, would be incoherent and
+a jury could catch it. So F7 uses **the same three-source menu physics_page uses**, and the hybrid
+is present but **named for what it is** — `v2 temperature + GLORYS salinity`, never "satellite":
+
+| source | temperature | salinity | compliant? |
+|---|---|---|---|
+| `v2 stage-2 (unpromoted)` | model | model | **yes, fully satellite-derived** |
+| `v2 temperature + GLORYS salinity` | shipped model | reanalysis | no — named for it |
+| `glorys` | reanalysis | reanalysis | reference |
+
+**Tell me if you want the hybrid dropped entirely** and I will remove it; the page works without it.
+My reading is that physics_page's objection is specifically to *mislabelling*, which an honest name
+answers — but it is your boundary and your call.
+
+### Why an acoustic product from a temperature model is defensible — measured, not argued
+
+Mackenzie's temperature terms dominate its salinity term over this basin. At the mean conditions of
+2026-06-23 (22.28 °C, 35.09 psu, 100 m):
+
+```
+the deliverable's temperature RMSE  0.9078 degC  ->  +2.31 m/s
+stage 2's salinity RMSE (A18)       0.2695 psu   ->  +0.30 m/s
+                                                     temperature is 89% of the budget, 7.7x
+```
+
+The page computes that live, so it moves with conditions. And the direction it moves in is not the
+intuitive one: Mackenzie's quadratic term is negative, so **dc/dT falls as water warms** — 4.08 m/s
+per °C at 5 °C against 2.11 at 29. Cold deep water is *more* temperature-dominated (10.5×) than the
+warm surface (6.7×). I had that backwards in a test until it failed.
+
+### What the spec asked for that cannot honestly ship
+
+**A basin map of SOFAR axis depth.** On the compliant stage-2 source, 2026-06-23:
+
+```
+12,168  no water column
+ 8,973  axis below 1000 m
+ 2,859  water too shallow for a sound channel
+     0  axis resolved
+```
+
+**Nowhere in the basin.** The tropical Indian Ocean axis sits near 1500–2000 m, below our deepest
+level. So what ships is a map of *where the axis is resolvable at all*, and on this date the honest
+answer is "nowhere" — said in words rather than drawn as 24,000 cells of grid edge.
+
+### The bug the page found in itself, by being clicked
+
+The first draft reported **8.25 °N, 78.00 °E — axis resolved**. That is the **Palk Strait**: three
+finite levels, about ten metres of water. It had found a five-metre dip in a ten-metre column and
+called it a SOFAR channel.
+
+Measured across the basin on GLORYS T/S: of 848 cells reporting "axis resolved", **336 — 40% — sat
+in water shallower than 300 m**, reporting axis depths of 5, 10, 20, 30 m. The 471 cells with a full
+column reported 200, 300, 500 and 700 m only.
+
+So `sofar_axis` now requires a full water column (`SOFAR_MIN_COLUMN_M = 1000.0`) and returns
+`column_too_shallow` otherwise. After the guard the categories partition exactly:
+**8,502 below-grid + 471 resolved = 8,973** full-depth cells, **+ 2,859 too shallow = 11,832** ocean
+— the same ocean count `export_timing.json` records. A test asserts that arithmetic, and another
+asserts the guard is *load-bearing*: relax `min_column_m` to 0 and the Palk Strait artifact comes
+straight back.
+
+**None of this was visible from a test.** It was visible from clicking one cell and reading what the
+page claimed. That is now the third bug in this batch found only by rendering the thing.
+
+### Also
+
+- `sound_speed_in_range` earns its place: **5,714 of 11,832 ocean cells (48%)** have at least one
+  level outside Mackenzie's quoted range — the plume and the warm pool. Those points are marked red
+  on the profile rather than drawn as if the formula had been fitted for them.
+- Sonic layer depth is solid and ships as a normal continuous map: median 30 m, and restricting the
+  search to 0–150/300/500 m moves 0.1% of cells or fewer.
+- A colour bug worth noting for anyone drawing a map with a categorical "absence": my first
+  unresolved colour, `#6b5a7a`, sat on the deep end of the reversed viridis ramp and read as *deep
+  duct*. A resolved absence must be off the value ramp entirely.
+- `accept.py`'s `viz foundation` check is now 8 assertions, including the Palk Strait guard.
+
+### Still open with you, unchanged from A20/A21
+
+1. **`scripts/phase2/probe_buoys.py` on your network** — RAMA covers our window, five moorings are
+   in our box, every data request dies here at ~43.5 s while metadata answers in 1.4 s.
+2. **The unlocked predictor** on `cube_page:78`, `physics_page:89` and `:171`, `tscast_page:123`.
+3. **The footers on your nine pages** — waiting on your go-ahead; append-only when it comes.
+4. `transect_page.py:62` takes a `version` cache-key parameter that line 148 never passes.

@@ -415,7 +415,8 @@ def main() -> None:
                 # only in the sibling metrics JSON, so a consumer holding just the
                 # .pt had to guess -- and inference.py guessed wrong for a day.
                 "daily_dir": (a.daily_dir or ("data/processed/daily"
-                                              if a.data == "daily" else None)),
+                                              if getattr(a, "data", None) == "daily"
+                                              else None)),
                 "input_source": d.get("input_source", "unknown"),
                 "latent": latent, "unet_channels": None,
                 "decoder": "simple", "loss": "nll", "beta_nll": a.beta, "data": "daily",
@@ -451,7 +452,13 @@ def main() -> None:
         # them only in the .pt, so anyone reading this JSON -- freeze.py, frozen_manifest.json,
         # every dashboard -- could not tell a satellite run from a GLORYS one.
         "data": "daily", "T_SEQ": t_seq,
-        "daily_dir": (a.daily_dir or ("data/processed/daily" if a.data == "daily" else None)),
+        # `a.data` was referenced here and never registered as an argument. The `or`
+        # short-circuit masked it whenever --daily-dir was passed -- which every recorded stage-2
+        # run did -- so it survived as an AttributeError waiting at torch.save time, AFTER a full
+        # training run had completed. getattr, so an omitted --daily-dir now yields None instead
+        # of destroying the run at the finish line.
+        "daily_dir": (a.daily_dir or ("data/processed/daily"
+                                      if getattr(a, "data", None) == "daily" else None)),
         "input_source": d.get("input_source", "unknown"),
         "protocol": "embargoed_v2",
         "protocol_note": ("training targets whose T_SEQ window would reach into the test block are "

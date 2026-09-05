@@ -36,6 +36,7 @@ from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
 from phase2.tscast_nio import config, dataset as D, metrics
 from phase2.tscast_nio.models import TSCastNIO, gaussian_nll
+from phase2.tscast_nio.models.tscast import gradient_loss
 from phase2.tscast_nio.models.tscast import temporal_pool_signature as TSCastNIO_pool_sig
 
 MAX_DAYS = 5
@@ -120,6 +121,13 @@ def main():
                     help="which daily bundle to train on; default data/processed/daily. Lets a "
                          "5-channel and a 7-channel run be compared with everything else held "
                          "identical, which a rebuilt-in-place bundle cannot support.")
+    ap.add_argument("--w-grad", type=float, default=0.0,
+                    help="weight on the vertical-gradient loss (models.tscast.gradient_loss). "
+                         "0.0 -- the default -- reproduces the shipped objective BIT-IDENTICALLY, "
+                         "which tests/phase2/test_physics_loss.py asserts on a fixed batch. "
+                         "Ablatable exactly like --w-density, because this project has already "
+                         "MEASURED a physics term costing accuracy (eq. 5 density: 0.8593 vs "
+                         "0.8548) and no such term is assumed to help.")
     ap.add_argument("--tag", default="",
                     help="suffix for the checkpoint and metrics filenames, e.g. --tag 7ch writes "
                          "tscast_stage1_7ch.pt. Every leg of the T_SEQ sweep overwrote the last "
@@ -145,6 +153,19 @@ def main():
 
     # One seed for EVERYTHING: sample draw, weight init, data order. A leg of an ablation
     # that differed in any of these would not be a matched comparison.
+    # AN EXPERIMENTAL RUN MUST NOT BE ABLE TO OVERWRITE THE DELIVERABLE.
+    # `--tag` defaults to "", and the checkpoint path is art(f"tscast_stage1{suffix}.pt") -- so an
+    # untagged run writes artifacts/tscast_stage1.pt, which is BYTE-IDENTICAL to the frozen
+    # deliverable (sha 53848bb5...). Worse, it is silent: freeze_headline --verify checks the
+    # TAGGED copy and would still pass, while the dashboard, output.ERROR_SOURCES and
+    # train_stage2._stage1_comparison() all read the untagged name and would start serving the
+    # experiment's numbers as the shipped baseline.
+    if a.w_grad and not a.tag:
+        raise SystemExit(
+            "--w-grad is set but --tag is empty, so this run would overwrite "
+            f"{base.art('tscast_stage1.pt')} -- the promoted copy of the frozen deliverable. "
+            "Give the run its own tag, e.g. --tag grad0p5_s42.")
+
     seed = int(a.seed if a.seed is not None else base.SEED)
     enc, enc_why = (a.encoder, "chosen on the command line") if a.encoder else winning_encoder()
     dev = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
@@ -152,11 +173,23 @@ def main():
     print(f"encoder: {enc}  ({enc_why})")
     print(f"device : {dev}   beta-NLL: {a.beta}")
 
+    # Physical-unit constants for the gradient term, filled once the dataset exists. The term
+    # de-normalises before differencing because y_std is PER DEPTH, so a z-scored difference is not
+    # a scaled gradient. See models.tscast.gradient_loss.
+    _z: list = []
+
     def objective(mu, logvar, y, mk):
         if a.loss == "mse":
             m = mk.float()
-            return (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
-        return gaussian_nll(mu, logvar, y, mk, beta=a.beta)
+            base_loss = (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
+        else:
+            base_loss = gaussian_nll(mu, logvar, y, mk, beta=a.beta)
+        if not a.w_grad:
+            # Returned UNTOUCHED, not `base + 0.0 * term`. Adding a zero-weighted term is
+            # bit-identical for finite values, but a NaN term would survive the multiply
+            # (0.0 * NaN = NaN) and poison a run that asked for no term at all.
+            return base_loss
+        return base_loss + a.w_grad * gradient_loss(mu, y, mk, *_z[0])
 
     def heldout(mu, logvar, y, mk):
         """Held out ALWAYS on plain NLL when the head is probabilistic, so early stopping and
@@ -237,6 +270,13 @@ def main():
     torch.manual_seed(seed)
     latent = a.latent or config.LATENT_DIM
     widths = tuple(a.unet_width) if a.unet_width else tuple(config.UNET_CHANNELS)
+    if a.w_grad:
+        _z.append((torch.tensor(ds_tr.y_mean, dtype=torch.float32, device=dev),
+                   torch.tensor(ds_tr.y_std, dtype=torch.float32, device=dev),
+                   torch.tensor(config.DEPTHS, dtype=torch.float32, device=dev)))
+        print(f"gradient loss ON, weight {a.w_grad} -- vertical dT/dz error in degC/m, on top of "
+              f"the {'MSE' if a.loss == 'mse' else 'beta-NLL'} objective")
+
     model = TSCastNIO(enc, len(d["channels"]), t_seq=1, p=config.P, latent=latent,
                       residual=not a.no_residual, unet_channels=widths,
                       decoder=a.decoder).to(dev)
@@ -385,7 +425,7 @@ def main():
                 "P": config.P, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
                 # Without these the predictor cannot rebuild the network it is loading: it guessed
                 # `film` and died with "Missing key(s) decoder.*" on every simple-decoder run.
-                "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "data": a.data,
+                "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "w_grad": a.w_grad, "data": a.data,
                 # Which temporal protocol produced these weights. Nothing in a checkpoint used to
                 # distinguish the boundary-overlap runs from the embargoed ones, so a stale
                 # checkpoint could not be told apart from a clean one.
@@ -442,7 +482,7 @@ def main():
                           "dropped; test indices unchanged. Runs before 2026-08-31 used "
                           "'boundary_overlap_v1' and are NOT comparable to these."),
         "n_targets_embargoed": int(n_embargoed),
-        "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta,
+        "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta, "w_grad": a.w_grad,
         "decoder": a.decoder, "loss": a.loss,
         "beta_nll_why": ("plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0."),
         "training_curve": curve,

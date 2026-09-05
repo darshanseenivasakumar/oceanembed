@@ -431,3 +431,79 @@ def assert_architecture_matches(model: nn.Module, ck: dict, where: str = "") -> 
             f"silently and the model would predict differently on identical input. Rebuild with "
             f"t_seq=ck['built_t_seq'] ({ck.get('built_t_seq')}), not ck['T_SEQ'] "
             f"({ck.get('T_SEQ')}) -- T_SEQ is the DATA window, not the construction value.")
+
+
+# --------------------------------------------------------------- physics-informed terms
+
+
+def gradient_loss(mu, y, mask, y_mean, y_std, depths):
+    """Error in the VERTICAL GRADIENT of temperature, degC^2 per m^2. Optional, off by default.
+
+    A model can hit the right temperature at every level and still be wrong about the thing an
+    oceanographer reads a profile for: it can smear a sharp thermocline into a gentle slope and
+    lose almost nothing on RMSE, because RMSE scores levels independently and never asks whether
+    the SHAPE between them survived. This term asks.
+
+        L_grad = mean[ (dT_hat/dz - dT/dz)^2 ]
+
+    IN PHYSICAL UNITS, AND THE REASON IS NOT COSMETIC
+    `dataset.py:94-96` computes y_mean and y_std PER DEPTH. So a z-scored difference between two
+    levels is not a scaled physical gradient -- it mixes two different scalings -- and a term built
+    on it would weight depths by the ratio of their standard deviations, which is meaningless. Both
+    prediction and truth are returned to degC first, exactly as `density_nll` does and for exactly
+    the same reason.
+
+    AND THE SPACING IS DIVIDED OUT
+    `config.DEPTHS` runs 5 m apart at the surface and 300 m apart at the bottom. A bare
+    `diff(T)` penalty would be ~60x more sensitive across the 700-1000 m gap than across 0-5 m,
+    purely because of where the levels happen to sit. Dividing by dz makes it a gradient rather
+    than a difference.
+
+    A level pair counts only when BOTH its levels are valid: a gradient spanning the seafloor is
+    not a gradient.
+    """
+    t_pred = mu * y_std + y_mean
+    t_true = y * y_std + y_mean
+    dz = depths[1:] - depths[:-1]
+    g_pred = (t_pred[..., 1:] - t_pred[..., :-1]) / dz
+    g_true = (t_true[..., 1:] - t_true[..., :-1]) / dz
+    m = (mask[..., 1:] & mask[..., :-1]).float()
+    n = m.sum().clamp(min=1.0)
+    return (((g_pred - g_true) ** 2) * m).sum() / n
+
+
+def stability_penalty(mu_t, mu_s, mask, y_mean, y_std, s_mean, s_std, depths):
+    """Penalise a predicted column where density DECREASES with depth. Stage 2 only.
+
+        L_stab = mean[ ReLU( -d(rho_hat)/dz ) ]
+
+    In a resting ocean water gets denser downward. A profile with lighter water beneath heavier is
+    not a subtle error -- it is a column that would overturn immediately, and no amount of RMSE can
+    say so because each level is individually plausible. This term says it directly.
+
+    IT USES ONLY THE PREDICTION. There is no truth term: static stability is a property the answer
+    must have, not a quantity to match. That also means it can be non-zero on a model whose RMSE is
+    excellent, which is the entire point of measuring it.
+
+    STAGE 2 ONLY, because density needs salinity at depth and stage 1 predicts temperature alone.
+    The same S_FLOOR clamp `density_nll` documents applies: EOS-80's S**1.5 is NaN below zero, one
+    NaN poisons every gradient in the batch, and an untrained salinity head does emit negatives.
+    `stability_penalty.last_n_clamped` is recorded for the same reason -- a term leaning on the
+    clamp is doing less than it appears to.
+    """
+    t_pred = mu_t * y_std + y_mean
+    s_raw = mu_s * s_std + s_mean
+    s_pred = s_raw.clamp(min=S_FLOOR)
+    stability_penalty.last_n_clamped = int((s_raw < S_FLOOR).sum())
+
+    rho = seawater.density_torch(s_pred, t_pred)
+    dz = depths[1:] - depths[:-1]
+    drho = (rho[..., 1:] - rho[..., :-1]) / dz
+    m = (mask[..., 1:] & mask[..., :-1]).float()
+    n = m.sum().clamp(min=1.0)
+    # ReLU of the NEGATIVE gradient: zero wherever density increases downward, positive exactly
+    # where it does not. A signed mean would let a strongly stable column pay for an unstable one.
+    return (torch.relu(-drho) * m).sum() / n
+
+
+stability_penalty.last_n_clamped = 0

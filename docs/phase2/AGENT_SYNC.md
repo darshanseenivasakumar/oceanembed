@@ -3726,3 +3726,103 @@ estimate, because a page that simply goes quiet for seven minutes looks broken.
 3. **The footers on your nine pages** — waiting on your go-ahead.
 4. **The hybrid source question** from A22.
 5. **The +0.10 °C warm bias** from A24.
+
+---
+
+## A27 — 2026-09-05 — ARJHUN
+
+F5, the physics-informed loss terms, is on `phase2-novelty-physics-loss`. **The sweep is a clean
+negative result, and it repeats the lesson stage 2 already taught this project.**
+
+### The answer
+
+```
+control abl_full        s42=0.9078  s43=0.9047  s44=0.9084   mean 0.9070, SEED SPREAD 0.0037
+w_grad=100    per-seed  -0.0081  +0.0202  +0.0378    mean +0.0166   NOT A RESULT
+w_grad=1000   per-seed  -0.0190  -0.0013  +0.0160    mean -0.0014   NOT A RESULT
+```
+
+Neither weight improves the model. At w=100 it is clearly **worse**. At w=1000 the mean is
+−0.0014, which is **inside the 0.0037 noise floor** and whose sign does not hold across seeds.
+
+**Seed 42 improved under BOTH weights** (−0.0081 and −0.0190) while 43 and 44 mostly degraded. Had
+I run one seed — and 42 is this project's default — I would have reported a 0.019 °C improvement
+and been wrong. That is exactly what happened with stage 2's temperature result (A18), and the
+three-seed discipline is what caught it both times.
+
+The sweep script now refuses to declare anything on fewer than three seeds. It had briefly printed
+"BETTER" for w=1000 with two seeds in, before seed 44 arrived at +0.0160.
+
+### And there is a reason it did not help, measured beforehand
+
+`scripts/phase2/measure_physical_consistency.py` scores the SHIPPED model's gradient against
+independent Argo, level pair by level pair. The ratio is RMS predicted |dT/dz| over RMS observed:
+
+```
+mid depth     8 m   15 m   25 m   40 m   62 m   88 m  112 m  138 m  ... 850 m
+ratio        0.42   0.47   0.69   0.81   1.04   0.97   1.04   1.02       1.00
+```
+
+**The thermocline is not smoothed.** At 75–125 m the model reproduces **100.6%** of the observed
+gradient magnitude. The gradient term was designed to protect structure that turns out not to need
+protecting, so a null result is what it should have produced.
+
+What IS flattened is the **top ~30 m** — down to 42% at 8 m. That is plausibly an *information*
+limit rather than an objective one: a daily-mean satellite field cannot resolve the diurnal cycle
+and fine-scale mixing that set the near-surface gradient, and no loss term can invent information
+the inputs do not carry.
+
+The panel is on `physics_page` (8505), rendering the artifact. No inference in the page.
+
+### Two hazards fixed before a single run
+
+**1 · An experimental run could overwrite the deliverable.** `--tag` defaults to `""` in stage 1,
+and the checkpoint path is `art(f"tscast_stage1{suffix}.pt")` — so an untagged run writes
+`artifacts/tscast_stage1.pt`, which is **byte-identical to the frozen deliverable**. Silently:
+`freeze_headline --verify` checks the *tagged* copy and would still pass, while the dashboard,
+`output.ERROR_SOURCES` and `train_stage2._stage1_comparison()` all read the untagged name and would
+start serving the experiment's numbers as the shipped baseline.
+
+`--w-grad` with an empty `--tag` now raises before the run starts. **Verified after six training
+runs: `tscast_stage1.pt` is still `53848bb5…`, matching the frozen manifest exactly.**
+
+**2 · `train_stage2.py` read an unregistered argparse attribute.** `a.data` at lines 418 and 454,
+never registered. The `or` short-circuit masked it whenever `--daily-dir` was passed — which every
+recorded stage-2 run did — so it survived as an `AttributeError` waiting at `torch.save` time,
+*after* a full training run had completed. Now `getattr(a, "data", None)`, and a test walks the AST
+and fails on any unregistered `a.<attr>` in that file.
+
+### The spec's acceptance check was unreachable; here is the replacement
+
+It asks that `--w-grad 0 --w-stab 0` reproduce the frozen model's RMSE to <0.001 °C. Training here
+is **not deterministic** — no `use_deterministic_algorithms`, no `cudnn.deterministic`, CUDA — so
+the same seed does not reproduce the same weights, and the control's own spread is 0.0037, four
+times that tolerance. The check would fail on a correct implementation.
+
+Replaced with a unit test that on a fixed batch the w=0 objective is **bit-identical** to the
+shipped one. Stronger, and it needs no GPU and no training. Plus a structural test that the trainer
+**returns the base loss unchanged** rather than adding a zero-weighted term — `0.0 * NaN` is NaN, so
+a zero-weighted term would still poison a run that asked for no term at all.
+
+### The weights were not guessed
+
+Measured on a real 2,048-sample batch with the shipped checkpoint: the gradient term is 4.85e-4
+against a β-NLL objective of −0.1834. So w=10 would be 2.6% of the loss (too weak to move
+anything), w=100 is 20.9%, w=1000 is 72.5%. A sweep at w=1 would have tested nothing and reported
+that the term does not matter.
+
+### What is NOT in this branch
+
+**The static-stability term is implemented and unit-tested but not swept.** It needs density, so it
+needs salinity at depth, so it is stage-2 only — and stage 2 is unpromoted and does not beat stage 1
+on temperature. Sweeping it would measure a term on a model that is not the deliverable. The term,
+its tests and its clamp counter are here; the sweep is a decision for you, not a gap I skipped
+quietly.
+
+### Still open with you
+
+1. **`scripts/phase2/probe_buoys.py` on your network** — F6 is the only feature still blocked.
+2. **The unlocked predictor** on `cube_page:78`, `physics_page:89`/`:171`, `tscast_page:123`.
+3. **The footers on your nine pages**.
+4. **The hybrid source question** from A22.
+5. **The +0.10 °C warm bias** from A24 — still the cheapest measured improvement on the table.

@@ -579,5 +579,84 @@ def main() -> None:
         )
 
 
+def physical_consistency() -> None:
+    """Does the model reproduce the SHAPE of a profile, not just its values? (F5, Unit A/Arjhun.)
+
+    Renders `artifacts/physical_consistency.json`, written by
+    `scripts/phase2/measure_physical_consistency.py`. No inference here: a results panel that
+    recomputed its own numbers would be a second definition of them.
+
+    RMSE scores each of the 15 levels independently and never asks whether the structure BETWEEN
+    them survived. A model can hit every level to within a degree while smearing a sharp
+    thermocline into a gentle slope -- and the thermocline is what a cyclone forecaster or an
+    acoustician reads the profile FOR. This is the panel that asks.
+    """
+    import json as _json
+
+    path = config.art("physical_consistency.json")
+    st.divider()
+    st.subheader("Physical consistency — does the SHAPE of the profile survive?")
+    if not os.path.exists(path):
+        st.info("Not measured on this machine.")
+        st.code("python scripts/phase2/measure_physical_consistency.py", language="bash")
+        return
+    with open(path, encoding="utf-8") as f:
+        r = _json.load(f)
+
+    rows = [p for p in r["per_level_pair"] if p.get("predicted_over_observed") is not None]
+    df = pd.DataFrame(rows)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("thermocline 75–125 m", f"{r['gradient_ratio_thermocline']:.1%}",
+              delta="of the observed dT/dz", delta_color="off")
+    shallow = [p for p in rows if p["mid_depth_m"] <= 30 and p["n"] > 100]
+    if shallow:
+        c2.metric("upper 30 m",
+                  f"{np.mean([p['predicted_over_observed'] for p in shallow]):.1%}",
+                  delta="of the observed dT/dz", delta_color="off")
+    c3.metric("independent Argo profiles", f"{r['argo_profiles']:,}")
+
+    band = alt.Chart(pd.DataFrame({"y": [1.0]})).mark_rule(
+        color="#787878", strokeDash=[5, 4]).encode(y="y:Q")
+    line = alt.Chart(df).mark_line(point=True, color="#2a9d8f", strokeWidth=2).encode(
+        y=alt.Y("mid_depth_m:Q", scale=alt.Scale(reverse=True, type="symlog"),
+                title="depth (m)"),
+        x=alt.X("predicted_over_observed:Q", title="predicted ÷ observed |dT/dz|",
+                scale=alt.Scale(zero=False, nice=False)),
+        tooltip=[alt.Tooltip("mid_depth_m:Q", title="m"),
+                 alt.Tooltip("predicted_over_observed:Q", format=".3f", title="ratio"),
+                 alt.Tooltip("rms_observed:Q", format=".5f", title="observed °C/m"),
+                 alt.Tooltip("rms_predicted:Q", format=".5f", title="predicted °C/m"),
+                 alt.Tooltip("n:Q", title="profiles")])
+    st.altair_chart((band + line).properties(height=330), width="stretch")
+    st.caption(
+        "1.0 means the model's profile is exactly as steep as the ocean's; below 1 it is FLATTER. "
+        "Scored against independent Argo, never against GLORYS — GLORYS is the training target and "
+        "would flatter this number.")
+
+    st.success(
+        f"**The thermocline is not smoothed.** At 75–125 m the model reproduces "
+        f"{r['gradient_ratio_thermocline']:.1%} of the observed gradient — the sharp structure is "
+        f"there, not smeared. What IS flattened is the top ~30 m, down to about 42% at 8 m. That "
+        f"is plausibly an information limit rather than an objective one: a daily-mean satellite "
+        f"field cannot resolve the diurnal cycle and fine-scale mixing that set the near-surface "
+        f"gradient.")
+
+    with st.expander("What this panel cannot tell you"):
+        for line in (
+            "**Static stability is not measured here.** It needs density, so it needs "
+            "salinity at depth, and stage 1 predicts temperature alone. Reported as "
+            "not-applicable rather than as zero violations, which would be a claim it has "
+            "not earned.",
+            "**The 2 m pair rests on 21 profiles.** Argo rarely reports both 0 and 5 m, so "
+            "that row is the weakest in the table and is excluded from the upper-30 m "
+            "figure above.",
+            "**A ratio near 1 is not proof of a correct gradient**, only of a correct "
+            "magnitude -- the RMSE column beside it is what says whether it is in the "
+            "right place.",
+        ):
+            st.markdown("- " + line)
+
+
 if __name__ == "__main__":
     main()
+    physical_consistency()

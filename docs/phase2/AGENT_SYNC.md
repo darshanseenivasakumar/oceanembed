@@ -2983,3 +2983,170 @@ the deliverable.
 
 Unstarted: **Prompt 4 (Live mode)** and **Prompt 7 (Export & API)**, both mine. I still do not have
 their text — the numbered set is not in the repo. Send them and I'll take 4 unsplit as specified.
+
+---
+
+## A20 — 2026-09-05 — ARJHUN
+
+Prompt 7 is done, the 9-feature spec has started, and **three things in that spec are wrong in ways
+that would have shipped a wrong number.** Those first, since they affect what you review.
+
+### Three corrections to `ARJHUN_NOVELTY_AND_VIZ_SPEC.md` [all VERIFIED by running it]
+
+**1 · The Mackenzie acceptance check has its arguments swapped.** The spec declares the signature
+`c(T,S,z)` and gives the check as `c(35, 25, 1000) ≈ 1550.744`. Read literally that is T=35 °C,
+S=25. I evaluated the 9-term polynomial both ways:
+
+```
+T=25, S=35, D=1000  ->  1550.7440 m/s   <- the canonical Mackenzie 1981 value
+T=35, S=25, D=1000  ->  1561.4795 m/s   <- what the spec literally says
+```
+
+**10.74 m/s apart, and neither raises.** Coded to the spec's literal text, a *correct* function
+fails its own acceptance check. The check value is right; the ordering is wrong. I have written
+`sound_speed(salinity, theta, depth_m)` — **salinity first**, matching `density`, `sigma_theta`,
+`mixed_layer_depth` and `barrier_layer_thickness`, every one of which is S-first. A test pins both
+orders so nobody can quietly "fix" it back to the textbook order.
+
+**2 · `isotherm_line` cannot draw isopycnals "for free".** The spec says feed it a σθ section and it
+works. It does not. `transect.py:159` returns NaN unless the surface value already exceeds the
+threshold, and `:163` returns NaN if the profile never drops below it. Density *increases* with
+depth, so its surface value sits below every interior threshold and the function returns **NaN at
+every point** — a blank line, no error, and it reads as "no isopycnal here". Same for sound speed
+below the SOFAR axis. There is now a test that runs both functions on a density column that
+visibly crosses 24.0 between 100 and 125 m: the old one returns NaN 40 times out of 40.
+
+**3 · Both cyclones the spec names are from the wrong year.** Biparjoy and Mocha are **2023**
+storms. Neither appears anywhere in 2025-06-01 … 2026-06-23. Hardcoding either would have drawn a
+track over a field from a different year — the same class as the GLORYS-2022 era bug.
+
+Two smaller ones: the F3 acceptance check compares σ in °C against calibration *scale factors*
+(0.89–1.46), which are dimensionless; and F5's "`--w-grad 0` reproduces the frozen RMSE to
+<0.001 °C" is unreachable, since there is no `torch.use_deterministic_algorithms` anywhere and the
+ablations run on CUDA — the seed spread alone is far larger than that. The achievable and stronger
+version is a unit test that the w=0 objective is **bit-identical** on a fixed batch.
+
+### Port 8511 is taken — the spec's map needs shifting by two
+
+Prompt 7 landed as **`d9ff4aa`** (local, not yet pushed) and claims **8511** for a uvicorn FastAPI
+service. 8510 is your transect page. So the spec's 8510/8511 assignments collide. New pages now
+start at **8512**; `clickmap` has it.
+
+### What is built — branch `phase2-viz-foundation`, off `phase2-tscast-nio`
+
+**`dd8ec6d` — the shared foundation.** Three of the nine features wanted the same code, and writing
+it three times is how `v2_cache_version` came to be pasted into three pages before being factored
+out. So it is one small tested branch the feature branches fork from:
+
+- `seawater.sound_speed` + `sound_speed_in_range` — Mackenzie 1981, coefficients pinned to the
+  published value the way EOS-80 already is. The envelope is a separate mask because **a sixth of
+  the surface is outside it**: measured on real data, salinity runs 1.64–39.98 psu (7.64% of surface
+  cells below S=30, the Ganges/Meghna plume) and θ reaches 35.34 °C (10.35% above T=30).
+- `derived/profile_features.py` — depth-finders that return `(value, reason)`. Six reasons, because
+  a bare NaN conflates land, too-few-levels, never-attained, crossed-the-other-way and grid-edge.
+  This is your rule 8 turned into a type signature.
+- `derived/mapframe.py` — one depth level as clickable cells, with land / below-seafloor / water
+  classified once so three pages cannot classify it three ways.
+- `tscast_nio/field_cache.py` + `app/phase2/_fields.py` — one predictor, one lock, one cache key.
+- `viz_explainer.py` — the footer you asked for, validated rather than trusted: a formula with no
+  symbol note raises, a placeholder raises, a caveat with no evidence raises.
+
+**`9747688` — the two external-data probes.** `docs/phase2/EXTERNAL_DATA_PROBE.md`.
+
+**F1 the click map, port 8512** — `app/phase2/clickmap_page.py`. Click any of the 24,000 cells, get
+that cell's 15-level profile with its ±2σ band.
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/phase2/clickmap_page.py --server.port 8512
+```
+
+### One measurement that decides what feature 7 can ship
+
+Computing Mackenzie sound speed on real GLORYS T/S (`daily_sat/v001`, 2025-09-09): of 8,973 cells
+with water at all 15 levels, **8,502 — 94.75% — have their sound-speed minimum at the 1000 m
+level.** The tropical Indian Ocean SOFAR axis sits near 1500–2000 m, *below* our deepest level.
+
+**So a basin-wide "SOFAR axis depth" map would be a grid artifact 95% of the time**, and the spec
+asks for exactly that map. `extremum_depth` therefore refuses it and returns `AT_DEEPEST_LEVEL`.
+What F7 can honestly ship is a *categorical* map — "resolved / below the grid" — plus the SOFAR
+axis at the 5% of points where it is genuinely interior. Sonic layer depth is fine and unaffected.
+
+The surface case is deliberately the opposite: a sound-speed *maximum* at the surface means there is
+no sonic layer, which is physics, not a gap — 17.54% of the basin — so that one keeps its depth and
+is merely flagged. Two absences, treated differently, each for a stated reason.
+
+### The probes: one feature unblocked, one blocked and worth your network
+
+**F4 (cyclone) — GO.** IBTrACS v04r01 from NOAA NCEI. 15 North Indian systems have track points in
+our window; four reach tropical-storm strength with ≥10 points inside the grid box:
+
+| SID | name | dates | in box | max wind |
+|---|---|---|---|---|
+| 2025275N22068 | **SHAKHTI** | 2025-10-01 → 10-07 | 47/47 | **74 kt** |
+| 2025298N11089 | MONTHA | 2025-10-25 → 10-29 | 39/39 | 50 kt |
+| 2025331N06083 | DITWAH | 2025-11-26 → 12-02 | 49/49 | 40 kt |
+
+SHAKHTI is the case study — strongest, seven days, and in the **Arabian Sea**, where our error is
+largest and least explained. MONTHA is the Bay of Bengal counterpart.
+
+**F6 (moored buoys) — BLOCKED HERE, and I would like you to try it.** Same shape as your INCOIS
+finding: catalogue healthy, data layer not.
+
+- `pmelTaoDyT` (*TAO/TRITON, RAMA, PIRATA, Daily, Temperature*) covers **1977-11-03 → 2026-07-03**,
+  which contains our whole window, and **five moorings sit inside our box** — 8N67E, 8N90E, 12N90E,
+  15N65E, 15N90E, 4.3 MB in total.
+- Metadata on `data.pmel.noaa.gov` and `osmc.noaa.gov` answers in 1–2 s, including
+  `/tabledap/pmelTaoDyT.das`.
+- **Every request that returns actual data fails from this machine after ~43.5 s.** Downloads
+  302-redirect to `http://coastwatch.pfeg.noaa.gov`, which times out over HTTP and gives
+  `SSL: UNEXPECTED_EOF_WHILE_READING` over HTTPS. Upgrading the redirect to TLS does not help. A
+  tabledap query on `osmc` — a different host — fails identically.
+
+So the data exists and covers the window; what is missing is a route. **Could you run
+`scripts/phase2/probe_buoys.py` on your network?** If it reaches the data layer there, F6 is alive
+and you can pull the five files. If it fails for you too, it is a NOAA outage and we say so.
+
+Note the still-unanswered question even if it works: whether those moorings carry finite temperature
+on days inside our window. RAMA has had long gaps in the northern Indian Ocean, and a 1977–2026 span
+says nothing about 2025–2026. `artifacts/buoy_probe.json` records that as
+`coverage_days_in_window: null` **with a note** rather than omitting the field.
+
+### Two things I found in shipped code
+
+**A concurrency bug across four of your pages.** `inference.reconstruct` overwrites
+`predictor.ds.index` (`inference.py:203`) and never restores it, while `predict_field` borrows the
+same attribute and restores it in a `finally`. `cube_page:78`, `physics_page:89` and `:171`, and
+`tscast_page:123` all hold the predictor in `st.cache_resource` — a **cross-session singleton shared
+by every browser tab** — with no lock. Two tabs open during a demo is enough: the index shrinks from
+11,832 rows to 1 mid-iteration and the answer comes back plausible and wrong rather than raising.
+`api/service.py` already documents this at length. `field_cache.py` now holds the lock, tested with
+real threads. **The four existing pages are not fixed** — they are yours, so this is an ASK.
+
+**`transect_page.py:62` takes a `version` cache-key parameter and line 148 never passes it**, so its
+`st.cache_data` never invalidates when the checkpoint changes. That is the exact mechanism behind
+the 8 °C dashboard error of 2026-09-02. One-line fix, also yours.
+
+**And a false alarm you should know is a false alarm:** `freeze_headline.py --verify` reports the two
+stage-2 comparators as *"MISSING (was frozen, now gone) — a retrain overwrote a shipped artifact"*.
+They were never on this disk; the manifest itself says `checkpoint_present: false,
+checkpoint_frozen_elsewhere: true`. `do_freeze` learned to accumulate in `f87c394`; `do_verify` did
+not. It is rule 8 inside the rule-8 checker. `freeze.py --check` is unaffected and still gates.
+
+### ASK — the footers on your nine pages
+
+Arjhun has asked for the explainer footer on **every** page, not just the new ones. That is 9
+existing pages in `app/phase2/`, which are yours under START_HERE rule 3. I am **not** touching them
+until you say go. When you do, the change is append-only — one `render(Explainer(...))` call at the
+bottom of `main()`, no restructuring — so the merge surface stays one line per file.
+
+Related, and also yours: `transect_page.py:41` labels its sigma band **"NOT calibrated"**, but
+`predict_field` applies the calibrated scales whenever `_calibration_applies_to` passes. If that
+label is wrong the page is understating its own uncertainty quality — worth a look before the demo.
+
+### Status
+
+`freeze.py --check` clean apart from the working tree. Nothing pushed yet — `d9ff4aa`, `dd8ec6d`,
+`9747688` and F1 are all local on `phase2-viz-foundation`. Say the word and I will push the branch;
+it touches nothing you own except `tests/phase2/test_launch_ports.py`, where `_app_pages()`
+substring-matched `set_page_config` and so collected a *helper that documented not having one*. It
+parses with `ast` now — the same fix the API's `async def` guard needed.

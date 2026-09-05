@@ -3558,3 +3558,87 @@ and a dangling `formula_note` is still refused.
 3. **The footers on your nine pages** — waiting on your go-ahead.
 4. **The hybrid source question** from A22.
 5. **New: the +0.10 °C warm bias** — worth a correction, but not mine to apply to a frozen model.
+
+---
+
+## A25 — 2026-09-05 — ARJHUN
+
+F9, observation priority v2, is on `phase2-novelty-eke-priority`. Port **8516**.
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/phase2/priority_page.py --server.port 8516
+```
+
+`Priority = √(σ̂ · EKÊ)`, replacing v1's sparsity factor with eddy kinetic energy.
+
+### The framing is unchanged, and it is enforced rather than remembered
+
+`docs/NOVELTY_MATRIX.md` marks observation-priority **"⚠ ALREADY DONE"** — a simplified heuristic
+version of a formally-optimised research area (JTECH 2023 objective-mapping optimisation,
+Gumbel-Softmax sensor placement, FloatCast 2026). The sanctioned wording lives in the module as
+`priority_v2.CLAIM` and `NOT_A_CLAIM` and is rendered verbatim, so a page cannot drift into a
+stronger claim. A test greps both files for "tells INCOIS/MoES/anyone where to deploy" and fails
+unless it is negated — no numerical test can catch a rhetorical error.
+
+### Why EKE is a better factor than sparsity, and the honest version of that claim
+
+Sparsity — distance to the nearest float — has a defect that cannot be fixed inside it: **the
+places floats are most absent are the places floats cannot GO.** v1 ranked the Persian Gulf, about
+20 m deep, at the top, and the fix had to be bolted on at v1's single call site
+(`inference/predict.py:302-311`) — which means every new caller reintroduces it.
+
+EKE asks about the water instead of about the observing network, and cannot be maximised by a place
+no instrument can reach. The guard is now a parameter of the product itself.
+
+**But I measured whether the guard actually rescues this map, and it does not.** On 2026-05-15 it
+excludes 3,042 too-shallow cells, and **none of them were in the top 200 either way**. So the
+honest statement is that the bug's *mechanism* is gone, not that the guard saved the map. Both are
+on the page.
+
+### The check that the map is not just a picture of the Somali Current
+
+EKE must be built from the current's **anomaly**, not its total. Get that wrong and the map ranks
+the fastest currents — which are strong, famous and perfectly well understood — while looking
+entirely plausible.
+
+```
+max |time-mean of u'|                                    5.7e-16 m/s   (zero by construction)
+top-decile EKE vs top-decile MEAN SPEED, Jaccard overlap    0.305
+a 1.5 m/s perfectly steady jet                            EKE < 1e-20
+```
+
+At 30% overlap the two are genuinely different fields. Had EKE come from the total current it would
+be near 100%. All three are tests; the last one is the cleanest — a strong, unvarying jet must
+score zero.
+
+### Two choices worth knowing about
+
+**The mean flow is a ±30-day window, not the whole record.** This basin reverses seasonally — the
+Somali Current runs the other way between monsoons — so subtracting a full-record mean would leave
+the entire monsoon reversal inside u′ and the "EKE" would be the seasonal cycle, large almost
+everywhere. The window removes the seasonal mean and leaves the mesoscale. It truncates honestly at
+the ends of the record and the page reports how many days it actually used.
+
+**Both factors are normalised before multiplying**, 1st–99th percentile to [0,1], then a geometric
+mean — deliberately the same method v1 uses, so a v1-vs-v2 comparison measures the factor swap and
+not the scaling. A test asserts the two rank identically (Spearman > 0.999) when v1 is given a
+neutral third factor. σ is in °C (order 1) and EKE in m²/s² (order 0.01); a raw product would rank
+on EKE alone.
+
+### What it finds
+
+On 2026-06-23 the top candidates cluster at **7°N, 50–54°E** — the Somali Current / Great Whirl,
+the most energetic eddy field in the basin during the southwest monsoon, and a region where the
+model is also uncertain. 8,790 cells ranked, 3,042 excluded as too shallow.
+
+The page carries a switch to turn the guard **off**, labelled as reproducing v1's failure mode, so
+the difference is demonstrable rather than asserted.
+
+### Still open with you
+
+1. **`scripts/phase2/probe_buoys.py` on your network** (F6 depends on it).
+2. **The unlocked predictor** on `cube_page:78`, `physics_page:89`/`:171`, `tscast_page:123`.
+3. **The footers on your nine pages** — waiting on your go-ahead.
+4. **The hybrid source question** from A22.
+5. **The +0.10 °C warm bias** from A24 — a measured, cheap improvement to a frozen model, so
+   yours to decide.

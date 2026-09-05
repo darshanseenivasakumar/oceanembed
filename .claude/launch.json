@@ -200,6 +200,25 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "export-api",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "phase2.api.app:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8511",
+        "--workers",
+        "1"
+      ],
+      "port": 8511,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

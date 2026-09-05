@@ -13,8 +13,22 @@ SAME denormalisation that `inference.py` uses for a single point, so a field val
 the point value at that cell. If those two ever disagree, one of them is wrong and the test in
 tests/phase2/test_field.py says so.
 
-Cost: ~11.8k ocean cells per date, which is 24 batches of 512 -- seconds on the GPU, under a minute
-on CPU. Cheap enough to do live in the dashboard for one date.
+COST -- MEASURED 2026-09-05, not estimated. `artifacts/export_timing.json`,
+`scripts/phase2/measure_export_timing.py`. 11,832 ocean cells, 24 batches of 512:
+
+    predict_field   32.09 s   median of 4 runs (30.98-32.92), ON CPU
+    predictor load   7.20 s   paid once, not per call
+
+This line previously read "seconds on the GPU, under a minute on CPU" -- an estimate standing where
+a reader takes a cost figure, and wrong in a way that mattered: **CUDA is available on this machine
+and the inference path never uses it.** `TSCastPredictor` loads with `map_location="cpu"` and never
+moves the model, so every dashboard reconstruction is a CPU reconstruction. Moving it
+(`predictor.model.to("cuda")`) measures **7.78 s, a 4.1x speedup**, and agrees with the CPU result
+to a max |difference| of 6.9e-4 degC over 153,291 cells -- float32 noise against a 0.9 degC RMSE.
+
+The default is deliberately left on CPU: switching it days before a demo would make an exported
+file differ in its last digits from the page beside it, and 32 s is inside the budget for one date.
+The speedup is recorded here so it is a decision someone takes, not a discovery someone repeats.
 """
 from __future__ import annotations
 
@@ -28,6 +42,7 @@ from torch.utils.data import DataLoader
 
 from oceanembed import config as base
 from phase2.tscast_nio import config
+from phase2.tscast_nio import provenance as _prov
 
 
 def _promoted_from(predictor) -> str:
@@ -187,17 +202,21 @@ def predict_field(predictor, date, batch_size: int = 512, device: str | None = N
         "temperature": T, "sigma": S, "valid_mask": valid, "land_mask": land,
         # None on stage 1 -- absent, not zero. A caller that needs salinity must check.
         "stage": stage, "salinity": SAL, "sigma_s": SIG_S, "density": RHO,
-        "provenance": {
-            "model": "tscast-nio-stage1",
-            "input_source": predictor.data.get("input_source", "unknown"),
-            "bundle": predictor.meta.get("bundle"),
-            "checkpoint": _promoted_from(predictor),
-            "encoder": predictor.meta.get("encoder"),
-            "seed": predictor.meta.get("seed"),
-            "T_SEQ": predictor.meta.get("T_SEQ"),
-            "days_from_requested": days_off,
-            "sigma_is_calibrated": applied,
-            "sigma_calibration_note": why,
-            "n_cells": int(ii.size),
-        },
+        # Schema §5 (`docs/phase2/tscast_output_schema.md`) is a CONTRACT, and this block used to
+        # satisfy five of its ten keys -- missing checkpoint_sha256, code_commit, P, input_date and
+        # clim_train_years. Assembled by `provenance.provenance_block` now, which asserts the
+        # contract holds. `checkpoint` is KEPT as-is because app pages read it; it is a run name,
+        # not a hash, so `promoted_from` names it honestly beside the real sha.
+        "provenance": _prov.provenance_block(
+            predictor,
+            input_date=str(np.asarray(predictor.data["times"])[t_idx])[:10],
+            days_off=days_off,
+            extra={
+                "bundle": predictor.meta.get("bundle"),
+                "checkpoint": _promoted_from(predictor),
+                "promoted_from": _promoted_from(predictor),
+                "sigma_is_calibrated": applied,
+                "sigma_calibration_note": why,
+                "n_cells": int(ii.size),
+            }),
     }

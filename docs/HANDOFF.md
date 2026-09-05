@@ -449,3 +449,113 @@ fails exactly the ordering test). Full suite **571 passed, 10 skipped** (was 566
 
 The Validation Lab headline (**RMSE 0.9638 / 879 profiles**) still disagrees with the freeze
 manifest (**0.9078 / 962**). Flagged 2026-09-03, never traced.
+
+---
+
+## 2026-09-05 — Prompt 7: export to NetCDF and an HTTP API (Arjhun)
+
+Prompt 4 (live mode) **deferred by Arjhun** — six hard blockers, recorded in the plan file and
+summarised at the end of this entry so they are not rediscovered.
+
+### The gap this closed
+
+There was no way to get a reconstruction out of the system. Verified before starting: zero hits for
+`fastapi`, `flask`, `st.download_button` or `BytesIO` anywhere. A jury asking "can I have the data?"
+got nothing.
+
+### Schema §5 was a contract nobody checked
+
+`docs/phase2/tscast_output_schema.md` §5 is marked `Status: CONTRACT` and requires ten provenance
+keys. **Neither producer satisfied it** and **nothing tested it** — the point path omitted
+`checkpoint_sha256` and `code_commit`; the field path omitted those plus `P`, `input_date` and
+`clim_train_years`. New `src/phase2/tscast_nio/provenance.py` assembles the block once and asserts
+the contract holds; both paths now emit all ten. `tests/phase2/test_provenance.py` parametrises over
+the keys **and** source-text-guards the doc, so code and contract cannot drift apart silently.
+
+The git-hash helper was copy-pasted in five places. Those five are **deliberately untouched** —
+working training/pipeline code, three of them one-shot scripts. New code uses the helper.
+
+### The export
+
+`src/phase2/export/netcdf.py` — `field_to_xarray` / `write_netcdf` / `to_bytes` / `export_field`.
+Not an extension of `heat_content.to_xarray`: that is 2-D and this is `(lat, lon, depth)`, and one
+function serving both would branch on dict keys, i.e. a second definition of "a product file".
+
+Three rule-8 decisions in the file format:
+- **`_FillValue` set explicitly** on every float var. Left to a reader's default, a land cell
+  becomes a 0 °C measurement.
+- **A stage-1 file omits the salinity variables entirely**, with an attr saying why. An all-NaN
+  `salinity` grid asserts "this file has salinity, missing everywhere" — a different, false claim.
+- **Masks are int8 flags** with `flag_values`/`flag_meanings`. NetCDF has no bool, and a silent
+  float cast is how a mask stops being a mask.
+
+`scripts/phase2/export_field.py` **refuses an out-of-bundle date** rather than snapping, and the
+refusal names the range. Exit 1, verified.
+
+### Measured, replacing an [INFERRED] claim
+
+`field.py` said *"seconds on the GPU, under a minute on CPU"* — an estimate standing where a reader
+takes a cost figure. `scripts/phase2/measure_export_timing.py` → `artifacts/export_timing.json`:
+
+| | measured |
+|---|---|
+| `predict_field` | **32.09 s** median of 4 (30.98–32.92) |
+| predictor load | 7.20 s, paid once |
+| build + write | 0.49 s + 0.25 s, 3.29 MB |
+
+And the estimate was wrong in a way that mattered: **CUDA is available and the inference path never
+uses it.** `TSCastPredictor` loads with `map_location="cpu"` and never moves the model, so every
+dashboard reconstruction is a CPU reconstruction. `model.to("cuda")` measures **7.78 s — a 4.1×
+speedup** — and agrees with CPU to **max |diff| 6.9e-4 °C over 153,291 cells**, float32 noise
+against a 0.9 °C RMSE. **The default is deliberately left on CPU**: switching days before a demo
+would make an exported file differ in its last digits from the page beside it. Recorded so it is a
+decision someone takes, not a discovery someone repeats.
+
+### The API
+
+`src/phase2/api/service.py` holds every decision and **imports no web framework**; `app.py` is a
+thin FastAPI adapter. FastAPI was taken only for its `/docs` page; if it ever conflicts with the
+starlette version Streamlit pins, `app.py` becomes a starlette adapter and nothing else changes.
+
+**The dependency risk was to Streamlit, not the data pipeline** — `copernicusmarine` has no
+starlette dependency; `streamlit 1.62.0` pins `starlette<2,>=0.46.0`. Gated accordingly: dry-run
+report read before installing, then `fastapi` → `streamlit` → `copernicusmarine` imports in that
+order. **starlette stayed at 1.6.0.**
+
+`GET /health · /coverage · /profile · /field.nc`. Two things that must not be "simplified":
+- **Handlers are `def`, never `async def`** — an async handler calling `predict_field` blocks the
+  event loop for 32 s. Guarded by an **AST** check (a text grep matches the warning in the
+  docstring as readily as a violation).
+- **Every predictor call is inside a lock.** `predict_field` borrows `ds.index`; `reconstruct`
+  **overwrites it and never restores it**. Two concurrent requests return plausible wrong answers
+  rather than raising.
+
+`test_launch_ports.py` broke on a non-Streamlit entry (`args.index("run")` → ValueError). Fixed by
+scoping the two page tests to Streamlit configs **and adding back the lost property** as
+`test_the_api_config_port_matches_its_module_docstring`. Port collision still checks every config.
+API on **8511**, `127.0.0.1` not `0.0.0.0`.
+
+### Verified live
+
+`/health` and `/coverage` 200 with real bundle dates; `/profile` **1.1 s**, 15 depths, no `NaN`
+token in the body; `/field.nc` **3.29 MB in 34.3 s**, correct content-type, reopens as valid NetCDF
+carrying `input_source=satellite` and the checkpoint sha. `/docs` renders all four routes. An
+out-of-bundle date returns **422 naming the valid range**, on both endpoints.
+
+**681 passed, 9 skipped** (was 628). This closes a real gap: no test in this repo previously wrote a
+product file and read it back, and `to_xarray` had zero tests.
+
+### Not attempted, deliberately
+
+Consolidating the five `_commit()` copies; de-mutating `predict_field` (the correct fix reopens the
+field-equals-point guarantee); renaming `provenance["checkpoint"]` (app pages read it —
+`promoted_from` added beside it); switching inference to GPU. All post-demo.
+
+### Prompt 4 blockers, for the record
+
+`sat_daily_pipeline.build_year` requires a GLORYS target and drops days lacking one — GLORYS `my`
+ends 2026-06-23, so every live day would be dropped and the bundle would come out empty; `build_year`
+is year-granular and overwrites the whole year npz; `download_wind_daily.download_months` clips to
+module constants; `build_daily_wind` has no incremental path; `inference.forecast` compares against a
+hardcoded `LAST_GLORYS` so **the guard inverts** once the bundle extends; `verify_sat_bundle`
+hard-fails without a matching GLORYS year. The bundle is 74 days stale and SSS lag (~6 d) binds.

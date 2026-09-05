@@ -257,6 +257,22 @@ def render_profile_tab() -> None:
         st.error(f"**Refused.** {type(e).__name__}: {e}")
         return
 
+    # The export sits with the record it exports, not on a separate page: a file handed to someone
+    # is only trustworthy if they can see the prediction it came from.
+    with st.expander("Download this date as NetCDF"):
+        st.caption(
+            "The whole 100x240x15 field for this date, not just this point — temperature, its "
+            "uncertainty and the masks, with the full provenance block (checkpoint sha256, bundle, "
+            "input_source, commit) in the file's global attributes. NaN is land or below the "
+            "seafloor, never zero."
+        )
+        try:
+            st.download_button(
+                "oceanembed_%s.nc" % date, data=_export_bytes(date, _predictor_version()),
+                file_name=f"oceanembed_{date}.nc", mime="application/x-netcdf")
+        except Exception as e:                                  # a refusal, not a stack trace
+            st.error(f"**Export refused.** {type(e).__name__}: {e}")
+
     if record["forecast"]:
         st.warning(
             f"**FORECAST.** GLORYS truth ends {LAST_GLORYS}; this date is past it. No accuracy "
@@ -701,6 +717,20 @@ def render_stage2_tab(m: dict) -> None:
 
 
 # ── page ───────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(show_spinner="Building the NetCDF export …")
+def _export_bytes(date: str, version: str) -> bytes:
+    """The whole field for one date as NetCDF, cached.
+
+    `st.download_button` triggers a rerun when clicked, so WITHOUT this cache every click re-runs a
+    ~32 s reconstruction (measured: artifacts/export_timing.json). Keyed on `version` -- the
+    checkpoint+loader hash -- so a model change invalidates it, exactly as the other v2 caches are.
+    """
+    from phase2.export import netcdf as X
+    from phase2.tscast_nio.field import predict_field
+
+    return X.to_bytes(X.field_to_xarray(predict_field(load_predictor(version), date)))
+
 
 def main() -> None:
     st.title("TS-Cast-NIO v2 — subsurface temperature, and how much to trust it")

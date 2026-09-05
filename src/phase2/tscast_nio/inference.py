@@ -21,7 +21,8 @@ import torch
 
 from oceanembed import config as base
 from phase2.physics import seawater
-from phase2.tscast_nio import config, dataset as D, output
+from phase2.tscast_nio import config
+from phase2.tscast_nio import provenance as _prov, dataset as D, output
 from phase2.tscast_nio.models import TSCastNIO
 from phase2.tscast_nio.models.tscast import assert_architecture_matches
 
@@ -244,6 +245,13 @@ class TSCastPredictor:
             "days_from_requested": days_off,
             "grid_cell": {"lat": float(base.LAT[i]), "lon": float(base.LON[j])},
             "clim_train_years": list(base.TRAIN_YEARS),
+            # Schema §5 requires both, and this block carried neither until 2026-09-05 -- so no
+            # record could be traced back to the exact bytes or the exact code that made it,
+            # which is the whole purpose of a provenance block. Computed here rather than
+            # hardcoded; `checkpoint_sha256` is the same equality freeze.py checks.
+            "checkpoint_sha256": _prov.checkpoint_sha256(getattr(self, "checkpoint_path", None)),
+            "code_commit": _prov.code_commit(),
+            "code_dirty": _prov.code_dirty(),
             "stage": self.stage,
             "eos": ("EOS-80 / UNESCO (1983); density is COMPUTED from the predicted (T, S), "
                     "not predicted directly") if self.stage == 2 else None,

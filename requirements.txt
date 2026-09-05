@@ -28,3 +28,10 @@ matplotlib
 
 # Dev
 pytest
+
+# Export & API (Prompt 7). fastapi is pinned loosely but starlette is NOT pinned here on purpose:
+# streamlit requires starlette<2,>=0.46.0 and uvicorn<1,>=0.30.0, and Streamlit is the demo. Let
+# pip resolve starlette for streamlit and check that fastapi accepts it -- never the reverse.
+# Verified 2026-09-05: installing fastapi left starlette at 1.6.0 and all ten pages still load.
+fastapi
+uvicorn

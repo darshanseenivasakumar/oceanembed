@@ -120,3 +120,90 @@ def sigma_theta(salinity, theta):
     depth is defined on.
     """
     return density(salinity, theta) - 1000.0
+
+
+# ----------------------------------------------------------------- sound speed
+
+#: Mackenzie's stated validity envelope: 0-30 degC, 30-40 PSS-78, 0-8000 m.
+#: The North Indian Ocean 0-1000 m sits inside it everywhere except the very coldest
+#: deep water, which is ~4 degC and still in range. Named rather than silently assumed.
+SOUND_SPEED_VALID = {"theta_c": (0.0, 30.0), "salinity": (30.0, 40.0), "depth_m": (0.0, 8000.0)}
+
+
+def sound_speed(salinity, theta, depth_m):
+    """Speed of sound in seawater, m s-1. Mackenzie (1981), the 9-term equation.
+
+    salinity : PSS-78 (practical salinity)
+    theta    : temperature, degC -- see the POTENTIAL TEMPERATURE note below
+    depth_m  : depth, metres (Mackenzie is written in depth, NOT pressure)
+
+    Argument order is (S, theta, z) to match `density` and `sigma_theta` in this module and
+    `mixed_layer_depth` / `barrier_layer_thickness` in layers.py. Every public function in this
+    package takes salinity first; a sound-speed function that took temperature first would be the
+    one exception, and a caller who guessed from the formula's usual textbook ordering c(T,S,z)
+    would get a plausible wrong number rather than an error. Verified: swapping the first two
+    arguments at the canonical check point moves the answer by 10.7 m s-1 and raises no exception.
+
+      Mackenzie, K. V. (1981), "Nine-term equation for sound speed in the oceans",
+      J. Acoust. Soc. Am. 70(3), 807-812.
+
+    VERIFIED, NOT ASSUMED
+    ---------------------
+    Nine hand-entered coefficients, the same failure mode the EOS-80 block above guards against.
+    Pinned in tests/phase2/test_physics.py against the published check value:
+
+        c(S=35, theta=25, z=1000) = 1550.744 m s-1     <- Mackenzie's own worked check
+
+    POTENTIAL TEMPERATURE -- an approximation, stated
+    -------------------------------------------------
+    Mackenzie is defined on IN-SITU temperature. This project carries GLORYS `thetao`, which is
+    POTENTIAL temperature, and no in-situ conversion exists here. Over 0-1000 m in the tropics the
+    adiabatic difference is ~0.1 degC, and dc/dtheta is ~4.1 m s-1 per degC at depth, so this
+    contributes ~0.4 m s-1 -- an order below the 1480-1545 m s-1 range the profile spans, but NOT
+    zero. It is an approximation, and any panel quoting an absolute sound speed says so.
+
+    Broadcasting, NaN-preserving: land and below-seafloor cells stay NaN rather than becoming a
+    number. Outside SOUND_SPEED_VALID the polynomial extrapolates silently -- it does not raise --
+    so a caller feeding it fresh water gets a number that is not seawater sound speed.
+    """
+    S = np.asarray(salinity, dtype="float64")
+    t = np.asarray(theta, dtype="float64")
+    z = np.asarray(depth_m, dtype="float64")
+    ds = S - 35.0
+    with np.errstate(invalid="ignore"):
+        return (1448.96
+                + 4.591 * t
+                - 5.304e-2 * t ** 2
+                + 2.374e-4 * t ** 3
+                + 1.340 * ds
+                + 1.630e-2 * z
+                + 1.675e-7 * z ** 2
+                - 1.025e-2 * t * ds
+                - 7.139e-13 * t * z ** 3)
+
+
+def sound_speed_in_range(salinity, theta, depth_m):
+    """Boolean grid: True where Mackenzie's fit is quoted valid. Broadcasts like `sound_speed`.
+
+    `sound_speed` itself returns a number everywhere -- it is a polynomial, and refusing would make
+    it unusable across the head of the Bay of Bengal, which is exactly where cyclones form. So the
+    envelope is a SEPARATE mask the caller renders as its own category rather than a silent
+    extrapolation dressed as a measurement.
+
+    MEASURED, NOT ASSUMED [2026-09-05, data/processed/daily_sat/v001, 2025-09-09 surface layer]:
+
+        salinity     1.64 to 39.98 psu   ->  7.64% of surface cells below S = 30 (Ganges/Meghna)
+        theta       19.85 to 35.34 degC  -> 10.35% of surface cells above T = 30
+
+    So roughly a sixth of the surface is outside the envelope, concentrated in the fresh plume and
+    the warm pool. theta never falls below 2 degC anywhere in the column, so the cold end is clean.
+    """
+    (t_lo, t_hi) = SOUND_SPEED_VALID["theta_c"]
+    (s_lo, s_hi) = SOUND_SPEED_VALID["salinity"]
+    (z_lo, z_hi) = SOUND_SPEED_VALID["depth_m"]
+    S = np.asarray(salinity, dtype="float64")
+    t = np.asarray(theta, dtype="float64")
+    z = np.asarray(depth_m, dtype="float64")
+    with np.errstate(invalid="ignore"):
+        return ((S >= s_lo) & (S <= s_hi) & (t >= t_lo) & (t <= t_hi)
+                & (z >= z_lo) & (z <= z_hi))

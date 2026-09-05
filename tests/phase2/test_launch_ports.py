@@ -13,6 +13,7 @@ a table in a doc.
 """
 from __future__ import annotations
 
+import ast
 import json
 import pathlib
 import re
@@ -29,10 +30,30 @@ def _configs() -> list[dict]:
         return json.load(f)["configurations"]
 
 
+def _configures_itself(path: pathlib.Path) -> bool:
+    """Does this file actually CALL st.set_page_config?
+
+    Parsed, not substring-matched. A shared helper that documents "carrying no st.set_page_config"
+    in its docstring was picked up as a runnable page and failed the suite -- the same
+    prose-matches-as-code trap that made the API's `async def` guard switch from grep to ast.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+        if name == "set_page_config":
+            return True
+    return False
+
+
 def _app_pages() -> list[pathlib.Path]:
     """Every Streamlit entry point: a page that configures itself is one someone can run."""
-    return sorted(p for p in ROOT.glob("app/**/*.py")
-                  if "set_page_config" in p.read_text(encoding="utf-8"))
+    return sorted(p for p in ROOT.glob("app/**/*.py") if _configures_itself(p))
 
 
 def test_no_two_configurations_share_a_port():

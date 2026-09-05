@@ -11,7 +11,8 @@ import pytest
 
 from oceanembed import config
 from phase2.physics import layers, ohc as ohc_mod
-from phase2.physics.seawater import CP_SEAWATER, density, sigma_theta
+from phase2.physics.seawater import (CP_SEAWATER, SOUND_SPEED_VALID, density, sigma_theta,
+                                     sound_speed, sound_speed_in_range)
 
 D = config.N_DEPTHS
 DEPTHS = np.asarray(config.DEPTHS, dtype="float64")
@@ -251,3 +252,68 @@ def test_land_cells_stay_nan_across_every_product():
 def test_mismatched_shapes_are_rejected():
     with pytest.raises(AssertionError):
         layers.mixed_layer_depth(np.zeros((3, D)), np.zeros((3, D - 1)))
+
+
+# ================================================ sound speed — published check values (Mackenzie)
+@pytest.mark.parametrize("S,t,z,expected", [
+    (35.0, 25.0, 1000.0, 1550.744),    # Mackenzie's own worked check value
+    (35.0,  0.0,    0.0, 1448.960),    # the intercept, forced exactly by the first coefficient
+    (35.0, 25.0,    0.0, 1534.294),
+    (35.0,  5.0, 1000.0, 1487.083),
+])
+def test_sound_speed_matches_mackenzies_published_values(S, t, z, expected):
+    """Nine hand-entered coefficients: the same failure mode the EOS-80 block above guards."""
+    assert abs(float(sound_speed(S, t, z)) - expected) < 5e-3
+
+
+def test_the_argument_order_trap_is_real_and_this_is_the_guard():
+    """Mackenzie is PRINTED as c(T, S, D); this module takes (S, theta, z) to match `density`.
+
+    A caller who follows the textbook order gets a plausible number, not an exception -- which is
+    why the ordering is pinned by a test rather than only by a docstring. The build spec for this
+    work stated the acceptance check as `c(35, 25, 1000) ~ 1550.744` against a declared `c(T,S,z)`
+    signature, which read literally is T=35, S=25 and is 10.7 m/s wrong.
+    """
+    correct = float(sound_speed(35.0, 25.0, 1000.0))       # S=35, theta=25
+    swapped = float(sound_speed(25.0, 35.0, 1000.0))       # what the textbook order would give
+    assert abs(correct - 1550.744) < 5e-3
+    assert abs(swapped - correct) > 10.0, "the two orders must be far apart or the guard is empty"
+
+
+def test_sound_speed_rises_with_temperature_salinity_and_depth():
+    """The three first-order physical facts. Independent of the coefficients being transcribed
+    right, so this catches a sign error the check values alone could miss."""
+    assert sound_speed(35.0, 26.0, 100.0) > sound_speed(35.0, 25.0, 100.0)
+    assert sound_speed(36.0, 25.0, 100.0) > sound_speed(35.0, 25.0, 100.0)
+    assert sound_speed(35.0, 25.0, 200.0) > sound_speed(35.0, 25.0, 100.0)
+
+
+def test_sound_speed_preserves_nan():
+    assert np.isnan(sound_speed(np.nan, 25.0, 100.0))
+    assert np.isnan(sound_speed(35.0, np.nan, 100.0))
+
+
+def test_sound_speed_broadcasts_a_profile_against_the_depth_axis():
+    s, t = profile()
+    c = sound_speed(s, t, DEPTHS)
+    assert c.shape == (D,)
+    assert np.isfinite(c).all()
+    assert 1400.0 < c.min() and c.max() < 1600.0
+
+
+def test_the_validity_envelope_flags_the_fresh_plume_and_the_warm_pool():
+    """MEASURED on real data: 7.64% of surface cells are fresher than S=30 and 10.35% are warmer
+    than 30 degC, so ~a sixth of the surface is outside Mackenzie's quoted range. `sound_speed`
+    still returns a number there -- it is a polynomial -- so the mask is the only thing standing
+    between an extrapolation and a number a page presents as a measurement."""
+    assert bool(sound_speed_in_range(35.0, 25.0, 1000.0)) is True
+    assert bool(sound_speed_in_range(20.0, 25.0, 0.0)) is False      # Ganges/Meghna plume
+    assert bool(sound_speed_in_range(35.0, 33.0, 0.0)) is False      # warm pool
+    # and the polynomial does NOT refuse out of range -- that is the whole reason the mask exists
+    assert np.isfinite(float(sound_speed(20.0, 25.0, 0.0)))
+
+
+def test_the_validity_envelope_constant_is_the_published_one():
+    assert SOUND_SPEED_VALID["theta_c"] == (0.0, 30.0)
+    assert SOUND_SPEED_VALID["salinity"] == (30.0, 40.0)
+    assert SOUND_SPEED_VALID["depth_m"] == (0.0, 8000.0)

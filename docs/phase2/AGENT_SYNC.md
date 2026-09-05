@@ -3642,3 +3642,87 @@ the difference is demonstrable rather than asserted.
 4. **The hybrid source question** from A22.
 5. **The +0.10 °C warm bias** from A24 — a measured, cheap improvement to a frozen model, so
    yours to decide.
+
+---
+
+## A26 — 2026-09-05 — ARJHUN
+
+F4, the cyclone case study, is on `phase2-viz-tchp3d`. Port **8517**.
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/phase2/cyclone_volume_page.py --server.port 8517
+```
+
+**The headline: the reconstruction resolves Cyclone SHAKHTI's cold wake.** TCHP fell at **11 of 12
+track points (92%)**, mean **−4.26 kJ/cm²**, largest −7.4. The model is driven only by surface
+satellite fields and was never taught that cyclones cool the ocean beneath them.
+
+### But the naive measurement says there is no wake at all
+
+That is the interesting half. Using one fixed before/after pair over the whole track — which is
+what the build spec describes, and what anyone would reach for first:
+
+```
+one fixed pair (2025-10-02 -> 2025-10-10)   mean -0.18 kJ/cm2    7 of 12 cooled (58%)
+each point vs its OWN passage time          mean -4.26 kJ/cm2   11 of 12 cooled (92%)
+```
+
+Same storm, same reconstruction, same `heat_content_field`. **Only the question changed.**
+
+A storm takes days to cross a basin, so one pair of dates asks the wrong question at every point but
+one: water at 68 °E was hit on day 1 and had eight days to recover by the "after" date — it warmed.
+Water at 60 °E was hit on day 6 and its wake was three days old — it cooled hard. Averaging them
+gives nothing. The page shows **both numbers**, because a page that showed only the good one would
+be asking to be trusted.
+
+`cold_wake` returns a `verdict` STRING rather than only a number, so a page cannot render −0.18
+under the word "wake". A test asserts a flat field produces "no clear cold wake".
+
+### The dimensional objection, and what the 3-D view actually shows
+
+"A 3-D TCHP volume" is confused: **TCHP is a depth integral** — heat above the 26 °C isotherm, in
+kJ/cm² — so it is a 2-D field with no volume. The page does not draw one.
+
+What IS three-dimensional, and is exactly what a cyclone eats, is the **warm layer itself**: the
+body of water above 26 °C, whose thickness is D₂₆ and whose heat content is TCHP. That is the
+isosurface. The caption says which is which.
+
+### Best-track intensity is provisional, and the agencies disagree
+
+I told you 74 kt for SHAKHTI in A20. That was the max across **two agencies that disagree**:
+
+```
+WMO_WIND   41 rated points, peak 60 kt   -> tropical storm
+USA_WIND   29 rated points, peak 74 kt   -> Category 1
+```
+
+14 kt apart, spanning a category boundary. The loader now carries **both**, prefers the WMO figure
+(it is the WMO-endorsed archive) and exposes `agencies_disagree_kt`; the page states the
+disagreement rather than picking the larger number. Track type is `US-PROVISIONAL`.
+
+### Two smaller things worth recording
+
+**A blank wind is missing, not zero.** `float("")` raises and `int(x or 0)` quietly returns a calm
+cyclone — which would put a case study's "during" panel at genesis rather than at peak intensity.
+`peak_index` returns None for an unrated storm rather than 0.
+
+**And a rule-8 error of my own, caught by rendering it.** The "during" panel reported
+*"2025-10-05 is outside the bundle"*. It is not — it simply had not been reconstructed, because the
+peak date is a storm date and not one of the passage-relative pairs. An absence reported as a
+different fact, on a page whose whole subject is measuring absences correctly. Fixed both ways: the
+date is reconstructed, and the message now distinguishes "not reconstructed" from "outside the
+bundle".
+
+### Cost, stated on the page before it is paid
+
+A passage-relative wake needs a field per storm-day either side — **14 whole-basin reconstructions**
+for a week-long track, about 7 minutes on CPU or 2 on GPU. The page says so up front with an
+estimate, because a page that simply goes quiet for seven minutes looks broken.
+
+### Still open with you
+
+1. **`scripts/phase2/probe_buoys.py` on your network** — F6 is the last feature still blocked.
+2. **The unlocked predictor** on `cube_page:78`, `physics_page:89`/`:171`, `tscast_page:123`.
+3. **The footers on your nine pages** — waiting on your go-ahead.
+4. **The hybrid source question** from A22.
+5. **The +0.10 °C warm bias** from A24.

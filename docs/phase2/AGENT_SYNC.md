@@ -3826,3 +3826,78 @@ quietly.
 3. **The footers on your nine pages**.
 4. **The hybrid source question** from A22.
 5. **The +0.10 °C warm bias** from A24 — still the cheapest measured improvement on the table.
+
+---
+
+## A28 — 2026-09-06 — ARJHUN — **ASK: please run one command**
+
+This is the only thing blocking a feature, and it takes about a minute. Everything else in A20–A27
+is a decision you can take whenever; this one I cannot do from here.
+
+```bash
+.venv/Scripts/python.exe scripts/phase2/probe_buoys.py
+```
+
+Then send me `artifacts/buoy_probe.json`, or just the terminal output.
+
+### What it decides
+
+**F6 — validating the model along a TIME axis at a fixed point.** Argo floats drift and revisit a
+spot every 5–10 days, so they cannot say whether the model tracks *change over time* anywhere.
+Moored buoys sit still and sample continuously. It is the one validation axis this project has no
+answer on, and it is the last of the nine features unbuilt.
+
+### Why I cannot do it here
+
+The data exists and covers our window — I verified that from metadata. What fails is the route to
+it, and only from this machine:
+
+```
+ok  1-2 s   data.pmel.noaa.gov ERDDAP  /search /info /tabledap/*.das, and the /files listing
+ok  1.7 s   osmc.noaa.gov              /info for the same dataset
+FAIL 43.5s  EVERY request that returns actual DATA, on BOTH hosts
+```
+
+`/files/` downloads 302-redirect to `http://coastwatch.pfeg.noaa.gov`, which times out over HTTP
+and gives `SSL: UNEXPECTED_EOF_WHILE_READING` over HTTPS. Upgrading the redirect to TLS does not
+help. A tabledap `.csv?` query on `osmc` — a different host entirely — fails identically. It
+reproduces across three hosts, which argues against one server being down and points at this
+network.
+
+Same shape as your INCOIS finding: catalogue healthy, data layer unreachable.
+
+### What is waiting on the other side
+
+`pmelTaoDyT` — *TAO/TRITON, RAMA and PIRATA buoys, daily temperature at depth* — covers
+**1977-11-03 → 2026-07-03**, which contains our whole window, and **five moorings sit inside
+5–30 °N, 45–105 °E**, 4.3 MB in total:
+
+| position | file | size |
+|---|---|---|
+| 8.0 N, 67.0 E | `t8n67e_dy.cdf` | 0.47 MB |
+| 8.0 N, 90.0 E | `t8n90e_dy.cdf` | 1.13 MB |
+| 12.0 N, 90.0 E | `t12n90e_dy.cdf` | 1.10 MB |
+| 15.0 N, 65.0 E | `t15n65e_dy.cdf` | 0.14 MB |
+| 15.0 N, 90.0 E | `t15n90e_dy.cdf` | 1.46 MB |
+
+### The three outcomes, and what each means
+
+- **"DATA LAYER IS REACHABLE"** — grab those five files and send them, or tell me and I will write
+  the fetch. Then the real question opens up, which is still unanswered: *do those moorings carry
+  finite temperature on days inside 2025-06-01 … 2026-06-23?* RAMA has had long servicing gaps in
+  the northern Indian Ocean, and a file spanning 1977–2026 says nothing about 2025–2026. File size
+  is a hint, not an answer — `t15n65e` is 0.14 MB against `t15n90e`'s 1.46 MB.
+- **Same failure as here** — then it is a NOAA outage, not our network, and F6 is blocked for
+  everyone. I will record that and we ship eight of nine with the reason stated. That is a fine
+  outcome; it is just not one I can assert without your run.
+- **Something else entirely** — send it and I will read it.
+
+The script writes `artifacts/buoy_probe.json` either way, exits non-zero while the data layer is
+down, and does not need the model, the bundle or a GPU. It downloads nothing on its own.
+
+### One thing it will get wrong on your machine too, and it is not INCOIS's fault
+
+The INCOIS check inside it may report `CERTIFICATE_VERIFY_FAILED`. That is a local trust-store
+problem, **not** evidence about INCOIS — the script says so itself rather than blaming the host.
+`scripts/phase2/probe_incois_las.py` is the maintained probe for that server and reached it on
+2026-09-02.

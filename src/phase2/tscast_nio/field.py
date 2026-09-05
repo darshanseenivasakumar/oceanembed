@@ -122,9 +122,24 @@ def predict_field(predictor, date, batch_size: int = 512, device: str | None = N
 
     ds = predictor.ds
     saved = ds.index
+    home = next(predictor.model.parameters()).device
+    dev = torch.device(device) if device else home
     try:
         ds.index = np.stack([np.full(ii.size, t_idx), ii, jj], axis=1)
-        dev = torch.device(device) if device else next(predictor.model.parameters()).device
+        # THE MODEL HAS TO MOVE TOO, not just the batch.
+        # This line used to send the inputs to `dev` and leave the weights wherever they loaded,
+        # which for `TSCastPredictor` is always CPU (`map_location="cpu"`). Passing device="cuda"
+        # therefore raised `Input type (torch.cuda.FloatTensor) and weight type
+        # (torch.FloatTensor) should be the same` -- so the parameter had never worked, and the
+        # 7.78 s figure in this module's header was measured by moving the model BY HAND. Found
+        # 2026-09-05 the first time a UI actually offered the switch.
+        #
+        # Restored in the `finally` beside ds.index, for the same reason: the predictor is a
+        # process-wide singleton shared by every page, and leaving it on the GPU would silently
+        # change the device of every later reconstruction -- including the exported file, which
+        # this module's header deliberately keeps on CPU.
+        if dev != home:
+            predictor.model.to(dev)
         mus, lvs = [], []
         predictor.model.eval()
         s_mus, s_lvs = [], []
@@ -142,6 +157,8 @@ def predict_field(predictor, date, batch_size: int = 512, device: str | None = N
                     s_lvs.append(out[3].cpu().numpy())
     finally:
         ds.index = saved                                            # never leave it mutated
+        if dev != home:
+            predictor.model.to(home)                                # and never leave it moved
 
     mu = np.concatenate(mus) * predictor.y_std + predictor.y_mean
     sigma = np.sqrt(np.exp(np.concatenate(lvs))) * predictor.y_std

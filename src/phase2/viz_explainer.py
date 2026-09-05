@@ -91,6 +91,13 @@ class Explainer:
     def __post_init__(self):
         for name in ("title", "plain", "how_to_read"):
             object.__setattr__(self, name, _check(name, getattr(self, name)))
+        # An EMPTY formula means "this panel has no equation", which is a legitimate and common
+        # case -- a UI feature, or a methodology like the cloud-dropout sweep. The build spec
+        # writes it as `formula = ""`. Treating that as a validation failure made a finished page
+        # render its results and then die on its own footer. Normalised to None here so both
+        # spellings mean the same thing; a formula that is present still has to name its symbols.
+        if self.formula is not None and not str(self.formula).strip():
+            object.__setattr__(self, "formula", None)
         if self.formula is not None:
             object.__setattr__(self, "formula", _check("formula", self.formula))
             if not (self.formula_note or "").strip():

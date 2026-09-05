@@ -279,6 +279,26 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "cloud-dropout",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/phase2/dropout_page.py",
+        "--server.port",
+        "8515",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8515,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

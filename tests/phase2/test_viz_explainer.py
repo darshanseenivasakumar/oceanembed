@@ -191,3 +191,28 @@ def test_the_spec_signature_still_works_for_a_page_written_against_it(st_stub):
     body = " ".join(v for _, v in st_stub.calls)
     assert "A vertical slice." in body and "Blank means land." in body
     assert "latex" not in [k for k, _ in st_stub.calls], "an empty formula must not render as one"
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_a_panel_with_no_equation_is_allowed_and_needs_no_symbol_note(blank):
+    """`formula=""` is the build spec's own spelling for a panel that has no equation -- a UI
+    feature, or a methodology sweep. Rejecting it made a finished page render all of its results
+    and then die on its own footer, which is a worse failure than the one the check guards.
+    """
+    e = an_explainer(formula=blank)
+    assert e.formula is None
+    assert e.formula_note is None
+
+
+def test_an_empty_formula_still_refuses_a_dangling_symbol_note():
+    """Normalising "" to None must not open a hole: a note describing an equation that is not
+    there is still an explanation of nothing."""
+    with pytest.raises(ValueError, match="no formula"):
+        an_explainer(formula="", formula_note="T is temperature")
+
+
+def test_a_real_formula_still_has_to_name_its_symbols(st_stub):
+    with pytest.raises(ValueError, match="formula_note"):
+        an_explainer(formula=r"c = 1448.96 + 4.591T")
+    V.render(an_explainer(formula=r"c = 1448.96", formula_note="T is temperature."))
+    assert "latex" in [k for k, _ in st_stub.calls]

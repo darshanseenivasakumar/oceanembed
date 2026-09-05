@@ -3458,3 +3458,103 @@ does not catch this and neither does pytest.
 3. **The footers on your nine pages** — waiting on your go-ahead.
 4. **The hybrid source question from A22** — whether `v2 temperature + GLORYS salinity` should be
    offered at all, given physics_page refuses it for MLD.
+
+---
+
+## A24 — 2026-09-05 — ARJHUN
+
+F8, the monsoon cloud-cover stress test, is on `phase2-novelty-cloud-dropout`. Port **8515**.
+
+```bash
+.venv/Scripts/python.exe scripts/phase2/run_cloud_dropout.py
+```
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/phase2/dropout_page.py --server.port 8515
+```
+
+**This one found something about the deliverable, not about cloud.** Read the middle section before
+the rest.
+
+### The harness
+
+No retraining. `rescore_checkpoint.py`'s structure — the shipped checkpoint, the same test split,
+embargo, normalisation, climatology and Argo collocation — with a fraction of ocean SST blanked in
+the **test** input before scoring. 31 seconds for a 10-point sweep on the GPU.
+
+Two things had to be right or the whole experiment would have been meaningless:
+
+**Masking is applied in PHYSICAL units, to the raw bundle array, before `GriddedPatches` z-scores
+it.** Mask after normalisation — or mask to 0 — and every "masked" pixel arrives at the encoder as
+`0.0`, which in z-space **is the channel mean**: a perfectly plausible average-temperature pixel.
+RMSE would barely move and the result would read "robust to 60% cloud cover" having tested nothing.
+
+**The normalisation comes from the pristine array.** The checkpoint was fitted under one set of
+channel statistics; recomputing them from a masked array would change the input scaling as well as
+its content. Only the test set is masked — which is also what cloud actually does.
+
+**The control at 0% masked reproduces 0.9078 exactly.** The script refuses to write its artifact
+otherwise, because every degradation below a disagreeing control is harness error, not weather.
+
+### The result, and it is not monotone
+
+```
+masked   0%     5%     10%    15%    20%    30%    50%    70%    90%    100%
+RMSE   0.9078 0.9006 0.8957 0.8950 0.8973 0.9118 0.9857 1.1087 1.2914 1.4114
+bias   +0.100 +0.074 +0.047 +0.021 -0.005 -0.059 -0.163 -0.267 -0.393 -0.471
+```
+
+**Blanking 15% of ocean SST makes the model BETTER** — 0.8950 against 0.9078 — and the spread
+across independent mask draws at that point is **0.0002**, so the effect is 60× the noise. It is
+not a fluke.
+
+It would be easy and completely wrong to report that as tolerance of cloud. It is **two errors
+partially cancelling**:
+
+- the shipped model carries a **+0.1003 °C warm bias** against independent Argo
+- a blanked pixel reaches the encoder as the channel mean, which pulls the prediction **cooler**
+- the RMSE minimum (15%) sits essentially where the **bias crosses zero (~19%)**
+
+### So the finding is about the deliverable's bias
+
+**The shipped model runs 0.10 °C warm, and removing that is worth about 0.013 °C of RMSE.** The dip
+at 15% masking is accidentally buying exactly that, by throwing away a seventh of the input to get
+it. A plain bias correction would buy the same thing for free.
+
+I am **not** proposing to apply one — that is a change to the frozen deliverable and it is your
+call, five days out, with the manifest already frozen. But it is a real, cheap, measured
+improvement and it should be a decision somebody takes rather than something nobody noticed.
+
+Past the minimum the degradation is real and monotone: **+0.50 °C by 100% masked**, and the
+skill-vs-climatology score goes **negative at 90%** — worse than just quoting the climatology.
+
+### The caveat that matters most
+
+The encoder has **no way to know a pixel is missing**. `dataset.__getitem__` z-scores the patch and
+replaces every non-finite value with `0.0`, which is the channel mean — so "I have no idea" and
+"ordinary sea" arrive as the same number. The dataset computes a `finite` companion mask at
+`dataset.py:156` and **discards it on line 157**, despite its own module docstring promising it is
+kept "so a model can learn to distrust those cells".
+
+So this curve is not graceful degradation. It is degradation while being told nothing. A test
+parses `dataset.py` with `ast` and fails if `__getitem__` ever starts returning that mask — at
+which point the page's framing is out of date and must be rewritten rather than relaxed.
+
+Also worth saying plainly: this is **random** masking. Real cloud is spatially correlated and
+persists for days, so a 17×17 patch here almost always retains some SST. A real monsoon overcast
+would blank whole patches and should be expected to hurt **more** than this curve shows.
+
+### One fix to the shared explainer
+
+`Explainer(formula="")` raised — but `formula = ""` is your spec's own spelling for a panel with no
+equation, and both F6 and F8 use it. A finished page rendered all its results and then died on its
+own footer. Empty now normalises to None; a formula that IS present still has to name its symbols,
+and a dangling `formula_note` is still refused.
+
+### Still open with you
+
+1. **`scripts/phase2/probe_buoys.py` on your network** (F6 depends on it).
+2. **The unlocked predictor** on `cube_page:78`, `physics_page:89`/`:171`, `tscast_page:123`.
+3. **The footers on your nine pages** — waiting on your go-ahead.
+4. **The hybrid source question** from A22.
+5. **New: the +0.10 °C warm bias** — worth a correction, but not mine to apply to a frozen model.

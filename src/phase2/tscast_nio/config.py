@@ -88,7 +88,10 @@ STAGE = 1
 
 def sanity_check() -> None:
     assert P % 2 == 1, f"P={P} must be odd so the target cell is the patch centre"
-    assert T_SEQ >= 1, f"T_SEQ={T_SEQ} must be >= 1"
+    assert T_SEQ >= 1 and T_SEQ % 2 == 1, (
+        f"T_SEQ={T_SEQ} must be a positive odd number: the window is centred on the target day "
+        f"(T_SEQ // 2 steps each side), so an even value silently builds one step more than it "
+        f"says. dataset.GriddedPatches refuses it for the same reason.")
     assert len(CHANNELS) == len(CHANNEL_UNITS), "channel/unit lists disagree"
     assert N_DEPTHS == 15, f"N_DEPTHS={N_DEPTHS}; the output contract is frozen at 15"
     assert INTERNAL_LEVELS >= N_DEPTHS, "internal grid must be finer than the output contract"

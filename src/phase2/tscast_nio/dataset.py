@@ -57,6 +57,14 @@ class GriddedPatches(Dataset):
                  stride=1, clim=None, return_clim=False, salinity=None, return_salinity=False):
         self.C = surface.shape[-1]
         self.T_SEQ = int(config.T_SEQ if t_seq is None else t_seq)
+        if self.T_SEQ < 1 or self.T_SEQ % 2 == 0:
+            # `_window` takes T_SEQ // 2 steps each side of the target, so an even value builds a
+            # window ONE STEP LONGER than asked and every artifact then records the wrong T_SEQ.
+            # Measured 2026-09-06: t_seq=10 produced an 11-step window with no error.
+            raise ValueError(
+                f"t_seq={self.T_SEQ} must be a positive odd number. The window is centred on the "
+                f"target day, so t_seq={self.T_SEQ} would silently build "
+                f"{2 * (self.T_SEQ // 2) + 1} steps, not {self.T_SEQ}.")
         self.P = int(config.P if p is None else p)
         self.half = self.P // 2
         self.channels = list(channels)

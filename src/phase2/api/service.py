@@ -88,6 +88,10 @@ def coverage(predictor) -> tuple[int, dict]:
     lo, hi, n = bundle_window(predictor)
     t = np.asarray(predictor.data["times"]).astype("datetime64[D]")
     steps = np.diff(t).astype("timedelta64[D]").astype(int) if t.size > 1 else np.array([0])
+    # Read from the predictor when it derived them from its own bundle and table (TSCastPredictor
+    # does); the typed module constants are only the fallback for a stub that carries no bundle.
+    last_truth = getattr(predictor, "last_truth_day", None)
+    last_argo = getattr(predictor, "last_argo_day", None)
     return 200, {
         "first_date": lo, "last_date": hi, "n_steps": n,
         "cadence_days": float(np.median(steps)),
@@ -95,8 +99,8 @@ def coverage(predictor) -> tuple[int, dict]:
         "bundle": (getattr(predictor, "meta", {}) or {}).get("bundle"),
         # Past this there is no ground truth, so a prediction there is a forecast and carries no
         # accuracy claim. It is still served -- see the module docstring.
-        "last_date_with_truth": str(LAST_GLORYS),
-        "last_argo": str(LAST_ARGO),
+        "last_date_with_truth": str(last_truth if last_truth is not None else LAST_GLORYS),
+        "last_argo": str(last_argo if last_argo is not None else LAST_ARGO),
         "note": ("dates after last_date_with_truth are served with forecast=true and no accuracy "
                  "claim; dates outside [first_date, last_date] are refused"),
     }
@@ -111,6 +115,17 @@ def profile(predictor, lat, lon, date) -> tuple[int, dict]:
         lat, lon = float(lat), float(lon)
     except (TypeError, ValueError):
         return 422, {"error": "bad_point", "detail": "lat and lon must be numbers"}
+    # Refused HERE, before the lock and before the model runs. The predictor raises the same
+    # ValueError, but a refusal a client can act on needs the domain spelled out beside it.
+    from oceanembed import config as _cfg
+    from phase2.tscast_nio.inference import assert_point_in_domain
+    try:
+        assert_point_in_domain(lat, lon)
+    except ValueError as e:
+        r = _cfg.REGION
+        return 422, {"error": "point_out_of_domain", "detail": str(e),
+                     "domain": {k: float(r[k]) for k in ("lat_min", "lat_max", "lon_min", "lon_max")},
+                     "see": "/coverage"}
     with _LOCK:
         rec = predictor.reconstruct(lat, lon, str(date))
     return 200, _json_safe(rec)

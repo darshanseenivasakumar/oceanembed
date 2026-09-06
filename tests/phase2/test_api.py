@@ -133,3 +133,29 @@ def test_nan_becomes_null_not_a_nan_token():
     out = service._json_safe({"a": float("nan"), "b": [1.0, float("inf")], "c": np.float32("nan")})
     assert out == {"a": None, "b": [1.0, None], "c": None}
     json.dumps(out, allow_nan=False)          # raises if a NaN survived
+
+
+# --------------------------------------------------------------------------- point refusal
+#
+# Audit 2026-09-06: the predictor snapped (45N, 120E) to the domain corner and NaN to (5N, 45E)
+# and returned a complete profile. The API must refuse with a 422 that names the domain, before
+# the model runs.
+
+
+@pytest.mark.parametrize("lat,lon", [(45.0, 120.0), (-10.0, 30.0),
+                                     (float("nan"), 68.0), (15.0, float("nan"))])
+def test_a_point_outside_the_domain_is_refused_before_the_model_runs(lat, lon):
+    p = _FakePredictor()
+    status, detail = service.profile(p, lat, lon, "2026-05-15")
+    assert status == 422 and detail["error"] == "point_out_of_domain", detail
+    assert p.calls == [], "the model must not run for a point it cannot answer for"
+    assert "5.0" in str(detail) and "30.0" in str(detail), "the refusal must name the domain"
+
+
+def test_coverage_prefers_limits_the_predictor_derived_from_its_data():
+    p = _FakePredictor()
+    p.last_truth_day = np.datetime64("2026-06-20")
+    p.last_argo_day = np.datetime64("2026-06-18")
+    cov = service.coverage(p)[1]
+    assert cov["last_date_with_truth"] == "2026-06-20"
+    assert cov["last_argo"] == "2026-06-18"

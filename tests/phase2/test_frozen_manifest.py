@@ -171,3 +171,71 @@ def test_all_legs_are_scored_on_the_same_argo_set(manifest):
     if len(ns) < 2:
         pytest.skip("fewer than two scored legs present")
     assert len(set(ns.values())) == 1, f"legs scored on different sample counts: {ns}"
+
+
+# ── --verify on a manifest that spans two machines (audit 2026-09-06) ───────────────────
+#
+# The manifest carries checksums frozen on the OTHER machine, labelled `checkpoint_frozen_elsewhere`.
+# `do_verify` treated them as "MISSING (was frozen, now gone)" and exited 1 on the training
+# machine -- the very machine jury note 08 tells the presenter to run the check on, live.
+
+
+def _load_freeze_headline():
+    import importlib.util
+
+    path = os.path.join(REPO, "scripts", "phase2", "freeze_headline.py")
+    spec = importlib.util.spec_from_file_location("freeze_headline_under_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _point_at(fh, monkeypatch, tmp_path, claims):
+    art = tmp_path / "artifacts"
+    art.mkdir(exist_ok=True)
+    mp = art / "frozen_manifest.json"
+    mp.write_text(json.dumps({"frozen_at": "test", "claims": claims}), encoding="utf-8")
+    monkeypatch.setattr(fh, "REPO", str(tmp_path))
+    monkeypatch.setattr(fh, "ARTIFACTS", str(art))
+    monkeypatch.setattr(fh, "MANIFEST", str(mp))
+    return art
+
+
+def test_verify_treats_a_checkpoint_frozen_elsewhere_as_pending_not_missing(tmp_path, monkeypatch, capsys):
+    fh = _load_freeze_headline()
+    art = tmp_path / "artifacts"
+    art.mkdir()
+    here = art / "here.pt"
+    here.write_bytes(b"weights that live on this machine")
+    _point_at(fh, monkeypatch, tmp_path, {
+        "here": {"checkpoint": "here.pt", "checkpoint_present": True,
+                 "checkpoint_sha256": _sha256(str(here))},
+        "elsewhere": {"checkpoint": "there.pt", "checkpoint_present": False,
+                      "checkpoint_sha256": "ab" * 32, "checkpoint_frozen_elsewhere": True},
+        "never": {"checkpoint": "never.pt", "checkpoint_present": False,
+                  "checkpoint_sha256": None},
+    })
+    rc = fh.do_verify()
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "MISSING" not in out, "a checksum carried from the other machine is not a vanished file"
+    assert "[pend]" in out and "elsewhere" in out
+
+
+def test_verify_still_fails_when_a_checkpoint_frozen_here_is_gone_or_changed(tmp_path, monkeypatch, capsys):
+    """The guard must not become vacuous: a checksum recorded on THIS machine whose file has
+    vanished or changed is exactly the overwrite the verifier exists to catch."""
+    fh = _load_freeze_headline()
+    art = tmp_path / "artifacts"
+    art.mkdir()
+    changed = art / "changed.pt"
+    changed.write_bytes(b"retrained")
+    _point_at(fh, monkeypatch, tmp_path, {
+        "gone": {"checkpoint": "gone.pt", "checkpoint_present": True, "checkpoint_sha256": "cd" * 32},
+        "changed": {"checkpoint": "changed.pt", "checkpoint_present": True,
+                    "checkpoint_sha256": "ef" * 32},
+    })
+    rc = fh.do_verify()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "MISSING" in out and "CHANGED" in out

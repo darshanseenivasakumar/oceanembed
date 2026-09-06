@@ -179,8 +179,15 @@ def _calibration_applies_to(cal: dict, provenance: dict) -> tuple[bool, str]:
 
 def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
                  argo_check=None, forecast=False, salinity=None, log_var_s=None,
-                 density=None, log_var_rho=None, calibration=None) -> dict:
-    """The full record. Stage-2 keys are present and None so stage 2 is a fill-in, not a migration."""
+                 density=None, log_var_rho=None, calibration=None,
+                 last_truth_date=None, last_argo_date=None) -> dict:
+    """The full record. Stage-2 keys are present and None so stage 2 is a fill-in, not a migration.
+
+    `last_truth_date` / `last_argo_date` are the limits the CALLER read from its loaded bundle and
+    Argo table; they are named in the forecast note. The note used to type both dates itself, and
+    the Argo one was wrong for the table the predictor actually checks against. An absent limit is
+    reported as unknown, never typed.
+    """
     t = np.asarray(temperature, dtype="float64")
     lv = np.asarray(log_var_t, dtype="float64")
     v = np.asarray(valid, dtype=bool)
@@ -246,8 +253,9 @@ def build_record(temperature, log_var_t, valid, seafloor_depth_m, provenance,
         "argo_check": argo_check,
         "forecast": bool(forecast),
         "forecast_note": (
-            "FORECAST -- this date is beyond the last date with ground truth (GLORYS to "
-            "2026-06-23, Argo to 2026-08-24). No accuracy number can be attached to it."
+            f"FORECAST -- this date is beyond the last date with ground truth (truth to "
+            f"{last_truth_date or 'unknown'}, Argo to {last_argo_date or 'unknown'}). No accuracy "
+            f"number can be attached to it."
         ) if forecast else None,
         "provenance": dict(provenance),
     }

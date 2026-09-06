@@ -189,3 +189,62 @@ def test_a_2026_prediction_carries_a_non_null_argo_check():
                             "and scientifically empty (AGENT_SYNC ASK D1)")
     assert ac["quality"] in ("HIGH", "MEDIUM", "LOW", "REJECT")
     assert ac["distance_km"] >= 0 and ac["days_offset"] >= 0
+
+
+# -- the serving path refuses what it cannot honestly answer (audit 2026-09-06) ---------
+#
+# `D.cell_index` is argmin with no bound and `_time` is argmin with no lower bound. Measured on
+# the shipped predictor: (45N, 120E) snapped to the domain corner, lat=NaN snapped to the first
+# grid cell and returned a complete profile with an error bar, and a 2020-01-01 request was
+# served from 2025-06-01 inputs with forecast=False and days_from_requested=1978. Every one of
+# those is a well-formed record about a place or a time the model was never asked about.
+
+def test_points_outside_the_domain_or_non_finite_are_refused():
+    from phase2.tscast_nio.inference import assert_point_in_domain
+
+    for la, lo in [(45.0, 120.0), (-10.0, 30.0), (15.0, 120.0), (31.0, 70.0)]:
+        with pytest.raises(ValueError, match="outside"):
+            assert_point_in_domain(la, lo)
+    for la, lo in [(float("nan"), 68.0), (15.0, float("nan")), (float("inf"), 68.0)]:
+        with pytest.raises(ValueError, match="finite"):
+            assert_point_in_domain(la, lo)
+    # the requested box itself, edges included, is answerable
+    for la, lo in [(15.0, 68.0), (5.0, 45.0), (30.0, 105.0), (29.9, 104.9)]:
+        assert_point_in_domain(la, lo)
+
+
+@has_ckpt
+def test_reconstruct_refuses_out_of_domain_nan_and_pre_bundle_requests():
+    from phase2.tscast_nio.inference import TSCastPredictor
+
+    p = TSCastPredictor()
+    with pytest.raises(ValueError, match="outside"):
+        p.reconstruct(45.0, 120.0, "2026-05-15")
+    with pytest.raises(ValueError, match="finite"):
+        p.reconstruct(float("nan"), 68.0, "2026-05-15")
+    with pytest.raises(ValueError, match="precedes"):
+        p.reconstruct(15.0, 68.0, "2020-01-01")
+    with pytest.raises(ValueError, match="precedes"):
+        p._time("2025-05-31")
+    # a date past the bundle is still a labelled forecast -- that contract is unchanged
+    assert p.reconstruct(15.0, 68.0, "2026-08-01")["forecast"] is True
+
+
+@has_ckpt
+@has_daily_argo
+def test_truth_and_argo_limits_are_read_from_the_data_not_typed():
+    """`LAST_ARGO` was typed as 2026-08-24 while the table the predictor checks against ends
+    2026-06-22, and the forecast note repeated the typed date. Both limits now come from the
+    loaded bundle and the loaded table."""
+    import pandas as pd
+    from phase2.tscast_nio.inference import TSCastPredictor
+
+    p = TSCastPredictor()
+    t = np.asarray(p.data["times"], dtype="datetime64[D]")
+    assert p.last_truth_day == t.max()
+    table = pd.read_parquet(base.art("argo_daily_period.parquet"), columns=["date"])
+    assert p.last_argo_day == np.datetime64(pd.to_datetime(table["date"]).max().date())
+    r = p.reconstruct(15.0, 68.0, "2026-08-01")
+    assert str(p.last_truth_day) in r["forecast_note"]
+    assert str(p.last_argo_day) in r["forecast_note"]
+    assert "2026-08-24" not in r["forecast_note"]

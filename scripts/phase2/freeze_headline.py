@@ -279,6 +279,7 @@ def do_verify() -> int:
         man = json.load(f)
 
     fails: list[str] = []
+    elsewhere: list[str] = []
     print("=" * 72)
     print(f"VERIFYING against manifest frozen at {man.get('frozen_at')}")
     print("=" * 72)
@@ -287,6 +288,15 @@ def do_verify() -> int:
         recorded = rec.get("checkpoint_sha256")
         if recorded is None:
             print(f"{PEND} {key:34s} checkpoint never frozen here (pending) -- skipped")
+            continue
+        if rec.get("checkpoint_frozen_elsewhere") or rec.get("checkpoint_present") is False:
+            # THE MANIFEST SPANS TWO MACHINES (see do_freeze). A checksum carried forward from
+            # the other machine is not a file that vanished here -- it was never here. Reporting
+            # it as MISSING made --verify exit 1 on the training machine (measured 2026-09-06),
+            # the very machine jury note 08 tells the presenter to run the check on, live.
+            print(f"{PEND} {key:34s} frozen on another machine ({recorded[:16]}...) -- "
+                  f"cannot be re-verified from this disk, skipped")
+            elsewhere.append(key)
             continue
         live = os.path.join(ARTIFACTS, fname)
         if not os.path.exists(live):
@@ -305,9 +315,10 @@ def do_verify() -> int:
         print("        A retrain overwrote a shipped artifact. Restore from artifacts/frozen/, or")
         print("        re-freeze DELIBERATELY and update PHASE2_STATUS.md.")
         return 1
-    frozen = sum(1 for r in man["claims"].values() if r.get("checkpoint_sha256"))
-    print(f"\n{OK} all {frozen} frozen checkpoint(s) byte-identical "
-          f"({len(man['claims']) - frozen} pending, not on this machine)")
+    frozen = (sum(1 for r in man["claims"].values() if r.get("checkpoint_sha256"))
+              - len(elsewhere))
+    print(f"\n{OK} all {frozen} checkpoint(s) frozen on this machine are byte-identical "
+          f"({len(man['claims']) - frozen} pending or frozen elsewhere, not re-verifiable here)")
     return 0
 
 

@@ -578,3 +578,43 @@ F6 (buoy time-axis validation) re-probed 2026-09-06: NOAA catalogue reachable in
 times out after 44 s. Same shape as A28, on a day the machine had working network. Still blocked.
 
 Ports unchanged. app/phase2/, src/, app/streamlit_app.py and app/panels/ are untouched.
+
+---
+
+## 2026-09-07 — audit session — four mechanical fixes from the 2026-09-06 audit, with tests
+
+Scope: the four items the audit called mechanical (#11, #12, #20, #21 in the audit report). No
+scientific number changes; no artifact, bundle or checkpoint touched. 14 new tests, red before
+the fix and green after; the full suite was re-run afterwards (see AGENT_SYNC / chat for the count).
+
+* **`scripts/phase2/freeze_headline.py --verify` no longer fails on the training machine.** A
+  checksum carried forward from the other machine (`checkpoint_frozen_elsewhere`) was reported as
+  "MISSING (was frozen, now gone)" and the script exited 1 — the machine jury note 08 tells the
+  presenter to run it on, live. Such entries are now `[pend]`; a checkpoint frozen HERE that is
+  gone or changed still fails. Verified: exit 0 on this disk, 2 ok / 2 pend.
+* **`TSCastPredictor` refuses what it cannot answer for** (`inference.assert_point_in_domain`,
+  `_cell`, `_time`). Before: (45N, 120E) snapped to the domain corner, lat=NaN snapped to (5N, 45E)
+  and returned a full profile with an error bar, and a 2020-01-01 request was served from the
+  2025-06-01 inputs with `forecast=False` and `days_from_requested=1978`. Now: out-of-REGION or
+  non-finite coordinates raise `ValueError`; a date before the bundle's first day raises; a date
+  after the bundle is unchanged (served, labelled FORECAST). `api/service.profile` returns 422
+  `point_out_of_domain` with the domain spelled out, before the lock and before the model runs.
+* **Truth and Argo limits are read from the data, not typed.** `predictor.first_day`,
+  `last_truth_day` (bundle) and `last_argo_day` (the predictor's own Argo table) replace the
+  module constants in `reconstruct` and in `/coverage`. `LAST_ARGO` had read 2026-08-24 while
+  `argo_daily_period.parquet` ends 2026-06-22, and `output.build_record`'s forecast note repeated
+  the typed date; the note now names the limits it is given and says "unknown" for an absent one.
+  The constants stay importable as documented fallbacks for a stub with no bundle.
+* **An even `T_SEQ` is refused.** `_window` takes `T_SEQ // 2` steps each side, so `t_seq=10` built
+  an 11-step window with no error. `dataset.GriddedPatches` and `config.sanity_check` now require a
+  positive odd value. The shipped T_SEQ=11 is unaffected.
+
+Files: `src/phase2/tscast_nio/{inference,output,dataset,config}.py`, `src/phase2/api/service.py`,
+`scripts/phase2/freeze_headline.py`; tests appended to `tests/phase2/test_{tscast_dataset,
+frozen_manifest,tscast_inference_path,api,tscast_output}.py`. Not committed by the audit session:
+the tree carried another session's uncommitted work, so the commit is left to the owner.
+
+Still open from the same audit and NOT touched here (they change numbers or need retraining):
+epoch selection on test-period GLORYS (#7), Argo pressure treated as depth (#8), buoy validation
+spanning the training period (#9), below-seafloor comparisons inside the headline (#10), and the
+presentation claims (#1–#6) — see the audit report.

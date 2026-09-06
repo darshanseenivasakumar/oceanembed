@@ -166,3 +166,15 @@ def test_the_reason_strings_quote_the_CALIBRATED_sigma_not_the_raw_one():
     assert r["calibration"]["applied"] is True
     shown = r["sigma_t"][5]
     assert f"{shown:.2f}" in r["reasons"][5], (r["reasons"][5], shown)
+
+
+def test_forecast_note_names_the_limits_it_was_given_and_types_none_of_its_own():
+    """The note used to carry two typed dates ('GLORYS to 2026-06-23, Argo to 2026-08-24'); the
+    second was already wrong for the table the predictor checks against (it ends 2026-06-22).
+    The limits come from the caller, which reads them from the loaded data."""
+    r = _rec(forecast=True, last_truth_date="2026-06-23", last_argo_date="2026-06-22")
+    assert "2026-06-23" in r["forecast_note"] and "2026-06-22" in r["forecast_note"]
+    assert "2026-08-24" not in r["forecast_note"]
+    r2 = _rec(forecast=True)
+    assert "unknown" in r2["forecast_note"], "an absent limit is said to be absent, not typed"
+    assert "2026-08-24" not in r2["forecast_note"]

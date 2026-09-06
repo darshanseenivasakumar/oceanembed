@@ -26,9 +26,51 @@ from phase2.tscast_nio import provenance as _prov, dataset as D, output
 from phase2.tscast_nio.models import TSCastNIO
 from phase2.tscast_nio.models.tscast import assert_architecture_matches
 
-# Verified availability limits; past these there is no truth to check against.
+# Documented limits of the FROZEN deliverable's bundle and Argo table, kept for code that holds
+# no predictor (the API's coverage endpoint under a stub). Anything holding a TSCastPredictor must
+# read `predictor.last_truth_day` / `predictor.last_argo_day`, which are derived from the loaded
+# bundle and table rather than typed here. LAST_ARGO read 2026-08-24 until 2026-09-07 -- the fetch
+# horizon of argo_2026.parquet -- while the table the predictor actually checks against
+# (argo_daily_period.parquet) ends 2026-06-22, and the forecast note repeated the typed date.
 LAST_GLORYS = np.datetime64("2026-06-23")
-LAST_ARGO = np.datetime64("2026-08-24")
+LAST_ARGO = np.datetime64("2026-06-22")
+
+
+def assert_point_in_domain(lat, lon) -> None:
+    """Refuse a coordinate the frozen grid cannot honestly answer for.
+
+    `dataset.cell_index` is nearest-centre with no bound: (45N, 120E) snaps to the domain corner,
+    and NaN compares false everywhere so argmin returns the FIRST cell (5.0N, 45.0E). Either way
+    the caller gets a complete, plausible profile about a different place, with no flag -- measured
+    on the shipped predictor 2026-09-06. The requested box (config.REGION, edges included) is
+    answerable: every point in it lies within one cell of a grid centre.
+    """
+    try:
+        la, lo = float(lat), float(lon)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"latitude/longitude must be finite numbers, got ({lat!r}, {lon!r})") from None
+    if not (np.isfinite(la) and np.isfinite(lo)):
+        raise ValueError(
+            f"latitude/longitude must be finite, got ({lat!r}, {lon!r}); a nearest-cell lookup on "
+            f"NaN silently returns the first grid cell ({float(base.LAT[0])}N, "
+            f"{float(base.LON[0])}E)")
+    r = base.REGION
+    if not (r["lat_min"] <= la <= r["lat_max"] and r["lon_min"] <= lo <= r["lon_max"]):
+        raise ValueError(
+            f"({la}, {lo}) is outside the reconstruction domain {r['lat_min']}..{r['lat_max']}N, "
+            f"{r['lon_min']}..{r['lon_max']}E; a nearest-cell lookup would snap it to the domain "
+            f"edge and serve a profile for a different place")
+
+
+def _argo_table_end(path_noext: str):
+    """Last profile date in an Argo table as datetime64[D], or None when the table is absent."""
+    from oceanembed.utils import io as _io
+    try:
+        d = pd.to_datetime(_io.load_table(path_noext)["date"])
+    except Exception:
+        return None
+    return np.datetime64(d.max().date()) if len(d) else None
 
 
 class TSCastPredictor:
@@ -132,6 +174,12 @@ class TSCastPredictor:
         # panel reads "no float nearby", which looks identical to genuinely unsampled ocean.
         self.argo_table = "argo_daily_period" if self.trained_data == "daily" else "argo_test"
         self._engine = None
+        # The limits this predictor can honestly speak to, READ from what it loaded rather than
+        # typed at the top of the file (audit 2026-09-06). A bundle only holds days that have a
+        # target, so its last day is the last day with truth.
+        _t = np.asarray(self.data["times"], dtype="datetime64[D]")
+        self.first_day, self.last_truth_day = _t.min(), _t.max()
+        self.last_argo_day = _argo_table_end(base.art(self.argo_table))
 
         norm = [np.asarray(v, dtype="float32") for v in ck["norm"]]
         if self.stage == 2 and len(norm) != 6:
@@ -180,12 +228,23 @@ class TSCastPredictor:
 
     # ------------------------------------------------------------------ helpers
     def _cell(self, lat: float, lon: float) -> tuple[int, int]:
+        assert_point_in_domain(lat, lon)
         i, j = D.cell_index(lat, lon)          # frozen nearest-centre convention
         return int(i[0]), int(j[0])
 
     def _time(self, date) -> tuple[int, int]:
         t = np.datetime64(pd.Timestamp(date).date())
         times = np.asarray(self.data["times"], dtype="datetime64[D]")
+        if t < times[0]:
+            # argmin has no lower bound: a 2020-01-01 request came back as the 2025-06-01 field
+            # with forecast=False and days_from_requested=1978 -- served as an answer (measured
+            # 2026-09-06). A date AFTER the bundle is a different case: still served, labelled
+            # FORECAST, per tscast_output_schema.md section 4.
+            raise ValueError(
+                f"{t} precedes the first day of the loaded bundle ({times[0]}); the nearest-day "
+                f"lookup would serve the {times[0]} inputs, "
+                f"{int((times[0] - t).astype('timedelta64[D]').astype(int))} days away, as if "
+                f"they described {t}. No reconstruction exists for that date.")
         offs = np.abs((times - t).astype("timedelta64[D]").astype(int))
         k = int(np.argmin(offs))
         return k, int(offs[k])
@@ -226,7 +285,10 @@ class TSCastPredictor:
         floor = self.seafloor_depth_m(lat, lon)
 
         target = np.datetime64(pd.Timestamp(date).date())
-        forecast = bool(target > LAST_GLORYS)
+        # Past the bundle's last day there is no target the model could have been trained
+        # against. Read from the loaded bundle, not the module constant: PROJECT_RECORD 16.2
+        # noted the typed constant inverts this guard the day the bundle is extended.
+        forecast = bool(target > self.last_truth_day)
 
         prov = {
             "model": "tscast-nio-stage1",
@@ -272,7 +334,9 @@ class TSCastPredictor:
             temperature=temp, log_var_t=logvar_deg, valid=valid, seafloor_depth_m=floor,
             provenance=prov, argo_check=None if forecast else argo_check, forecast=forecast,
             salinity=sal, log_var_s=log_var_s, density=density, log_var_rho=log_var_rho,
-            calibration=self.calibration)
+            calibration=self.calibration,
+            last_truth_date=str(self.last_truth_day),
+            last_argo_date=None if self.last_argo_day is None else str(self.last_argo_day))
 
     def _argo_check_for(self, lat: float, lon: float, target, temp) -> dict | None:
         """Nearest INDEPENDENT float beside the prediction -- or None, meaning genuinely none near.

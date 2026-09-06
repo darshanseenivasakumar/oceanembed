@@ -215,3 +215,32 @@ def test_the_real_daily_split_loses_five_of_three_hundred_and_four_targets():
     kept = D.embargo_indices(tr, 11, int(te.min()))
     assert len(kept) == 299, "expected 5 of 304 training days embargoed at T_SEQ=11"
     assert str(times[kept.max()]) == "2026-03-26"
+
+
+# ── the window must be exactly T_SEQ steps, so T_SEQ must be odd (audit 2026-09-06) ─────
+#
+# `_window` takes T_SEQ // 2 steps each side of the target, so an even T_SEQ silently builds a
+# window ONE STEP LONGER than asked (10 -> 11) and nothing complains. Refusing is the only honest
+# behaviour: a "10-day" model that actually read 11 days would carry the wrong number into every
+# artifact that records T_SEQ.
+
+def test_an_even_t_seq_is_refused_rather_than_silently_widened():
+    surface, temp, times, land, ch = _toy(n_t=12)
+    for bad in (10, 2, 0):
+        with pytest.raises(ValueError, match="odd"):
+            D.GriddedPatches(surface, temp, times, land, ch, np.arange(len(times)), t_seq=bad, p=5)
+
+
+def test_odd_windows_have_exactly_t_seq_steps():
+    surface, temp, times, land, ch = _toy(n_t=40)
+    for t_seq in (1, 3, 11):
+        ds = D.GriddedPatches(surface, temp, times, land, ch, np.arange(len(times)), t_seq=t_seq, p=5)
+        assert len(ds._window(20)) == t_seq, f"T_SEQ={t_seq} built a {len(ds._window(20))}-step window"
+
+
+def test_config_sanity_check_requires_an_odd_window(monkeypatch):
+    monkeypatch.setattr(config, "T_SEQ", 10)
+    with pytest.raises(AssertionError, match="odd"):
+        config.sanity_check()
+    monkeypatch.setattr(config, "T_SEQ", 11)
+    config.sanity_check()

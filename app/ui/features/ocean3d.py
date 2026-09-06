@@ -158,7 +158,7 @@ def render(ctx) -> None:
                 d26_med = float(np.nanmedian(d26))
 
         fig = go.Figure(data=data)
-        fig.update_layout(**theme.plotly_layout(600),
+        fig.update_layout(**theme.plotly_layout(520),
                           scene=theme.scene_axes("longitude (°E)", "latitude (°N)",
                                                  "depth (m, negative = down)",
                                                  volume.aspect_ratio(zx)))

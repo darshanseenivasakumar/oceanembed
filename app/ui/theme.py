@@ -208,8 +208,12 @@ def scene_axes(x: str, y: str, z: str, aspect: dict) -> dict:
         aspectratio=dict(x=aspect["x"], y=aspect["y"], z=aspect["z"]),
         # Oblique and CLOSE. Far-away default framing left the basin as a small block in a
         # large empty canvas; a low eye also reads as a volume rather than a map.
-        camera=dict(eye=dict(x=1.35, y=-1.5, z=0.52),
-                    center=dict(x=0, y=0, z=-0.08)),
+        # Eye distance ~1.35, not ~2.1. The scene box is wide and flat (x=1, y=0.42,
+        # z=0.35*stretch), so a default-distance camera framed it as a small block adrift in a
+        # large empty canvas. Pulled in until the basin fills the plot; still oblique, because
+        # top-down reads as a map and the whole point is that this is a volume.
+        camera=dict(eye=dict(x=0.92, y=-1.02, z=0.36),
+                    center=dict(x=0, y=0, z=-0.05)),
     )
 
 

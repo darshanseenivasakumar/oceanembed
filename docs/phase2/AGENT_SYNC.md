@@ -3901,3 +3901,158 @@ The INCOIS check inside it may report `CERTIFICATE_VERIFY_FAILED`. That is a loc
 problem, **not** evidence about INCOIS — the script says so itself rather than blaming the host.
 `scripts/phase2/probe_incois_las.py` is the maintained probe for that server and reached it on
 2026-09-02.
+
+---
+
+## A29 — 2026-09-06 — ARJHUN — the three stranded novelty features are now in the instrument
+
+The one-page instrument (`app/ui/main.py`, port 8500) carried eight features. The three that were
+still only on their own ports were, disproportionately, the **novelty** ones. They are in now:
+
+| was | now |
+|---|---|
+| cloud dropout, port 8515 | **Cloud cover** — "What the monsoon costs" |
+| physics/consistency, inside port 8505 | **Profile shape** — "Does the shape survive?" |
+| cyclone case study, port 8517 | **Cyclone wake** — "Was the fuel actually spent?" |
+
+All three standalone pages still run and are **byte-unchanged** — `git status` on `app/phase2/`
+and `src/` is empty. Nothing of yours was edited.
+
+One command to see it:
+
+```bash
+.venv/Scripts/python.exe -m streamlit run app/ui/main.py --server.port 8500
+```
+
+The rail is now grouped **SEE IT / PROVE IT / STRESS IT**. That grouping is doing work beyond
+layout: it says the last three are the model being *attacked*, not displayed.
+
+### The wake is PRECOMPUTED, and that was not a shortcut
+
+[VERIFIED] A passage-relative wake costs one whole-basin reconstruction per storm-day either
+side. `wake()` unions the peak date to 15 for SHAKHTI, and `app/phase2/_fields.py` caps its cache
+at `MAX_CACHED_FIELDS = 6` — so the three case-study panels then re-reconstruct two evicted dates.
+About **17 fields, ~9 minutes on CPU**, against a caption promising 7 min 28 s. That is not
+something to do in front of a judge.
+
+`scripts/phase2/run_cyclone_wake.py` now computes all four usable storms once and writes
+`artifacts/cyclone_wake_<sid>.{json,npz}`. The feature renders that behind a **CACHED** chip
+naming the storm, the reconstruction count and the device. Measured: 48 reconstructions, **6.0 min
+total on CUDA**, ~8.5 s each.
+
+[VERIFIED] All four resolve a cold wake. SHAKHTI reproduces A26 exactly:
+
+```
+                     passage-relative              one fixed pair
+SHAKHTI    -4.26 kJ/cm2   11/12 (92%)      -0.18 kJ/cm2    7/12 (58%)
+MONTHA    -18.10          16/16 (100%)    -13.17          15/16 (94%)
+DITWAH    -11.89           9/9  (100%)     -9.88           8/9  (89%)
+UNNAMED    -4.76           3/3  (100%)     -2.20           2/3  (67%)
+```
+
+### A correction to something I have said before
+
+I have described the fixed-pair understatement as "more than 2x". **That is wrong.** 2x is the
+assertion *floor* in `tests/phase2/test_cyclone.py:169`, not the measurement. The measured gap on
+SHAKHTI is **−0.18 → −4.26, a factor of about 24**. Quote the two numbers, never the ratio.
+
+### One bug the script found before it could bite
+
+`usable_storms()` initially filtered on box and intensity but **not on the model's date window**.
+IBTrACS' last-3-years file starts in 2023, so it returned MICHAUNG, MIDHILI, FENGAL and ASNA —
+2023 and 2024 storms the bundle has no fields for at all. Every date would have skipped, and the
+feature would have rendered a storm with no evaluable points and called it a null wake. It now
+takes its window from `FC.available_dates(stage=1)` and returns exactly the four the probe found.
+
+### F6 (buoy time-axis validation) — re-probed today, still blocked
+
+Read-only, wrote nothing:
+
+```
+OK   200    1.9s   ERDDAP catalogue    data.pmel.noaa.gov .../pmelTaoDyT.das
+FAIL        44.0s  ERDDAP DATA LAYER   WinError 10060, connection timed out
+OK   200    2.3s   OSMC info           osmc.noaa.gov
+```
+
+Identical shape to A28 — catalogue healthy, data layer unreachable — but confirmed on a day this
+machine demonstrably had working network (it pulled 670 KB from a CDN an hour earlier). So it is
+the NOAA data layer or the route to it, not our connectivity. **The ask from A28 still stands**:
+if `probe_buoys.py` reaches the data layer from your network, F6 becomes buildable and it is the
+only genuinely novel claim of the nine.
+
+### Two things now on screen for the first time
+
+- **`physics_loss_sweep.json` had no UI consumer at all.** The gradient-loss null result was
+  script-only evidence. It is now rendered beside the measurement that explains it: the
+  thermocline is at **100.6%** of observed gradient, so the loss term was protecting structure
+  that never needed protecting. Cause then consequence, on one screen.
+- **`gradient_ratio_whole_column` (0.833)** was written but never displayed. It is on screen
+  labelled as the mean over all 14 level pairs, not as a headline.
+
+### Things the pages are built to make hard to get wrong
+
+- `static_stability.applicable` is **false**, and the panel says *not applicable* — never "zero
+  violations", which would claim a check stage 1 never sat.
+- The dropout `spread` is **max − min**, a range; the caption says so rather than implying a
+  standard deviation.
+- SHAKHTI is **60 kt (WMO) and 74 kt (USA)**, 14 kt apart, across a category boundary. Both are
+  shown and neither is presented as the truth. Do not caption this feature "74 kt Category 1".
+- `cold_wake` returns a verdict STRING, and the banner renders that, so a page cannot print
+  "−0.18" under the word "wake".
+
+### Verification
+
+[VERIFIED] `check_novelty_trio()` added to `scripts/phase2/accept.py` and registered in `CHECKS` —
+seven falsification assertions, all passing: the dropout control matches the checkpoint to
+0.00e+00; the curve is still non-monotone; no sweep weight's sign survives three seeds; w=1000
+stays inside the 0.0037 noise floor; `static_stability.applicable` is still false; the thermocline
+ratio is still >0.95; every cached wake carries a string verdict with a weaker naive counterpart.
+
+[VERIFIED] `85 passed, 1 skipped` on `test_launch_ports`, `test_cyclone`, `test_dropout`,
+`test_physics_loss`, `test_panels`. All three features driven in the browser.
+
+### Still open with you, unchanged from A27/A28
+
+1. `scripts/phase2/probe_buoys.py` on your network — F6 is the only feature still blocked.
+2. The unlocked predictor on `cube_page:78`, `physics_page:89`/`:171`, `tscast_page:123`.
+3. The hybrid source question from A22.
+4. The +0.10 °C warm bias from A24 — the cloud-dropout feature now makes the case for it visible:
+   the RMSE "improvement" at 15% masking is that bias cancelling, and a bias correction buys the
+   same 0.0127 °C without discarding any input.
+
+### One stale record, for you to fix rather than me
+
+`PROJECT_RECORD.md:1863` still says the cyclone case study is *"unblocked and specified … no code
+written"*. The code landed in `5fb1636` on 2026-09-05. That file is untracked, so I have not
+touched it.
+
+### One thing to check before the demo laptop is built — THESE ARTIFACTS MUST TRAVEL
+
+All three new features read artifacts, and `/artifacts/*` is gitignored with a small whitelist.
+None of these four sets is tracked, so **on a fresh clone all three features show "not on this
+machine"** rather than the finding:
+
+```
+artifacts/cloud_dropout.json          24 KB   Cloud cover
+artifacts/physical_consistency.json    4 KB   Profile shape
+artifacts/physics_loss_sweep.json      3 KB   Profile shape
+artifacts/cyclone_wake_*.json         ~6 KB each, 4 files    Cyclone wake
+artifacts/cyclone_wake_*.npz         ~265 KB each, 4 files   Cyclone wake (the before/after maps)
+```
+
+About 1.1 MB in total, most of it the four npz map files.
+
+I have NOT whitelisted them in `.gitignore` — that is a shared-policy change and this project
+already moves artifacts by bundle (`README_UNZIP_ME_FIRST.txt`: *"exactly the directories the
+presentation laptop needs"*). So: **add these to the bundle**, or tell me and I will whitelist the
+JSONs, which are the same class and size as `sat_ablation.json` and `mc_calibration.json` that are
+already tracked.
+
+Each feature degrades honestly rather than blankly — it names the exact command that regenerates
+its artifact, e.g.:
+
+```bash
+PYTHONPATH=src .venv/Scripts/python.exe scripts/phase2/run_cyclone_wake.py --device cuda
+```
+
+That one takes 6.0 min on a CUDA machine and about 26 min on CPU.

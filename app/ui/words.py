@@ -26,42 +26,72 @@ TAGLINE = "Subsurface ocean temperature from satellites alone"
 
 # --------------------------------------------------------------------------------- features
 #: (key, short label for the rail, title on the stage, one-line "what am I looking at")
+#: The rail bands, in order. The grouping is not only layout: it tells a reader that the last
+#: three are the model being ATTACKED, not displayed — which is the part a domain judge cares
+#: about and the part most dashboards do not have.
+BANDS = ("SEE IT", "PROVE IT", "STRESS IT")
+
+#: (key, rail label, stage title, one-line "what am I looking at", band)
 FEATURES = [
     ("ocean3d", "3-D Ocean",
      "The basin in three dimensions",
-     "One reconstructed volume. The cyan sheet is the 26 °C layer — the fuel a cyclone burns."),
+     "One reconstructed volume. The cyan sheet is the 26 °C layer — the fuel a cyclone burns.",
+     "SEE IT"),
     ("clickpoint", "Click a point",
      "Any pixel, all the way down",
-     "Click the sea. The model returns the full temperature profile beneath that point."),
+     "Click the sea. The model returns the full temperature profile beneath that point.",
+     "SEE IT"),
     ("confidence", "Confidence",
      "Temperature, and how much to trust it",
-     "Colour is temperature. Fade is doubt — vivid where the model is sure."),
-    ("cyclone", "Cyclone heat",
-     "The heat a storm can actually reach",
-     "Not surface warmth — the depth of warm water, which is what decides intensification."),
+     "Colour is temperature. Fade is doubt — vivid where the model is sure.",
+     "SEE IT"),
     ("transect", "Transect",
      "A vertical slice through the ocean",
-     "Cut the basin along a line and look at the wall of water it exposes."),
+     "Cut the basin along a line and look at the wall of water it exposes.",
+     "SEE IT"),
     ("acoustics", "Sound",
      "How far sound carries, and where it bends",
-     "Sound speed follows temperature. A temperature model is therefore an acoustics model."),
+     "Sound speed follows temperature. A temperature model is therefore an acoustics model.",
+     "SEE IT"),
+
     ("validation", "Validation",
      "Checked against floats it never saw",
-     "962 independent Argo profiles. Every number below is measured, not claimed."),
+     "Independent Argo profiles the model never trained on. Measured, not claimed.",
+     "PROVE IT"),
+    ("cyclone", "Cyclone heat",
+     "The heat a storm can actually reach",
+     "Not surface warmth — the depth of warm water, which is what decides intensification.",
+     "PROVE IT"),
     ("priority", "Where to measure next",
      "Where another measurement would teach the model most",
-     "High model doubt meeting an energetic ocean. A suggestion, not an instruction."),
+     "High model doubt meeting an energetic ocean. A suggestion, not an instruction.",
+     "PROVE IT"),
+
+    ("wake", "Cyclone wake",
+     "Was the fuel actually spent?",
+     "A real storm's track over the reconstructed heat. It was never taught that storms cool "
+     "the ocean.",
+     "STRESS IT"),
+    ("cloud", "Cloud cover",
+     "What the monsoon costs",
+     "Infrared cannot see through cloud. This blanks the input on purpose and measures the loss.",
+     "STRESS IT"),
+    ("shape", "Profile shape",
+     "Does the shape survive, not just the values?",
+     "RMSE scores each depth alone. This asks whether the structure between them is real.",
+     "STRESS IT"),
 ]
 
-#: Features that stay on their own ports for now, linked rather than rebuilt.
+#: Features that stay on their own ports for now, linked rather than rebuilt. Cloud dropout,
+#: the cyclone case study and the physics/consistency panel have moved INTO the instrument and
+#: are gone from this list -- their standalone pages still run, they are just no longer the only
+#: way to see them.
 ELSEWHERE = [
     ("Ocean structure", 8505, "mixed layer, thermocline, barrier layer"),
     ("Ocean events", 8506, "eddies, fronts, upwelling"),
     ("TS-Cast v2", 8507, "the model's own report card"),
     ("Validate live", 8508, "one point against the nearest real float"),
     ("Collocation", 8502, "how a grid cell is matched to a float"),
-    ("Cloud dropout", 8515, "what the monsoon costs the model"),
-    ("Cyclone case study", 8517, "a real storm's cold wake"),
     ("Phase-1 demo", 8501, "the original frozen system"),
 ]
 
@@ -131,6 +161,63 @@ EXPLAIN = {
         "feed a tropical cyclone; below it, it is not.\n\n"
         "A deep 26 °C layer means a storm churning the surface still pulls up warm water, so it "
         "keeps intensifying. A shallow one means it cools itself and weakens."),
+    # ---- stress-test features
+    "masking": (
+        "How the blanking works",
+        "A fraction of ocean pixels is deleted from the **sea surface temperature** input before "
+        "the model sees it, then the model is scored against the same Argo floats as the "
+        "headline.\n\n"
+        "Only SST is blanked. Salinity comes from microwave and sea level from altimetry, and "
+        "neither is blinded by cloud. Pixels are chosen at random and independently each day."),
+    "biasfinding": (
+        "Why the dip is not good news",
+        "Accuracy appears to **improve** when the first 15% of SST is deleted. That is not the "
+        "model coping — it is two errors cancelling.\n\n"
+        "The model runs slightly warm. A deleted pixel arrives at the model as *average water*, "
+        "which pulls its answer cooler. So deleting a little data cancels the warm bias and the "
+        "error drops. The bias crosses zero at almost exactly the point where the error "
+        "bottoms out.\n\n"
+        "The honest use of this is as **evidence for a bias correction** — which would buy the "
+        "same accuracy without throwing away any input at all."),
+    "gradient": (
+        "What a gradient ratio is",
+        "Error scores each of the 15 depths on its own. A model could hit every depth to within "
+        "a degree while smearing a sharp temperature step into a gentle slope — and error would "
+        "never notice.\n\n"
+        "This measures the **steepness** of the profile instead: how fast temperature changes "
+        "with depth, predicted against observed. **1.0** means exactly as steep as the real "
+        "ocean. Below 1.0 means the model is smoothing."),
+    "negative": (
+        "Why show a failed experiment?",
+        "Because it is evidence, and because the reason it failed is the interesting part.\n\n"
+        "A loss term was built to stop the model smoothing the thermocline. It did not help — "
+        "and the measurement beside it says why: the thermocline was **never smoothed**, so "
+        "there was nothing to protect.\n\n"
+        "It also shows the discipline. One seed suggested a win; three seeds showed the sign "
+        "flipping. A result that does not survive a reseed is not a result."),
+
+    # ---- cyclone wake
+    "storm": (
+        "The storm",
+        "Real tracks from **IBTrACS v04r01** (NOAA NCEI), filtered to storms that cross this "
+        "grid, reach at least tropical-storm strength, and fall inside the model's date "
+        "window.\n\n"
+        "Results are precomputed: a wake costs about fifteen whole-basin reconstructions, so it "
+        "is run once by a script and displayed from the saved result."),
+    "passagerelative": (
+        "Why passage-relative?",
+        "A storm takes days to cross the basin. If you compare one 'before' date against one "
+        "'after' date, you ask the wrong question nearly everywhere: water hit on day 1 has "
+        "already recovered by the after date, while water hit on day 6 has a fresh wake.\n\n"
+        "Measuring **each point against its own passage time** asks the right question at every "
+        "point. Both numbers are shown together, because the gap between them is the finding."),
+    "wind": (
+        "Which wind speed?",
+        "Agencies disagree. The WMO figure and the US figure can differ by enough to place the "
+        "same storm in **different categories**.\n\n"
+        "Both are shown and neither is presented as the truth. Recent seasons are also marked "
+        "PROVISIONAL in the archive, which means the intensities may still be revised."),
+
     "floats": (
         "Argo floats",
         "Green points mark real Argo floats that surfaced within five days of this date, each "

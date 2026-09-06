@@ -559,3 +559,22 @@ is year-granular and overwrites the whole year npz; `download_wind_daily.downloa
 module constants; `build_daily_wind` has no incremental path; `inference.forecast` compares against a
 hardcoded `LAST_GLORYS` so **the guard inverts** once the bundle extends; `verify_sat_bundle`
 hard-fails without a matching GLORYS year. The bundle is 74 days stale and SSS lag (~6 d) binds.
+
+## 2026-09-06 — the three stranded novelty features move into the instrument
+
+Cloud dropout, the physics/consistency measurement and the cyclone case study were the three
+spec features still reachable only on their own ports. They are now features in the one-page
+instrument on 8500, which is grouped SEE IT / PROVE IT / STRESS IT.
+
+The wake is PRECOMPUTED by `scripts/phase2/run_cyclone_wake.py` into
+`artifacts/cyclone_wake_<sid>.{json,npz}` and rendered behind a CACHED chip. Live it costs about
+17 whole-basin reconstructions (~9 min CPU) once the 6-entry field cache evicts; precomputed it
+is 48 reconstructions for all four storms in 6.0 min on CUDA, once.
+
+All four usable storms resolve a cold wake. SHAKHTI reproduces A26 exactly: -4.26 kJ/cm2 and
+11/12 points cooled passage-relative, against -0.18 and 7/12 for one fixed date pair.
+
+F6 (buoy time-axis validation) re-probed 2026-09-06: NOAA catalogue reachable in ~2 s, data layer
+times out after 44 s. Same shape as A28, on a day the machine had working network. Still blocked.
+
+Ports unchanged. app/phase2/, src/, app/streamlit_app.py and app/panels/ are untouched.

@@ -249,3 +249,11 @@ CSS += """
 .oe-dim { color:#8B9BB4; font-size:12px; }
 </style>
 """
+
+CSS += """
+<style>
+/* Rail band label. Small, dim, letter-spaced -- it groups without competing with the chips. */
+.oe-band { font-size:10px; letter-spacing:.16em; color:#56657F; font-weight:600;
+           margin:2px 0 4px 2px; }
+</style>
+"""

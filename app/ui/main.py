@@ -122,11 +122,41 @@ def _controls() -> Ctx:
     return Ctx(date, source, "cuda" if gpu else None, 1, version)
 
 
+BANDS = C.BANDS
+BAND_OF = {f[0]: f[4] for f in C.FEATURES}
+IN_BAND = {b: [f[0] for f in C.FEATURES if f[4] == b] for b in BANDS}
+
+
+def _picked(band: str) -> None:
+    """Selecting in one band clears the others.
+
+    Three independent `st.pills` widgets each keep their own state, so without this a click in
+    STRESS IT would leave SEE IT still showing a selection and the rail would claim two active
+    features. The clearing MUST happen in an on_change callback: callbacks run before the script
+    re-executes, and assigning to a widget's session_state after that widget has been
+    instantiated raises StreamlitAPIException.
+    """
+    val = st.session_state.get(f"rail_{band}")
+    if not val:
+        return
+    st.session_state["oe_active"] = val
+    for b in BANDS:
+        if b != band:
+            st.session_state[f"rail_{b}"] = None
+
+
 def _rail() -> str:
-    sel = st.pills("Feature", KEYS, default=st.session_state.get("g_feature", KEYS[0]),
-                   format_func=lambda k: LABELS[k], key="g_feature",
-                   label_visibility="collapsed")
-    return sel or KEYS[0]
+    active = st.session_state.get("oe_active", KEYS[0])
+    cols = st.columns([max(1, len(IN_BAND[b])) for b in BANDS], gap="medium")
+    for band, col in zip(BANDS, cols):
+        keys = IN_BAND[band]
+        with col:
+            st.html(f'<div class="oe-band">{band}</div>')
+            st.pills(band, keys,
+                     default=active if active in keys else None,
+                     format_func=lambda k: LABELS[k], key=f"rail_{band}",
+                     on_change=_picked, args=(band,), label_visibility="collapsed")
+    return st.session_state.get("oe_active", KEYS[0])
 
 
 def _elsewhere() -> None:

@@ -784,7 +784,102 @@ def check_viz_foundation() -> tuple[bool, list[str]]:
     return all(c for c, _ in checks), lines
 
 
+def check_novelty_trio() -> tuple[bool, list[str]]:
+    """The three stress-test features, falsified rather than imported.
+
+    Each assertion below is a case where the dashboard would render a well-formed, plausible,
+    WRONG claim -- which is the only kind of failure worth checking here.
+    """
+    import glob
+    import json
+
+    from oceanembed import config as base
+
+    def load(name):
+        p = base.art(name)
+        if not os.path.exists(p):
+            return None
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+
+    checks: list[tuple[bool, str]] = []
+
+    # 1. The cloud-dropout control must reproduce the checkpoint's own RMSE. If it drifts, every
+    #    degradation on that curve is attributable to the harness and the whole feature is void.
+    cd = load("cloud_dropout.json")
+    if cd is None:
+        checks.append((False, "artifacts/cloud_dropout.json is missing"))
+    else:
+        d = abs(cd["control_rmse"] - cd["recorded_rmse"])
+        checks.append((d < 1e-9 and bool(cd["control_agrees"]),
+                       f"dropout control {cd['control_rmse']:.10f} against recorded "
+                       f"{cd['recorded_rmse']:.10f}, delta {d:.2e}"))
+        # The dip is the finding. If the curve ever became monotone the page's whole argument
+        # would be wrong, and a monotone curve is exactly what a reader expects to see.
+        a = cd["analysis"]
+        checks.append((a["rmse_at_minimum"] < cd["control_rmse"],
+                       f"the curve is still non-monotone: min {a['rmse_at_minimum']:.4f} at "
+                       f"{a['rmse_minimising_fraction']:.0%} beats the control "
+                       f"{cd['control_rmse']:.4f} -- the bias-cancellation finding stands"))
+
+    # 2. The gradient loss must still fail. A rerun that flipped a sign without anyone noticing
+    #    would leave the page claiming a null result that is no longer null.
+    sw = load("physics_loss_sweep.json")
+    if sw is None:
+        checks.append((False, "artifacts/physics_loss_sweep.json is missing"))
+    else:
+        legs = sw["legs"]
+        held = [w for w, leg in legs.items() if leg["sign_holds"]]
+        checks.append((not held,
+                       f"no weight's sign survives three seeds (control spread "
+                       f"{sw['control_spread']:.4f}); sign_holds true for {held or 'none'}"))
+        w1k = legs.get("1000.0", {})
+        checks.append((abs(w1k.get("mean_delta", 9)) < sw["control_spread"],
+                       f"w=1000's mean delta {w1k.get('mean_delta', float('nan')):+.4f} is still "
+                       f"inside the {sw['control_spread']:.4f} noise floor"))
+
+    # 3. Static stability is NOT APPLICABLE to stage 1. Rendering it as "0 violations" would be
+    #    claiming a check the model never sat, so the flag must stay false.
+    pc = load("physical_consistency.json")
+    if pc is None:
+        checks.append((False, "artifacts/physical_consistency.json is missing"))
+    else:
+        ss = pc.get("static_stability") or {}
+        checks.append((ss.get("applicable") is False,
+                       "static_stability.applicable is False -- the page must say 'not "
+                       "applicable', never 'zero violations'"))
+        checks.append((pc["gradient_ratio_thermocline"] > 0.95,
+                       f"thermocline gradient ratio {pc['gradient_ratio_thermocline']:.1%} -- the "
+                       f"reason the loss term had nothing to fix"))
+
+    # 4. The cached wake must carry a verdict STRING, and the naive contrast must be weaker.
+    #    A page that rendered the naive number under the word "wake" would be the failure.
+    waves = sorted(glob.glob(base.art("cyclone_wake_*.json")))
+    if not waves:
+        checks.append((False, "no artifacts/cyclone_wake_*.json -- run "
+                              "scripts/phase2/run_cyclone_wake.py"))
+    else:
+        ok_all, notes = True, []
+        for p in waves:
+            with open(p, encoding="utf-8") as f:
+                w = json.load(f)
+            rel, nv = w["passage_relative"], w["naive_fixed_pair"]
+            if not rel.get("n_points"):
+                continue
+            good = isinstance(rel.get("verdict"), str)
+            if rel["verdict"] == "cold wake resolved":
+                good = good and abs(nv.get("mean_change", 0)) < abs(rel["mean_change"])
+                notes.append(f"{w['name']}: {rel['mean_change']:+.2f} passage-relative against "
+                             f"{nv.get('mean_change', float('nan')):+.2f} fixed-pair")
+            ok_all = ok_all and good
+        checks.append((ok_all, "; ".join(notes) or f"{len(waves)} cached wake(s), verdicts are "
+                                                   f"strings"))
+
+    return all(c[0] for c in checks), [f"{'ok  ' if c[0] else 'FAIL'} {c[1]}" for c in checks]
+
+
 CHECKS = [
+    ("novelty trio", "phase2.derived.cyclone", check_novelty_trio),
     ("F1 collocation", "phase2.data.collocation", check_f1),
     ("F2b volume", "phase2.cube.volume", check_f2b),
     ("F2a OceanCube", "phase2.cube.ocean_cube", check_f2a),

@@ -27,6 +27,9 @@ MODULES = {
     "acoustics": "acoustics",
     "validation": "validation",
     "priority": "priority",
+    "wake": "wake",
+    "cloud": "cloud",
+    "shape": "shape",
 }
 
 

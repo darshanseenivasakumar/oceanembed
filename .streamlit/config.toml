@@ -1,0 +1,67 @@
+# OceanEmbed — "Deep Ocean Instrument" theme.
+#
+# ONE file themes EVERY port at once: the unified shell on 8500 and all sixteen standalone
+# pages, without editing a byte of any of them. That includes the FROZEN Phase-1 app on 8501,
+# whose file is protected but whose appearance is not -- checked by loading it, not assumed.
+#
+# NO WEBFONTS ON PURPOSE. Streamlit supports [[theme.fontFaces]] pointing at fonts.gstatic.com,
+# but demo halls lose Wi-Fi and a font that fails to load is a layout that reflows in front of a
+# jury. These stacks name Inter and JetBrains Mono first and fall back to fonts that ship with
+# Windows, so the page renders identically with the network unplugged.
+#
+# Palette: ARJHUN_UIUX_BUILD_PROMPT.md section 3.1. Two accents visible at once, never more.
+#   abyss #060B14  deep #0D1526  shelf #141F35  edge #1E2C47
+#   ink   #E6EDF7  ink-dim #8B9BB4
+#   cyan  #22D3EE (primary)  azure #38BDF8 (links)
+#   amber #FB923C (attention)  mint #34D399 (pass)  coral #F87171 (fail)
+
+[theme]
+base = "dark"
+
+primaryColor = "#22D3EE"
+backgroundColor = "#060B14"
+secondaryBackgroundColor = "#0D1526"
+textColor = "#E6EDF7"
+linkColor = "#38BDF8"
+linkUnderline = false
+
+# Depth comes from 1px borders and a one-step background lift, never from shadows --
+# a drop shadow on a dark ground reads as a smudge.
+borderColor = "#1E2C47"
+dataframeBorderColor = "#1E2C47"
+dataframeHeaderBackgroundColor = "#141F35"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "0.625rem"
+buttonRadius = "0.375rem"
+
+codeBackgroundColor = "#0D1526"
+codeTextColor = "#8FE3F5"
+
+# The semantic palette st.success / st.warning / st.error draw from. Tying these to the
+# accent set is what stops an alert being the one un-themed thing on an otherwise dark page.
+greenColor = "#34D399"
+orangeColor = "#FB923C"
+redColor = "#F87171"
+blueColor = "#38BDF8"
+violetColor = "#8C6BB1"
+grayColor = "#8B9BB4"
+
+font = "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif"
+headingFont = "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif"
+codeFont = "'JetBrains Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace"
+
+# 15px body: this is projected in a hall and read from the back row. Nothing below 13px.
+baseFontSize = 15
+metricValueFontSize = "32px"   # STRING, not int: the option is declared as str, and passing an
+                               # int raises TypeError while building the theme message, which
+                               # discards the ENTIRE theme in silence -- every colour above with
+                               # it. Cost 20 minutes to find. See app_session._populate_theme_msg.
+metricValueFontWeight = 500
+
+[theme.sidebar]
+backgroundColor = "#0D1526"
+secondaryBackgroundColor = "#141F35"
+textColor = "#E6EDF7"
+primaryColor = "#22D3EE"
+borderColor = "#1E2C47"

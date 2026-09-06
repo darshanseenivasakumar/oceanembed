@@ -339,6 +339,26 @@
       "env": {
         "PYTHONPATH": "src"
       }
+    },
+    {
+      "name": "oceanembed",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "streamlit",
+        "run",
+        "app/ui/main.py",
+        "--server.port",
+        "8500",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "port": 8500,
+      "env": {
+        "PYTHONPATH": "src"
+      }
     }
   ]
 }

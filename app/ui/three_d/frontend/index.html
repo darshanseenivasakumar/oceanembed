@@ -1,0 +1,438 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0;padding:0;background:#060B14;overflow:hidden;
+            font:13px Inter,-apple-system,'Segoe UI',sans-serif;color:#8B9BB4}
+  #wrap{position:relative;width:100%;height:100%}
+  canvas{display:block}
+  #hud{position:absolute;left:10px;top:10px;pointer-events:none;
+       font-variant-numeric:tabular-nums;line-height:1.55}
+  #hud b{color:#E6EDF7;font-weight:600}
+  .k{color:#22D3EE}
+  #err{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:24px;
+       color:#FB923C}
+  #tip{position:absolute;right:10px;bottom:10px;color:#56657F;font-size:11px;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud"></div>
+  <div id="tip">drag to orbit · wheel to zoom · click the sea for a profile</div>
+  <div id="err"></div>
+</div>
+
+<script src="./vendor/three.min.js"></script>
+<script>
+// ---------------------------------------------------------------- Streamlit bridge
+// st.components.v1.html renders a bare iframe with no way to return a value, so a click could
+// never reach Python. declare_component(path=...) gives a bidirectional iframe; the protocol it
+// speaks is three messages each way and is implemented here directly rather than pulling in the
+// npm component library, which would need a build step for no gain.
+const SL = {
+  send(type, data) {
+    window.parent.postMessage(Object.assign({isStreamlitMessage: true, type}, data), "*");
+  },
+  ready() { this.send("streamlit:componentReady", {apiVersion: 1}); },
+  height(h) { this.send("streamlit:setFrameHeight", {height: h}); },
+  value(v) { this.send("streamlit:setComponentValue", {value: v, dataType: "json"}); }
+};
+
+function fail(msg) {
+  const e = document.getElementById("err");
+  e.style.display = "grid";
+  e.innerHTML = "<div><b>The WebGL view could not start</b><br><br>" + msg +
+                "<br><br>The 2-D and Plotly views below are unaffected.</div>";
+  SL.height(220);
+}
+
+// ---------------------------------------------------------------- helpers
+const b64 = s => { const bin = atob(s); const a = new Uint8Array(bin.length);
+                   for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; };
+
+function lutTexture(bytes) {
+  // 256x1 RGB. The colour map lives on the GPU, so switching palette or field re-uploads a
+  // kilobyte instead of re-sending the volume.
+  const rgba = new Uint8Array(256 * 4);
+  for (let i = 0; i < 256; i++) {
+    rgba[i*4] = bytes[i*3]; rgba[i*4+1] = bytes[i*3+1];
+    rgba[i*4+2] = bytes[i*3+2]; rgba[i*4+3] = 255;
+  }
+  const t = new THREE.DataTexture(rgba, 256, 1, THREE.RGBAFormat);
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+function sliceTexture(bytes, nx, ny) {
+  const t = new THREE.DataTexture(bytes, nx, ny, THREE.RedFormat, THREE.UnsignedByteType);
+  // NEAREST, not linear. Linear filtering would blend the 0 sentinel with real values and paint
+  // a false fringe of "cold water" along every coastline and shelf break. Nearest keeps the
+  // sentinel crisp; the visible blockiness IS the 0.25 deg grid, which is honest.
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+function label(text, color) {
+  const c = document.createElement("canvas"), g = c.getContext("2d");
+  c.width = 256; c.height = 64;
+  g.font = "600 30px Inter, Segoe UI, sans-serif";
+  g.fillStyle = color || "#8B9BB4"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText(text, 128, 32);
+  const t = new THREE.CanvasTexture(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map: t, transparent: true, depthTest: false}));
+  s.scale.set(0.30, 0.075, 1);
+  return s;
+}
+
+// ---------------------------------------------------------------- shaders
+// Sentinel discard is the whole reason this is a custom material: a value of 0 means "no water",
+// and a fragment with no water must not be drawn at all. Painting it any colour -- even a dark
+// one -- would claim the sea floor is cold water rather than absent.
+const VERT = `
+varying vec2 vUv;
+void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
+
+const FRAG = `
+uniform sampler2D slice;
+uniform sampler2D lut;
+uniform float opacity;
+varying vec2 vUv;
+void main(){
+  float v = texture2D(slice, vUv).r;
+  if (v < 0.002) discard;                 // 0/255 == no water: sea floor or land
+  float t = (v * 255.0 - 1.0) / 254.0;    // real values occupy 1..255
+  vec3 c = texture2D(lut, vec2(t, 0.5)).rgb;
+  gl_FragColor = vec4(c, opacity);
+}`;
+
+// ---------------------------------------------------------------- scene
+let renderer, scene, camera, group, planes = [], d26mesh, floatGroup, controls;
+let P = null, state = {exaggeration: 1200, field: "temperature", showFloats: true, autorotate: true};
+let W = 2.303, H = 1.0;          // scene width:height, set from the real geographic aspect
+let firstPaint = null, t0 = performance.now();
+
+// 59.75 deg of longitude at the basin's mean latitude, in metres -- the denominator that turns
+// a chosen vertical extent into a TRUE exaggeration factor. Printed on screen, never implied.
+const BASIN_WIDTH_M = 6328000.0;
+
+function yFor(depth_m) { return -(depth_m / 1000.0) * (W * state.exaggeration / 6328.0); }
+
+function build(p) {
+  P = p;
+  const lonSpan = p.lon1 - p.lon0, latSpan = p.lat1 - p.lat0;
+  const meanLat = (p.lat0 + p.lat1) / 2 * Math.PI / 180;
+  W = 2.0; H = W * (latSpan / (lonSpan * Math.cos(meanLat)));
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x060B14);
+  scene.fog = new THREE.FogExp2(0x060B14, 0.30);
+
+  const el = document.getElementById("wrap");
+  camera = new THREE.PerspectiveCamera(45, el.clientWidth / el.clientHeight, 0.01, 100);
+  renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(el.clientWidth, el.clientHeight);
+  el.appendChild(renderer.domElement);
+
+  scene.add(new THREE.HemisphereLight(0x88aacc, 0x0a1220, 1.1));
+  const key = new THREE.DirectionalLight(0xffffff, 0.55); key.position.set(2, 4, 2);
+  scene.add(key);
+
+  group = new THREE.Group();
+  scene.add(group);
+
+  rebuildPlanes();
+  buildLand();
+  buildD26();
+  buildFloats();
+  buildBox();
+
+  controls = orbit(camera, renderer.domElement);
+  // Framed through the controls, not by setting camera.position: the orbit state is the single
+  // source of truth and the first drag would otherwise snap the camera back to its own defaults.
+  // At 45 deg FOV the visible width is 2*r*tan(22.5); r must exceed W to leave any margin at
+  // all, and r = 2.4 put the camera INSIDE the volume looking out.
+  controls.radius = 2.95;
+  controls.theta = 0.85;
+  controls.phi = 1.08;                 // ~28 deg above the horizon: oblique, not top-down
+  controls.target.set(0, -0.13, 0);
+  controls.apply();
+  animate();
+}
+
+function fieldSpec() { return P.fields[state.field] || P.fields.temperature; }
+
+function rebuildPlanes() {
+  planes.forEach(m => { group.remove(m); m.geometry.dispose(); m.material.dispose(); });
+  planes = [];
+  const spec = fieldSpec();
+  const all = b64(spec.data);
+  const lut = lutTexture(b64(P.luts[spec.ramp]));
+  const per = P.nx * P.ny;
+
+  for (let k = 0; k < P.nz; k++) {
+    const tex = sliceTexture(all.slice(k * per, (k + 1) * per), P.nx, P.ny);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {slice: {value: tex}, lut: {value: lut},
+                 // Low enough to see THROUGH the stack. At 0.92 the surface layer was opaque and
+                 // the volume behind it might as well not have been rendered -- which defeats
+                 // the entire point of drawing fifteen levels instead of one map.
+                 opacity: {value: k === 0 ? 0.46 : 0.26}},
+      vertexShader: VERT, fragmentShader: FRAG,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide
+    });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(W, H), mat);
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = yFor(P.depths[k]);
+    m.renderOrder = 10 + (P.nz - k);      // back-to-front for correct alpha compositing
+    group.add(m); planes.push(m);
+  }
+}
+
+function buildLand() {
+  // Land as a flat dark sheet at the surface. Judges orient by coastline, not by axis ticks.
+  const land = b64(P.land);
+  const rgba = new Uint8Array(P.nx * P.ny * 4);
+  for (let i = 0; i < P.nx * P.ny; i++) {
+    const on = land[i] === 1;
+    rgba[i*4] = 0x1A; rgba[i*4+1] = 0x23; rgba[i*4+2] = 0x33; rgba[i*4+3] = on ? 255 : 0;
+  }
+  const t = new THREE.DataTexture(rgba, P.nx, P.ny, THREE.RGBAFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(W, H),
+    new THREE.MeshBasicMaterial({map: t, transparent: true, depthWrite: false}));
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.0006; m.renderOrder = 40;
+  group.add(m);
+}
+
+function buildD26() {
+  if (d26mesh) { group.remove(d26mesh); d26mesh.geometry.dispose(); }
+  const d = b64(P.d26.data), span = (P.d26.vmax - P.d26.vmin) || 1;
+
+  // A HEIGHTMAP with REAL HOLES, built vertex by vertex in world space.
+  //
+  // The obvious route -- take a PlaneGeometry and displace every vertex -- cannot express "there
+  // is no 26 degC layer here". Pushing those vertices out of frame and relying on a clipping
+  // plane drew them as enormous spikes across the basin, because local clipping is off by
+  // default and the plane's sign was inverted anyway. A quad is emitted ONLY when all four of
+  // its corners have a real crossing, so an absence becomes a hole rather than a shape.
+  const depthAt = q => P.d26.vmin + (q - 1) / 254 * span;
+  const pos = [], idx = [];
+  const vid = new Int32Array(P.nx * P.ny).fill(-1);
+  for (let j = 0; j < P.ny; j++) {
+    for (let i = 0; i < P.nx; i++) {
+      const q = d[j * P.nx + i];
+      if (q === 0) continue;
+      vid[j * P.nx + i] = pos.length / 3;
+      pos.push((i / (P.nx - 1)) * W - W / 2,
+               yFor(depthAt(q)),
+               H / 2 - (j / (P.ny - 1)) * H);
+    }
+  }
+  for (let j = 0; j < P.ny - 1; j++) {
+    for (let i = 0; i < P.nx - 1; i++) {
+      const a = vid[j*P.nx+i], b = vid[j*P.nx+i+1],
+            c = vid[(j+1)*P.nx+i], e = vid[(j+1)*P.nx+i+1];
+      if (a < 0 || b < 0 || c < 0 || e < 0) continue;
+      idx.push(a, c, b, b, c, e);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0x22D3EE, emissive: 0x06323b, transparent: true, opacity: 0.5,
+    side: THREE.DoubleSide, depthWrite: false, shininess: 40
+  });
+  d26mesh = new THREE.Mesh(g, mat);
+  // Composited AMONG the depth planes, not on top of them. Every transparent object here has
+  // depthWrite off, so ordering is painter's algorithm by renderOrder alone -- and at 50 the
+  // sheet was painted over water that physically sits above it, turning the whole basin green.
+  // The median 26 degC depth falls between the 75 m and 100 m levels, which is index 7.
+  d26mesh.renderOrder = 10 + (P.nz - 7);
+  d26mesh.userData.quads = idx.length / 6;
+  group.add(d26mesh);
+}
+
+function buildFloats() {
+  if (floatGroup) group.remove(floatGroup);
+  floatGroup = new THREE.Group();
+  const pts = P.floats || [];
+  const bottom = yFor(P.depths[P.depths.length - 1]);
+  for (const [la, lo] of pts) {
+    const x = (lo - P.lon0) / (P.lon1 - P.lon0) * W - W / 2;
+    const z = -((la - P.lat0) / (P.lat1 - P.lat0) * H - H / 2);
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.006, 8, 8),
+                             new THREE.MeshBasicMaterial({color: 0x34D399}));
+    s.position.set(x, 0.004, z); floatGroup.add(s);
+    const g = new THREE.BufferGeometry().setFromPoints(
+      [new THREE.Vector3(x, 0, z), new THREE.Vector3(x, bottom, z)]);
+    floatGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial(
+      {color: 0x34D399, transparent: true, opacity: 0.28})));
+  }
+  floatGroup.visible = state.showFloats;
+  group.add(floatGroup);
+}
+
+function buildBox() {
+  const old = group.getObjectByName("axes"); if (old) group.remove(old);
+  const axes = new THREE.Group(); axes.name = "axes";
+  const bottom = yFor(P.depths[P.depths.length - 1]);
+  const box = new THREE.Box3(new THREE.Vector3(-W/2, bottom, -H/2),
+                             new THREE.Vector3(W/2, 0, H/2));
+  const helper = new THREE.Box3Helper(box, 0x1E2C47);
+  axes.add(helper);
+
+  // Real tick labels. A 3-D plot without axis labels is decoration, not science.
+  for (let v = 50; v <= 100; v += 10) {
+    const x = (v - P.lon0) / (P.lon1 - P.lon0) * W - W / 2;
+    const s = label(v + "°E"); s.position.set(x, 0.02, H/2 + 0.09); axes.add(s);
+  }
+  for (let v = 10; v <= 25; v += 5) {
+    const z = -((v - P.lat0) / (P.lat1 - P.lat0) * H - H / 2);
+    const s = label(v + "°N"); s.position.set(-W/2 - 0.13, 0.02, z); axes.add(s);
+  }
+  for (const z of [0, 200, 500, 1000]) {
+    const s = label(z + " m"); s.position.set(-W/2 - 0.13, yFor(z), -H/2 - 0.02); axes.add(s);
+  }
+  group.add(axes);
+}
+
+function applyExaggeration() {
+  planes.forEach((m, k) => { m.position.y = yFor(P.depths[k]); });
+  buildD26(); buildFloats(); buildBox();
+}
+
+// ---------------------------------------------------------------- orbit controls
+// Hand-written: three.js dropped examples/js after r148, so vendoring OrbitControls would mean
+// an ESM import map inside an iframe. Sixty lines here is more robust offline and gives exact
+// control over the idle auto-rotate.
+function orbit(cam, dom) {
+  const st = {target: new THREE.Vector3(0, 0, 0), theta: 0.9, phi: 1.02, radius: 2.6,
+              dragging: false, lastX: 0, lastY: 0, idle: 0, vTheta: 0};
+  function apply() {
+    const p = Math.max(0.08, Math.min(Math.PI - 0.08, st.phi));
+    cam.position.set(
+      st.target.x + st.radius * Math.sin(p) * Math.sin(st.theta),
+      st.target.y + st.radius * Math.cos(p),
+      st.target.z + st.radius * Math.sin(p) * Math.cos(st.theta));
+    cam.lookAt(st.target);
+  }
+  dom.addEventListener("pointerdown", e => {
+    st.dragging = true; st.lastX = e.clientX; st.lastY = e.clientY; st.idle = 0;
+    st.moved = 0; dom.setPointerCapture(e.pointerId);
+  });
+  dom.addEventListener("pointermove", e => {
+    if (!st.dragging) return;
+    const dx = e.clientX - st.lastX, dy = e.clientY - st.lastY;
+    st.moved += Math.abs(dx) + Math.abs(dy);
+    st.theta -= dx * 0.005; st.phi -= dy * 0.005;
+    st.lastX = e.clientX; st.lastY = e.clientY; st.idle = 0; apply();
+  });
+  dom.addEventListener("pointerup", e => { st.dragging = false; st.idle = 0; });
+  dom.addEventListener("wheel", e => {
+    e.preventDefault();
+    st.radius = Math.max(0.55, Math.min(9, st.radius * (1 + Math.sign(e.deltaY) * 0.09)));
+    st.idle = 0; apply();
+  }, {passive: false});
+  st.update = dt => {
+    st.idle += dt;
+    // Resume a slow rotation after 8 s of stillness. A turning ocean while the presenter talks
+    // is worth more than any scripted animation, and it stops the instant a hand touches it.
+    if (state.autorotate && !st.dragging && st.idle > 8) { st.theta += 0.15 * dt; apply(); }
+  };
+  st.apply = apply;
+  apply();
+  return st;
+}
+
+// ---------------------------------------------------------------- click -> Python
+function pick(ev) {
+  if (!P || (controls.moved || 0) > 6) return;    // a drag is not a click
+  const r = renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1,
+                                -((ev.clientY - r.top) / r.height) * 2 + 1);
+  const ray = new THREE.Raycaster(); ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObjects(planes, false);
+  if (!hit.length) return;
+  const p = hit[0].point;
+  const lon = P.lon0 + (p.x + W / 2) / W * (P.lon1 - P.lon0);
+  const lat = P.lat0 + (-p.z + H / 2) / H * (P.lat1 - P.lat0);
+  if (lon < P.lon0 || lon > P.lon1 || lat < P.lat0 || lat > P.lat1) return;
+  SL.value({lat: +lat.toFixed(2), lon: +lon.toFixed(2), t: Date.now()});
+}
+
+// ---------------------------------------------------------------- loop
+let last = performance.now();
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+  controls.update(dt);
+  renderer.render(scene, camera);
+  if (firstPaint === null) { firstPaint = now - t0; hud(); }
+}
+
+function hud() {
+  const spec = fieldSpec();
+  const trueX = Math.round(state.exaggeration);
+  document.getElementById("hud").innerHTML =
+    "<b>" + P.date + "</b> &nbsp; <span class='k'>" + state.field + "</span> " +
+    spec.units + "<br>" +
+    "vertical exaggeration <span class='k'>×" + trueX + "</span> &nbsp; a viewing choice<br>" +
+    "water cells <b>" + P.n_water.toLocaleString() + "</b> &nbsp; " +
+    "gaps are the sea floor, not missing data<br>" +
+    "payload <b>" + (P.bytes / 1048576).toFixed(2) + " MB</b> &nbsp; " +
+    "first paint <b>" + (firstPaint / 1000).toFixed(2) + " s</b> &nbsp; " +
+    "quantised to " + P.quant_step_c.toFixed(3) + " °C";
+}
+
+// ---------------------------------------------------------------- Streamlit lifecycle
+let built = false;
+window.addEventListener("message", ev => {
+  if (!ev.data || ev.data.type !== "streamlit:render") return;
+  const a = ev.data.args || {};
+  const h = a.height || 620;
+  document.getElementById("wrap").style.height = h + "px";
+  SL.height(h);
+
+  const changedField = a.field !== state.field;
+  const changedExag = Math.abs((a.exaggeration || 1200) - state.exaggeration) > 0.5;
+  state.field = a.field || "temperature";
+  state.exaggeration = a.exaggeration || 1200;
+  state.showFloats = a.showFloats !== false;
+  state.autorotate = a.autorotate !== false;
+
+  try {
+    if (!built) {
+      if (typeof THREE === "undefined") { fail("three.js did not load, and the vendored copy at vendor/three.min.js was not found."); return; }
+      const probe = document.createElement("canvas");
+      if (!(probe.getContext("webgl2") || probe.getContext("webgl"))) {
+        fail("This browser reports no WebGL context."); return;
+      }
+      build(a.payload); built = true;
+    } else {
+      if (renderer) {
+        const el = document.getElementById("wrap");
+        renderer.setSize(el.clientWidth, el.clientHeight);
+        camera.aspect = el.clientWidth / el.clientHeight; camera.updateProjectionMatrix();
+      }
+      if (changedField) rebuildPlanes();
+      if (changedExag) applyExaggeration();
+      if (floatGroup) floatGroup.visible = state.showFloats;
+      hud();
+    }
+    renderer.domElement.onclick = pick;
+  } catch (e) {
+    fail(String(e && e.message ? e.message : e));
+  }
+});
+
+SL.ready();
+</script>
+</body>
+</html>

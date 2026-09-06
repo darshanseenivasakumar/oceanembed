@@ -131,6 +131,19 @@ EXPLAIN = {
         "feed a tropical cyclone; below it, it is not.\n\n"
         "A deep 26 °C layer means a storm churning the surface still pulls up warm water, so it "
         "keeps intensifying. A shallow one means it cools itself and weakens."),
+    "floats": (
+        "Argo floats",
+        "Green points mark real Argo floats that surfaced within five days of this date, each "
+        "with a thin line dropping to 1000 m for the dive it made.\n\n"
+        "They show **where independent observation exists**. They are not being compared against "
+        "the model here — that comparison is scored in Validation, where it can be checked."),
+    "renderer": (
+        "Renderer",
+        "**auto** uses WebGL: fifteen depth layers, the 26 °C surface as a real mesh, land, and "
+        "orbiting at 60 fps.\n\n"
+        "**Plotly** and **2-D** are the fallbacks, and they are selectable on purpose. A machine "
+        "with no WebGL drops to them automatically — and a fallback nobody has ever looked at is "
+        "a fallback nobody knows is broken."),
     "seafloor": (
         "The gaps are the sea floor",
         "Empty regions are **not missing data**. They are places where there is no water at that "

@@ -169,6 +169,8 @@ def rescore(tag: str, daily_dir: str, t_seq: int, test_samples: int,
         clim=clim_at[keep], reference="argo")
     return {"metrics": m, "calibration": cal, "by_basin": by_basin,
             "argo_profiles": int(keep.sum()), "scoring_protocol": protocol,
+            "train_years": D.years_in(d["times"], tr_t),
+            "test_years": D.years_in(d["times"], te_t),
             "refusals": refusals, "ckpt_path": ckpt_path, "ck_meta": {
                 k: v for k, v in ck.items() if k != "state_dict"}}
 
@@ -239,6 +241,12 @@ def write_rescore(tag: str, daily_dir: str, got: dict) -> str:
                             "promoted_at", "promotion_note", "promoted_metrics_source",
                             "scoring_protocol", "refusals")}
     payload.update({
+        # Re-derived here too: a re-score copies the training JSON wholesale, so a run made before
+        # audit #19 would carry its wrong years forward into a fresh artifact.
+        "train_years": got["train_years"],
+        "test_years": got["test_years"],
+        "years_note": ("the calendar years the split covers, derived from it, not the monthly "
+                       "archive's TRAIN_YEARS/TEST_YEARS constants (audit #19)."),
         "metrics": got["metrics"],
         "calibration": got["calibration"],
         "by_basin": got["by_basin"],

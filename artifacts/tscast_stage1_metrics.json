@@ -105,12 +105,11 @@
   "train_samples": 60000,
   "train_seconds": 550.7,
   "train_years": [
-    2019,
-    2020,
-    2021
+    2025,
+    2026
   ],
   "test_years": [
-    2022
+    2026
   ],
   "argo_profiles": 963,
   "max_days_offset": 5,
@@ -135,6 +134,7 @@
   "code_commit": "a67feea",
   "input_source": "satellite",
   "input_source_note": "BACKFILLED 2026-09-02 from the bundle this run names in daily_dir (data/processed/daily_sat/v001), which declares it. train_stage1 did not write this field until today, so runs before then are silent about what fed the encoder. Derived from the artifact, not remembered.",
+  "years_note": "the calendar years the split covers, derived from it, not the monthly archive's TRAIN_YEARS/TEST_YEARS constants (audit #19).",
   "metrics": {
     "depths_m": [
       0,
@@ -943,11 +943,11 @@
   "checkpoint_sha256": "53848bb52533752d15a4e25f6e0fb038297bd32671606b290dd0260e991441ae",
   "rescored_from": "tscast_stage1_sat_7ch_s42_metrics.json",
   "training_code_commit": "a67feea",
-  "rescore_code_commit": "7b56f4d",
-  "rescored_at": "2026-09-07T19:27:10",
+  "rescore_code_commit": "42ed663",
+  "rescored_at": "2026-09-07T21:41:44",
   "rescore_note": "The SAME checkpoint bytes as tscast_stage1_sat_7ch_s42.pt, scored under seafloor_masked_v2 by scripts/phase2/rescore_checkpoint.py. The training-run JSON (tscast_stage1_sat_7ch_s42_metrics.json) is unchanged and remains the record under its own protocol. `code_commit` is the training commit; the scoring code is `rescore_code_commit`.",
   "promoted_from": "sat_7ch_s42",
   "promoted_metrics_source": "tscast_stage1_sat_7ch_s42_rescore_seafloor_masked_v2.json",
-  "promoted_at": "2026-09-07T19:30:31",
+  "promoted_at": "2026-09-07T21:41:46",
   "promotion_note": "This is the SHIPPED model. It is a copy of the tagged experiment named in `promoted_from`, which remains on disk unchanged. Retraining does NOT update this file: promote again to ship a new run."
 }

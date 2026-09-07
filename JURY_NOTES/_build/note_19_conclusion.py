@@ -35,7 +35,7 @@ def build_note(path):
     s.append(kvstrip([
         ("Shipped RMSE", "0.9063 degC"),
         ("PS audit", "16 pass / 0 fail / 1 blocked"),
-        ("Tests", "925 passing, 9 skipped"),
+        ("Tests", "1060 passing, 10 skipped"),
         ("Working surfaces", "17, one port each"),
     ]))
 
@@ -69,7 +69,7 @@ def build_note(path):
          "<b>17 working surfaces</b> - validation, physics, events, 3-D cube, transect, acoustics, "
          "cyclone heat, case study, export, API, uncertainty, robustness and observation priority."],
         ["Verification machinery",
-         "<b>925 tests passing</b>, an <b>18-check freeze</b> on the shipped artifact, a "
+         "<b>1060 tests passing</b>, an <b>18-check freeze</b> on the shipped artifact, a "
          "<b>44-check</b> satellite-bundle verifier including a negative test that injects "
          "reanalysis and confirms it is caught, and a <b>17-row PS audit</b> that opens an artifact "
          "per clause."],

@@ -1075,3 +1075,38 @@ run artifacts (`tscast_stage1_mask_7ch_s4{2,3,4}.pt` + metrics) are on disk, not
 at the mean both z-score to 0.0 and only the mask separates them; land and off-grid marked
 absent; appended not interleaved; the helper; the guard in both directions; a legacy checkpoint
 without the field still loads; and the real-data pin of the 5.5% and the 798.
+
+---
+
+## 2026-09-07 — Audit #19: the shipped metrics file said the wrong era; and the test count is now measured
+
+**#19.** `train_stage1` wrote `train_years: list(base.TRAIN_YEARS)` and `test_years:
+list(base.TEST_YEARS)` on every run — the Phase-1 MONTHLY constants, `[2019, 2020, 2021]` and
+`[2022]`. So `artifacts/tscast_stage1_metrics.json` claimed the shipped model trained on 2019-21
+and was tested on 2022, three lines above a `train_period` of `2025-06-01..2026-03-26` saying
+otherwise. Nothing reads the fields back (checked across `src/`, `scripts/`, `app/`, `tests/`), so
+no published number moved: the artifact was lying about itself, which is the defect class an
+unnamed scoring protocol belonged to.
+
+`dataset.years_in(times, indices)` derives the calendar years a split actually covers.
+`train_stage1` and `rescore_checkpoint` both use it and both write a `years_note` saying the
+constants do not describe a daily run. The deliverable was re-scored and re-promoted: it now reads
+`train_years [2025, 2026]`, `test_years [2026]`. All twelve current-protocol re-scores were re-run
+and all twelve still agree with their records to 4 dp, so only the metadata moved.
+
+**The 46 historical training JSONs are deliberately NOT rewritten.** They record what the code
+wrote when they ran; correcting them in place would falsify the record of an experiment, the same
+reason `unmasked_v1` and `seafloor_masked_v1` scores are kept under their own names. The guard is
+scoped by `years_note` — the mark the fixed writer leaves — and anchored by a separate test that
+what actually SHIPS carries the note and the right years, so the scoping cannot hide a regression.
+
+**The test count.** The conclusion note said "925 passing, 9 skipped" in two places; the suite
+reported 1055 passed / 10 skipped on the merged branch and collects 1070 with the tests added here.
+Retyping it would only restart the drift, so `test_the_conclusion_note_states_the_real_test_count`
+asserts `passing + skipped == len(request.session.items)` on any full-suite run and skips on a
+targeted one, where the collected count says nothing. The note now reads **1060 passing, 10
+skipped**, and the PDFs are rebuilt.
+
+**Tests.** `tests/phase2/test_artifact_self_description.py`, 6: `years_in` on a synthetic axis and
+on the shipped bundle; no fixed-writer record contradicts its own split; the promoted deliverable
+carries the note, the years and the period; and the count guard with its full-run gate.

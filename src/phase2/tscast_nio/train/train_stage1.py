@@ -557,7 +557,13 @@ def main():
         "checkpoint_is": "the BEST held-out epoch, not the last -- this run overfits after a handful of epochs",
         "lr": a.lr, "batch_size": a.batch_size,
         "train_samples": len(ds_tr), "train_seconds": round(secs, 1),
-        "train_years": list(base.TRAIN_YEARS), "test_years": list(base.TEST_YEARS),
+        # DERIVED from the split that ran, never the Phase-1 constants: a daily run splits by
+        # date, and copying base.TRAIN_YEARS made every daily artifact claim 2019-21 / 2022
+        # three lines above a train_period that said 2025-26 (audit #19).
+        "train_years": D.years_in(d["times"], tr_t),
+        "test_years": D.years_in(d["times"], te_t),
+        "years_note": ("the calendar years the split covers, derived from it. The monthly "
+                       "archive's TRAIN_YEARS/TEST_YEARS constants do not describe a daily run."),
         "argo_profiles": int(keep.sum()), "max_days_offset": MAX_DAYS,
         "scoring_protocol": EA.SCORING_PROTOCOL, "refusals": refusals,
         "argo_table": (EA.argo_table_provenance(argo_path) if a.data == "daily" else None),

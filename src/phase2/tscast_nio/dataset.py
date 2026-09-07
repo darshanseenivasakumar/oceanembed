@@ -32,6 +32,17 @@ from oceanembed.utils import grids
 from phase2.tscast_nio import config
 
 
+def years_in(times, indices) -> list[int]:
+    """The calendar years a set of target indices actually covers, ascending.
+
+    `base.TRAIN_YEARS` / `TEST_YEARS` are the PHASE-1 monthly constants. A daily run splits by
+    DATE, not by year, so copying those constants into a run's record made every daily artifact
+    claim it trained on 2019-21 and tested on 2022 (audit #19). Derive instead.
+    """
+    t = np.asarray(times, dtype="datetime64[D]")[np.asarray(indices, dtype=int)]
+    return sorted({int(str(x)[:4]) for x in t})
+
+
 def input_channels(channels, mask_channels: bool) -> int:
     """How many channels the encoder receives: the values, plus a presence mask per value when
     `mask_channels` is on. Every place that builds a TSCastNIO from a checkpoint must use this

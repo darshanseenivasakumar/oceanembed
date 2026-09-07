@@ -36,7 +36,11 @@ from phase2.derived import mhw_field as mf
 from phase2.tscast_nio.field import predict_field
 from phase2.tscast_nio.inference import TSCastPredictor
 
-MODEL_CKPT = "artifacts/tscast_stage1_7ch.pt"          # GLORYS-input comparator (runs here)
+#: Default when nothing is passed: the GLORYS-input comparator this script was written against.
+#: It does not exist on every machine -- pass --checkpoint to run the SATELLITE deliverable leg,
+#: which is the one the problem statement asks about. The cache and output are derived from the
+#: checkpoint so the two legs can never overwrite each other's numbers (added 2026-09-07).
+MODEL_CKPT = "artifacts/tscast_stage1_7ch.pt"          # GLORYS-input comparator
 CACHE = "artifacts/mhw_model_field_glorys.npz"
 OUT = "artifacts/mhw_comparison.json"
 
@@ -49,18 +53,31 @@ def _load_truth():
     return temp, times, d25["land_mask"], d25["valid_mask"]
 
 
-def _model_field(times, days: int):
+def _leg_paths(ckpt: str) -> tuple[str, str, str]:
+    """(cache, out, leg label) for a checkpoint, so the satellite and GLORYS legs stay separate."""
+    import torch as _t
+    from phase2.tscast_nio.dataset import bundle_for_checkpoint
+    meta = _t.load(ckpt, map_location="cpu", weights_only=False)
+    bundle, how = bundle_for_checkpoint(meta, ckpt)
+    sat = "daily_sat" in str(bundle)
+    tag = "satellite" if sat else "glorys"
+    leg = (f"SATELLITE-INPUT -- the PS deliverable leg. Bundle {bundle} ({how})." if sat else
+           f"GLORYS-INPUT comparator, NOT the satellite deliverable. Bundle {bundle} ({how}).")
+    return (f"artifacts/mhw_model_field_{tag}.npz", f"artifacts/mhw_comparison_{tag}.json", leg)
+
+
+def _model_field(times, days: int, ckpt: str = MODEL_CKPT, cache: str = CACHE):
     """Model temperature for the first `days` dates, GPU if available, cached to disk (resumable)."""
     dates = [str(np.datetime64(t, "D")) for t in times[:days]]
-    if os.path.exists(CACHE):
-        z = np.load(CACHE, allow_pickle=True)
+    if os.path.exists(cache):
+        z = np.load(cache, allow_pickle=True)
         if int(z["n"]) >= days:
-            print(f"[cache] reusing model field for {days} days from {CACHE}", flush=True)
+            print(f"[cache] reusing model field for {days} days from {cache}", flush=True)
             return z["temp"][:days]
-    p = TSCastPredictor(checkpoint=MODEL_CKPT)
+    p = TSCastPredictor(checkpoint=ckpt)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     p.model.to(dev)                                     # move MODEL to gpu (the 5x speedup)
-    print(f"[model] {MODEL_CKPT} on {dev}; inferring {days} days ...", flush=True)
+    print(f"[model] {ckpt} on {dev}; inferring {days} days ...", flush=True)
     out = np.full((days, config.N_LAT, config.N_LON, config.N_DEPTHS), np.nan, dtype="float32")
     t0 = time.time()
     for k, d in enumerate(dates):
@@ -69,14 +86,23 @@ def _model_field(times, days: int):
             el = time.time() - t0
             print(f"[model] {k+1}/{days}  {el/ (k+1):.1f}s/day  eta {el/(k+1)*(days-k-1)/60:.0f} min",
                   flush=True)
-    np.savez_compressed(CACHE, temp=out, n=days)
+    np.savez_compressed(cache, temp=out, n=days)
     return out
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=388, help="first N consecutive days (default all 388)")
+    ap.add_argument("--checkpoint", default=MODEL_CKPT,
+                    help="model to run. Pass artifacts/tscast_stage1.pt for the SATELLITE "
+                         "deliverable leg; the default is the GLORYS-input comparator.")
     a = ap.parse_args()
+    if not os.path.exists(a.checkpoint):
+        raise SystemExit(
+            f"{a.checkpoint} is not on this machine. Pass --checkpoint; "
+            f"artifacts/tscast_stage1.pt is the promoted satellite deliverable.")
+    cache, out_path, leg = _leg_paths(a.checkpoint)
+    print(f"leg: {leg}", flush=True)
 
     truth, times, land, valid = _load_truth()
     days = min(a.days, truth.shape[0])
@@ -88,7 +114,7 @@ def main():
     g = np.load("data/processed/grids.npz", allow_pickle=True)
     clim12, thr12 = mb.monthly_climatology_threshold(g["temp"], g["times"], pct=mb.PERCENTILE)
 
-    model = _model_field(times, days).astype("float64")
+    model = _model_field(times, days, ckpt=a.checkpoint, cache=cache).astype("float64")
 
     per_depth = {}
     for z, depth_m in enumerate(config.DEPTHS):
@@ -105,17 +131,17 @@ def main():
 
     result = {
         "what": "model-vs-GLORYS marine-heatwave detection agreement, per depth",
-        "model_leg": "GLORYS-input reconstruction (tscast_stage1_7ch.pt on data/processed/daily) -- "
-                     "NOT the satellite deliverable; the satellite bundle is not on this machine",
+        "model_leg": leg,
+        "checkpoint": a.checkpoint,
         "baseline": "MONTHLY PILOT (grids.npz 2019-2022), not Hobday day-of-year -- absolute counts "
                     "inflated by warming trend; the model-vs-truth agreement cancels that bias",
         "window": [str(times[0]), str(times[-1])], "n_days": days,
         "min_duration_days": 5, "max_gap_days": 2, "percentile": mb.PERCENTILE,
         "per_depth": per_depth,
     }
-    with open(OUT, "w", encoding="utf-8") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
-    print(f"\nwrote {OUT}", flush=True)
+    print(f"\nwrote {out_path}", flush=True)
 
 
 if __name__ == "__main__":

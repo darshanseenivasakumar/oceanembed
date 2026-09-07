@@ -23,6 +23,7 @@ MODULES = {
     "clickpoint": "clickpoint",
     "confidence": "confidence",
     "cyclone": "cyclone",
+    "heatwave": "heatwave",
     "transect": "transect",
     "acoustics": "acoustics",
     "validation": "validation",

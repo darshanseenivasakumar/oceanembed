@@ -61,6 +61,10 @@ FEATURES = [
      "Checked against floats it never saw",
      "Independent Argo profiles the model never trained on. Measured, not claimed.",
      "PROVE IT"),
+    ("heatwave", "Hidden heatwaves",
+     "Warm anomalies the surface does not show",
+     "Five days above the seasonal 90th percentile — at depth, where a satellite cannot look.",
+     "PROVE IT"),
     ("cyclone", "Cyclone heat",
      "The heat a storm can actually reach",
      "Not surface warmth — the depth of warm water, which is what decides intensification.",
@@ -134,6 +138,25 @@ HEADLINE_LABELS = {
 #: eid -> (title, body). Two to four sentences. Plain language. This is the ONLY place a
 #: caveat may be verbose, because the reader asked for it by pressing the button.
 EXPLAIN = {
+    "mhwdepth": ("Which level the detector runs on",
+                 "A marine heatwave is defined per depth, not for the column. The surface (0 m) is "
+                 "what a satellite can see; every level below it is what this project "
+                 "reconstructs. Switching depth re-runs the five-day persistence test at that "
+                 "level over all 388 days."),
+    "mhwshow": ("Two different questions",
+                "**In a heatwave** is the fraction of days this cell spent inside an event at the "
+                "chosen depth. **Hidden from the surface** counts only the days when the cell was "
+                "in a heatwave at depth *and the surface above it was not* — the days an SST "
+                "product would have shown nothing."),
+    "mhwbaseline": ("Why the absolute counts look high",
+                    "The threshold comes from a **2019–2022 monthly pilot** baseline, not Hobday's "
+                    "30-year day-of-year climatology. The ocean warmed between that baseline and "
+                    "2025–26, so a large share of the basin sits above a stale 90th percentile — "
+                    "that is the **trend**, not an epidemic of events. "
+                    "Read the **pattern** here, not the level. The model-vs-truth agreement is "
+                    "immune to it: both are scored against the same threshold, so the bias is "
+                    "common to both and cancels."),
+
     # ---- global controls
     "date": (
         "Date",

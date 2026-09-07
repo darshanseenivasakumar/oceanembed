@@ -1163,3 +1163,59 @@ stands; the number was inflated 8x.
 agreement table above; for #26, that `clamped_at` fires on a synthetic pinned field and stays
 silent on a continuous one, plus a real-data pin of the 53. The bundle has NOT been rebuilt, so
 `clamped_values` will only appear in a bundle built after this commit.
+
+---
+
+## 2026-09-07 — The marine-heatwave detector moves into the instrument (port 8500)
+
+Darshan's detector shipped as its own Streamlit page on 8518. Sixteen features on sixteen ports
+reads as sixteen prototypes, so it now lives on the rail as **Hidden heatwaves** (PROVE IT), in the
+house shape: `app/ui/features/heatwave.py`, registered in `words.FEATURES` with three explainers.
+His engine and baseline builders are imported unchanged; nothing under `phase2/` was touched.
+
+**What it adds over the standalone page.** The shared basin map, so land and sea floor are their
+own layers rather than whatever colour the value scale gives null. Click a cell and get the ACTUAL
+events under that column — start, end, duration, peak intensity, Hobday category — instead of only
+a fraction of days; an event list is checkable against the ocean, a fraction is not. And the
+surface-versus-depth comparison, measured rather than asserted.
+
+**The measurement corrected the claim, which is the point.** "A heatwave at depth can be invisible
+from orbit" is prose in the notes, the deck and the page. Measured at 100 m over 388 days:
+
+| | |
+|---|---|
+| surface flagged, ever | 11,831 of 11,832 ocean cells |
+| 100 m flagged, ever | 9,745 |
+| most of their event days unseen from the surface | 8,667 (89%), median share 0.73 |
+| the REVERSE — surface flagged, 100 m not | 11,783 cells |
+
+So it is not one-way invisibility, it is **decoupling in both directions**: an SST observation is
+not an incomplete view of the subsurface, it is a different signal. The first metric tried, "at
+least one hidden day", read 100% and is vacuous — over 388 days almost every cell clears it. It was
+replaced, and the reverse-direction tile is on screen so the panel cannot be read as one-way.
+
+The 11,831 figure is also the clearest statement of the pilot baseline's bias yet: against 2019–22,
+nearly the entire basin reads above its own 90th percentile somewhere in 2025–26. That is the
+warming trend. It is now a stated limit with the number in it.
+
+**Two defects found and fixed while verifying.** The STRONGEST tile paired one event's intensity
+with `summarise()`'s max category, which is the maximum over ALL events and can belong to a
+different one. And the category surprise: a **+3.82 °C** peak at 18°N 88°E is *Moderate* while
+**+2.59 °C** at 15°N 68°E is *Extreme*, because category counts multiples of the LOCAL
+(threshold − mean) gap — 1.3x against a 2.86 °C gap versus 7.7x against 0.34 °C. Correct Hobday
+2018, reads as a sorting bug, so the caption now explains it with those measured numbers.
+
+**A developer gotcha worth knowing.** Feature modules are imported lazily through `importlib`, so
+Streamlit's file watcher never sees them: editing one and reloading shows STALE CODE WITH NO ERROR.
+The rail updates (words.py is imported normally) while the stage does not. Restart the server.
+Two false readings were taken before this was noticed.
+
+**Also.** `run_mhw_comparison.py` hardcoded `tscast_stage1_7ch.pt`, which does not exist here, so
+it could not run at all on this machine. It now takes `--checkpoint` and derives its cache and
+output per leg, so the satellite and GLORYS runs cannot overwrite each other's numbers. The
+satellite leg — the PS deliverable — is running; until it lands the agreement panel says so rather
+than showing the comparator.
+
+**Not done.** No test covers the feature module. `features/__init__.py` is staged as HEAD plus the
+one `heatwave` line: the other session's four registrations there are uncommitted and point at
+untracked modules.

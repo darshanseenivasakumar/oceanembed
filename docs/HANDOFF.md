@@ -1219,3 +1219,45 @@ than showing the comparator.
 **Not done.** No test covers the feature module. `features/__init__.py` is staged as HEAD plus the
 one `heatwave` line: the other session's four registrations there are uncommitted and point at
 untracked modules.
+
+---
+
+## 2026-09-08 — The heatwave detector, run on the SATELLITE leg
+
+`run_mhw_comparison.py --checkpoint artifacts/tscast_stage1.pt`, 388 days, GPU, ~55 min. The leg
+Darshan could not run: he lacked the satellite bundle, so his artifact is the GLORYS comparator.
+This one is the PS deliverable answering the question the PS asks. Result:
+`artifacts/mhw_comparison_satellite.json` (tracked; the 206 MB field cache is not).
+
+| depth | POD | FAR | CSI | freq bias |
+|---|---|---|---|---|
+| 0 m | 0.671 | 0.383 | 0.474 | 1.09 |
+| 5–20 m | 0.693–0.715 | 0.355–0.392 | 0.490–0.502 | 1.08–1.18 |
+| 30–50 m | 0.638–0.697 | 0.438–0.452 | 0.418–0.452 | 1.16–1.24 |
+| 75–150 m | 0.608–0.625 | 0.252–0.331 | 0.477–**0.505** | 0.81–0.93 |
+| 200–300 m | 0.617–0.628 | 0.323–0.391 | 0.442–0.483 | 0.93–1.01 |
+| 500 m | 0.598 | 0.494 | 0.377 | 1.18 |
+| 700–1000 m | 0.455–0.476 | 0.451–0.488 | 0.328–0.331 | 0.83–0.93 |
+
+**Two findings worth quoting, both measured here.**
+
+1. **The model's worst temperature depth is its best detection depth.** RMSE peaks at 1.24 °C at
+   100 m, and that is exactly where CSI is highest (0.503–0.505 at 100–150 m) with the LOWEST false
+   alarm ratio of any level (0.25–0.27). Detection asks whether an anomaly crosses a threshold, not
+   whether the absolute value is right, so a model that is off but CONSISTENTLY off still ranks
+   days correctly. Easy to state backwards without the per-depth table in hand.
+
+2. **The frequency bias reproduces the warm bias by an independent route.** The model over-flags in
+   the mixed layer (1.09–1.24 at 0–50 m) and under-flags in the thermocline (0.81–0.86 at
+   100–150 m). A model running warm near the surface crosses a 90th-percentile threshold too often
+   there. The warm bias was measured this morning from Argo residuals (+0.1400 °C overall, peaking
+   +0.676 at 50 m); this is the same defect seen through detection counts against GLORYS, with no
+   Argo involved.
+
+**The floor is stated, not hidden.** Below 700 m POD falls to 0.455–0.476 with FAR near 0.49, so
+roughly half the deep detections are false alarms. That is the same depth range where skill over
+climatology collapses and where climatology beats the model outright at 1000 m.
+
+**Caveats unchanged.** Detection on both legs uses the 2019–2022 monthly pilot baseline, so
+absolute counts are inflated; the contingency table is immune because model and truth share one
+threshold. The truth is GLORYS, which carries its own error.

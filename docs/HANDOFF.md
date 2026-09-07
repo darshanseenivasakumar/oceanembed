@@ -1126,3 +1126,40 @@ finds the note's numbers, so a pattern that matches nothing can never again read
 The note reads **1061 passing, 10 skipped** against 1071 collected. Note the self-reference:
 adding the control test changed the number the guard checks, so the count was re-measured after
 the test file was final, not before.
+
+---
+
+## 2026-09-07 — Audit #22 and #26, committed WITHOUT tests
+
+Both fixes work and were verified by hand; neither has a test, because work stopped mid-task. That
+is stated here rather than left for someone to discover.
+
+**#22 — two domain gates disagreed.** `data/collocation.py` tested the range of cell CENTRES
+(5.00..29.75 N) while `tscast_nio.inference.assert_point_in_domain` tested the advertised box
+(`config.REGION`, 5.0..30.0). So 29.9 N was inside the domain for the predictor and
+`OUTSIDE_DOMAIN` for the collocation engine, and the UI showed both. New light module
+`src/phase2/domain.py` (numpy + config only, no torch, so every consumer can import it) holds the
+one definition; both call sites read it. REGION wins because it is what the problem statement asks
+for, what the sliders offer and what every download used. The 0.125 deg strip between the last
+centre and the box edge is a DISTANCE question, not a membership one, and collocation already
+flags it as `SPATIAL_OFFSET_EXCEEDS_CELL`. Verified by hand: (29.9, 75), (29.75, 75), (30.0, 75),
+(30.01, 75), (5.0, 45), (4.9, 45), (15, 104.9) — all seven now agree between the two gates.
+
+**#26 — a clamped channel passed the physical gate silently.** `_check_range` accepted any field
+whose extremes sat inside `RANGES`. The satellite SSS product pins at exactly 40.0000 psu, which
+is inside the 25..42 gate and was never mentioned. `clamped_at()` now reports any value sitting on
+a channel's exact extreme more than `CLAMP_REPEAT_LIMIT` (5) times, the build logs it per day, and
+a per-channel summary travels in the bundle's `provenance` under `clamped_values`. The threshold is
+calibrated on the shipped bundle: sst, ssh, u and v each touch their own extreme EXACTLY ONCE in
+~4.4 million samples, which is what a continuous field does; SSS touches 40.0000 fifty-three times
+across 12 ocean cells on 24 of 388 days. A clamp is a measurement the instrument could not make,
+wearing a plausible number.
+
+**Correction.** An earlier count of "426 samples at exactly 40.000" was wrong: `np.isclose`'s
+default `rtol` made that a plus-or-minus 0.0004 window. The true figure is **53**. The finding
+stands; the number was inflated 8x.
+
+**What is missing.** No test covers either fix. For #22 the test to write is the seven-point
+agreement table above; for #26, that `clamped_at` fires on a synthetic pinned field and stays
+silent on a continuous one, plus a real-data pin of the 53. The bundle has NOT been rebuilt, so
+`clamped_values` will only appear in a bundle built after this commit.

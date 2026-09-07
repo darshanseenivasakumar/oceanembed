@@ -56,6 +56,7 @@ import pandas as pd
 
 from oceanembed import config                 # baseline: IMPORTED, never modified
 from oceanembed.utils import grids, io        # baseline helpers
+from phase2 import domain      # the ONE domain definition (audit #22)
 
 # ── Quality thresholds ──────────────────────────────────────────────────────
 # Stated here, configurable, never invented at the call site. Chosen from the measured
@@ -281,9 +282,11 @@ class CollocationEngine:
         req_dt = pd.Timestamp(datetime)
         flags: list[str] = []
 
-        in_domain = (config.LAT.min() <= latitude <= config.LAT.max()
-                     and config.LON.min() <= longitude <= config.LON.max())
-        if not in_domain:
+        # ONE definition of the domain, shared with inference.assert_point_in_domain. This
+        # used to test the range of cell CENTRES (5.00..29.75), so a point at 29.9 N was flagged
+        # OUTSIDE_DOMAIN here while the predictor answered it happily (audit #22). Distance from a
+        # computed cell is a separate question, flagged separately below.
+        if not domain.in_domain(latitude, longitude):
             flags.append("OUTSIDE_DOMAIN")
 
         i, j, km = self._grid_cell(latitude, longitude)

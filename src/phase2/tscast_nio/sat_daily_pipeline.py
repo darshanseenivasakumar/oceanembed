@@ -188,7 +188,38 @@ def _read_channel(directory: str, prefix: str, var: str, day: str) -> np.ndarray
     return field
 
 
-def _check_range(name: str, field: np.ndarray, day: str) -> None:
+#: How many samples may sit on a channel's exact extreme before it is reported as a clamp.
+#: A continuous field lands on any one float32 essentially never -- measured on the shipped
+#: bundle, sst/ssh/u/v each hit their own extreme EXACTLY ONCE in ~4.4 million samples, while
+#: satellite SSS hit exactly 40.0000 fifty-three times. Two is already remarkable; five is a cap.
+CLAMP_REPEAT_LIMIT = 5
+
+
+def clamped_at(field: np.ndarray) -> dict:
+    """Report a value the instrument could not go past, as distinct from one it measured.
+
+    A product that saturates writes its ceiling repeatedly and exactly. That is not an outlier to
+    be gated away -- it is inside every physical range -- it is a MISSING measurement wearing a
+    plausible number, and the bundle must say so rather than pass it through silently (audit #26).
+    """
+    finite = field[np.isfinite(field)]
+    if finite.size == 0:
+        return {}
+    out = {}
+    for edge, value in (("max", finite.max()), ("min", finite.min())):
+        n = int((finite == value).sum())
+        if n >= CLAMP_REPEAT_LIMIT:
+            out[edge] = {"value": round(float(value), 6), "n_samples": n,
+                         "fraction": round(n / finite.size, 8)}
+    return out
+
+
+def _check_range(name: str, field: np.ndarray, day: str) -> dict:
+    """Refuse a physically impossible field, and REPORT a clamped one.
+
+    Returns the clamp record for this day so the caller can accumulate it into the bundle's
+    provenance. An empty dict means nothing sat repeatedly on an extreme.
+    """
     lo, hi = RANGES[name]
     finite = field[np.isfinite(field)]
     if finite.size == 0:
@@ -199,6 +230,13 @@ def _check_range(name: str, field: np.ndarray, day: str) -> None:
             f"{name} {day}: range [{mn:.3f}, {mx:.3f}] falls outside the physical gate "
             f"[{lo}, {hi}]. This is a unit error or a fill value read as data -- refusing to "
             f"write it into the bundle.")
+    clamp = clamped_at(field)
+    if clamp:
+        for edge, c in clamp.items():
+            print(f"  [clamp] {name} {day}: {c['n_samples']} samples sit exactly on the "
+                  f"{edge} ({c['value']}). Inside the [{lo}, {hi}] gate, so not refused -- but a "
+                  f"repeated exact extreme is a product ceiling, not a measurement.", flush=True)
+    return clamp
 
 
 def _static_valid_mask(g) -> np.ndarray:
@@ -257,6 +295,9 @@ def build_year(year: int, days: list[str], out_dir: str = OUT_DIR) -> str | None
     n = len(keep)
     surface = np.full((n, len(base.LAT), len(base.LON), len(config.CHANNELS)), np.nan, "float32")
 
+    #: Per-channel, per-day record of values pinned on a product ceiling (audit #26).
+    clamps: dict = {}
+
     for k, day in enumerate(keep):
         for name, directory, prefix, var in SAT_SOURCES:
             field = _read_channel(directory, prefix, var, day)
@@ -266,7 +307,9 @@ def build_year(year: int, days: list[str], out_dir: str = OUT_DIR) -> str | None
                 # OSTIA is Kelvin. Convert BEFORE the range gate so the gate is meaningful.
                 field = field - 273.15
             field[land] = np.nan          # GLORYS land mask: satellite SST contains inland water
-            _check_range(name, field, day)
+            day_clamp = _check_range(name, field, day)
+            if day_clamp:
+                clamps.setdefault(name, {}).setdefault(day, day_clamp)
             surface[k, :, :, config.CHANNELS.index(name)] = field
 
         wi = w_days[day]
@@ -297,8 +340,22 @@ def build_year(year: int, days: list[str], out_dir: str = OUT_DIR) -> str | None
         if meta is None:                       # v mirrors u; wv mirrors wu
             meta = dict(PROVENANCE_CHANNELS["u" if name == "v" else "wu"])
         chans[name] = meta
+    # A clamped value is inside every physical gate and is still not a measurement, so it travels
+    # with the bundle rather than being discovered later by someone plotting a histogram.
+    _clamp_summary = {
+        ch: {"n_days": len(days),
+             "n_samples": sum(e[edge]["n_samples"] for e in days.values() for edge in e),
+             "value": sorted({e[edge]["value"] for e in days.values() for edge in e}),
+             "note": "samples pinned on a product ceiling: inside the physical gate, but a value "
+                     "the instrument could not go past rather than one it measured (audit #26)"}
+        for ch, days in clamps.items()}
+    if _clamp_summary:
+        print(f"[sat-bundle] clamped channels: "
+              f"{ {c: v['n_samples'] for c, v in _clamp_summary.items()} }", flush=True)
+
     payload["provenance"] = json.dumps({
         "bundle": "satellite daily 0.25 deg, v001",
+        "clamped_values": _clamp_summary or "none detected",
         "input_source": "satellite",
         "why": "SIH26066 asks for reconstruction from surface SATELLITE observations. The GLORYS "
                "bundle in data/processed/daily/ supplies 5 of 7 surface channels from reanalysis; "

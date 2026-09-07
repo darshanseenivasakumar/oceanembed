@@ -20,6 +20,7 @@ import pandas as pd
 import torch
 
 from oceanembed import config as base
+from phase2 import domain as _domain          # the ONE domain definition (audit #22)
 from phase2.physics import seawater
 from phase2.tscast_nio import config
 from phase2.tscast_nio import provenance as _prov, dataset as D, output
@@ -55,8 +56,10 @@ def assert_point_in_domain(lat, lon) -> None:
             f"latitude/longitude must be finite, got ({lat!r}, {lon!r}); a nearest-cell lookup on "
             f"NaN silently returns the first grid cell ({float(base.LAT[0])}N, "
             f"{float(base.LON[0])}E)")
-    r = base.REGION
-    if not (r["lat_min"] <= la <= r["lat_max"] and r["lon_min"] <= lo <= r["lon_max"]):
+    # The same predicate data/collocation.py uses, so the two can never drift apart again
+    # (audit #22). Kept as an assert-with-diagnosis on top of the plain membership test.
+    r = _domain.domain_box()
+    if not _domain.in_domain(la, lo):
         raise ValueError(
             f"({la}, {lo}) is outside the reconstruction domain {r['lat_min']}..{r['lat_max']}N, "
             f"{r['lon_min']}..{r['lon_max']}E; a nearest-cell lookup would snap it to the domain "

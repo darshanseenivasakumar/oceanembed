@@ -124,13 +124,27 @@ def test_the_promoted_deliverable_says_which_years_it_trained_on():
 # ------------------------------------------------------------------ the test count is measured
 
 
-def _claimed_counts() -> list[tuple[int, int]]:
-    """Every "<N> passing, <M> skipped" and "<N> tests passing" the conclusion note states."""
-    src = io.open(NOTE, encoding="utf-8").read()
+def _claimed_counts():
+    """Every "<N> passing, <M> skipped" and "<N> tests passing" the conclusion note states.
+
+    Thousands separators are stripped ONLY between digits. Stripping every comma also removed the
+    one in "passing, 10 skipped" that the pattern depends on, so the parser silently matched
+    nothing -- caught by the `assert pairs` below on the first full run, which is why that
+    assertion exists rather than an `if pairs:`.
+    """
+    src = re.sub(r"(?<=\d),(?=\d)", "", io.open(NOTE, encoding="utf-8").read())
     pairs = [(int(a), int(b)) for a, b in
-             re.findall(r"(\d[\d,]*)\s+passing,\s*(\d[\d,]*)\s+skipped", src.replace(",", ""))]
-    bare = [int(n) for n in re.findall(r"(\d[\d,]*)\s+tests passing", src.replace(",", ""))]
+             re.findall(r"(\d+)\s+passing,\s*(\d+)\s+skipped", src)]
+    bare = [int(n) for n in re.findall(r"(\d+)\s+tests passing", src)]
     return pairs, bare
+
+
+def test_the_count_parser_actually_finds_the_notes_numbers():
+    """The control. A parser that matches nothing would make the guard above vacuous, and did."""
+    pairs, bare = _claimed_counts()
+    assert pairs, "the parser found no 'N passing, M skipped' in the note"
+    assert bare, "the parser found no 'N tests passing' in the note"
+    assert all(p > 500 and s >= 0 for p, s in pairs), pairs
 
 
 @pytest.mark.skipif(not os.path.exists(NOTE), reason="JURY_NOTES/_build is not on this machine")

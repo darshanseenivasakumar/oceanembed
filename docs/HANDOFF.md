@@ -1110,3 +1110,19 @@ skipped**, and the PDFs are rebuilt.
 **Tests.** `tests/phase2/test_artifact_self_description.py`, 6: `years_in` on a synthetic axis and
 on the shipped bundle; no fixed-writer record contradicts its own split; the promoted deliverable
 carries the note, the years and the period; and the count guard with its full-run gate.
+
+---
+
+## 2026-09-07 — the count guard caught its own parser
+
+The guard added in 24f4532 failed on its first full run, and correctly: `_claimed_counts` stripped
+EVERY comma from the note to handle a thousands separator like "1,060", which also removed the one
+in "passing, 10 skipped" that its own pattern depended on. It matched nothing, and `assert pairs`
+turned that into a failure instead of a vacuous pass -- which is the only reason it was visible.
+
+Fixed to strip commas only between digits, and a control test now asserts the parser actually
+finds the note's numbers, so a pattern that matches nothing can never again read as agreement.
+
+The note reads **1061 passing, 10 skipped** against 1071 collected. Note the self-reference:
+adding the control test changed the number the guard checks, so the count was re-measured after
+the test file was final, not before.

@@ -618,3 +618,74 @@ Still open from the same audit and NOT touched here (they change numbers or need
 epoch selection on test-period GLORYS (#7), Argo pressure treated as depth (#8), buoy validation
 spanning the training period (#9), below-seafloor comparisons inside the headline (#10), and the
 presentation claims (#1–#6) — see the audit report.
+
+---
+
+## 2026-09-07 — audit session — six wrong claims corrected in the jury pack, the deck and the record
+
+The audit's highest-risk findings were not code. They were sentences: numbers the project's own
+files forbid quoting, and Phase-1 measurements restated about the shipped v2 model. All six are
+corrected at SOURCE, the 19 PDFs are rebuilt, and a new guard makes each one a test failure if it
+comes back. No model, artifact, bundle or metric changed — only what we say about them.
+
+**The measurement behind the corrections.** The shipped checkpoint was re-scored against the same
+962 profiles, with GLORYS scored at the identical cells and days, so "inherited vs ours" could be
+split on the deliverable rather than inferred from Phase 1:
+
+| depth | model | GLORYS target | ours |
+|---|---|---|---|
+| 20 m | 0.780 | 0.553 | +0.227 |
+| 50 m | 1.187 | 0.805 | +0.382 |
+| 100 m | 1.218 | 1.042 | **+0.178** |
+| 150 m | 1.063 | 0.999 | +0.065 |
+
+Bias: model +0.1003, target +0.1078, model against its own target **−0.007**.
+
+1. **The T_SEQ claim is WITHDRAWN.** The pack presented "the paper's 31-day window is the worst of
+   three (0.9267 / 0.8529 / 0.9096)" as a measured disagreement. All three legs predate the
+   embargo fix; `artifacts/INVALID_PRE_EMBARGO.md` lists the 31-day leg under *never quote*; the
+   two shorter legs were only ever "declared" and their checkpoints were overwritten. The pack now
+   says we ship an 11-day window and cannot presently prove it is the best one, and names the
+   re-run as an open item. "Three measured disagreements" is now two, each labelled one-seed.
+2. **"Thermocline error is inherited — within 0.023 °C"** was a Phase-1 number restated about v2.
+   On v2 the gap at 100 m is **0.178 °C**: still mostly inherited, not at the ceiling. The Phase-1
+   figure survives only where the Validation Lab page genuinely displays the Phase-1 record, and
+   there it is labelled as such.
+3. **"The model runs warm — ours"** is corrected to *mostly inherited*: the target carries the
+   average. What is ours is the shape, +0.447 °C added at 50 m.
+4. **The deck quoted the GLORYS-fed comparator as the deliverable.** Speaker notes on slide 7
+   carried `embargo_withUV_s42` (0.8645 / 0.8873 / +0.1105 / 0.2948) and slide 9 carried its
+   calibration ratios; slide 8 carried its 1000 m RMSE. All now read the shipped run.
+5. **Slide 8 contradicted slide 7** on climatology. It now reads 14 of 15, with the 1000 m
+   crossover named.
+6. **The 962 profiles** are described as matched within 5 days of the test window, which is what
+   they are: 908 fall strictly inside it and score 0.9054 °C.
+7. **The buoy validation is no longer called blocked.** It ran on 2026-09-06 (46 series, median
+   RMSE 0.477 °C) — but every series lies inside the TRAINING period and moored profiles feed the
+   reanalysis we train against, so it is labelled an **in-sample** check and must not be quoted
+   beside the 962-profile headline.
+
+Also corrected while in the same sentences: slide 5's training time (the deliverable took 9.2 min,
+not seed 43's 8.5), slide 9's stale "recalibration is scheduled" (it ran on 2 Sep), and slide 11's
+"0.02 °C is signal not noise" — the three-seed spread is itself ~0.02 °C and two of three channel
+effects flip sign, so that is the noise floor, not signal.
+
+**New guard:** `tests/phase2/test_presentation_claims.py` (9 tests) reads the jury-note SOURCES and
+the deck itself, not the built PDFs, because fixing a PDF without its source is a correction that
+disappears at the next `build_all.py`. It asserts the retracted legs are absent, that any 0.023
+mention is scoped to Phase 1, that the deck's headline equals `frozen_manifest.json`, and that no
+slide claims climatology is beaten everywhere. Three of the four deck guards were checked against
+the pre-fix backup and fail on it; the fourth is documented as forward-looking, and the two string
+guards carry their own controls so neither can pass vacuously.
+
+Files: `JURY_NOTES/_build/{features_01_06,features_07_12,note_19_conclusion}.py` (18 regions), all
+19 rebuilt PDFs, `OceanEmbed_SIH26066.pptx` (7 runs across 5 slides and 2 notes),
+`PROJECT_RECORD.md`, `PHASE2_STATUS.md`, and the new test file. The deck was validated against the
+original as baseline and passes; **visual rendering was NOT possible — no LibreOffice on this
+machine — so slide layout after the text changes is UNVERIFIED.** The longest addition is +27
+characters on a full-width subtitle; someone should open the deck once and look at slides 7, 8, 9
+and 11.
+
+Still open from the audit and NOT touched: epoch selection on test-period GLORYS, Argo pressure
+treated as depth, the buoy split, below-seafloor comparisons inside the headline. Those change
+numbers or need retraining.

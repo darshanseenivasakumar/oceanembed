@@ -922,3 +922,17 @@ were right, the wording was not; it now names the layout and lists each block.
 
 **Audit finding #7 is closed in the code and open in the artifact**: no run can select on the
 scored period any more, and the shipped checkpoint predates that and says so.
+
+---
+
+## 2026-09-07 — JURY_NOTES/00_Demo_Walkthrough.pdf: the 10-minute walkthrough
+
+A four-page note for whoever runs the demo: the one command, what the three rows of buttons mean,
+eight features in the order to show them (SEE IT → PROVE IT → STRESS IT), the novelty on one page,
+and how to finish. Each feature is four fixed lines — Click / Shows / Say / Careful — so the eye
+learns the shape. Every number is copied from an artifact and every click path is the real rail in
+`app/ui/main.py`. Built by `JURY_NOTES/_build/note_00_demo.py`, wired into `build_all.py` (20 PDFs
+now). QA was done by rasterising all four pages with pymupdf and looking at them, which caught a
+footer printing `&middot;` literally and an orphaned closing block; both fixed. Rebuilding
+regenerates all nineteen other PDFs byte-differently even where the text is unchanged — that is the
+pipeline, not a content change.

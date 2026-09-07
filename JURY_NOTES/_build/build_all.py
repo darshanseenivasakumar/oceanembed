@@ -35,6 +35,14 @@ def main() -> int:
 
     written = []
 
+    # 00 -- the demo walkthrough: what to click, in what order, and what to say
+    try:
+        import note_00_demo
+        written.append(note_00_demo.build_note(
+            os.path.join(OUT, "00_Demo_Walkthrough.pdf")))
+    except ImportError:
+        pass
+
     # 01 -- the problem statement note
     try:
         import note_01_problem

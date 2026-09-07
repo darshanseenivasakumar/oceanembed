@@ -135,7 +135,22 @@ def main():
     ap.add_argument("--t-seq", type=int, default=None,
                     help="input window length. Only meaningful with --data daily; "
                          "the monthly archive has no daily neighbours.")
-    ap.add_argument("--test-samples", type=int, default=12000)
+    ap.add_argument("--val-samples", "--test-samples", dest="val_samples", type=int,
+                    default=12000,
+                    help="samples drawn from the VALIDATION block for early stopping. "
+                         "--test-samples is kept as an alias so older command lines still run; "
+                         "it never sized the test scoring, which uses every collocated Argo "
+                         "profile.")
+    ap.add_argument("--val-days", type=int, default=None,
+                    help="trailing TRAIN steps reserved for model selection. Default: "
+                         f"{int(D.VAL_FRACTION * 100)}%% of the train block. The test period is "
+                         "never used for selection -- see dataset.selection_split.")
+    ap.add_argument("--val-blocks", type=int, default=1,
+                    help="spread --val-days over this many evenly spaced blocks instead of one "
+                         "trailing block. Above 1 buys the selection signal seasonal coverage -- "
+                         "this bundle's train block opens in June, the same season as the back "
+                         "half of the scored window -- at the cost of purging the training set on "
+                         "both sides of every block.")
     ap.add_argument("--drop-channels", nargs="+", default=None,
                     help="channel names to remove before training, e.g. --drop-channels u v for "
                          "the currents ablation. Refuses on a name the bundle does not have, so a "
@@ -191,10 +206,13 @@ def main():
             return base_loss
         return base_loss + a.w_grad * gradient_loss(mu, y, mk, *_z[0])
 
-    def heldout(mu, logvar, y, mk):
-        """Held out ALWAYS on plain NLL when the head is probabilistic, so early stopping and
+    def selection_nll(mu, logvar, y, mk):
+        """Scored ALWAYS on plain NLL when the head is probabilistic, so early stopping and
         cross-run comparison never move with --loss or --beta. Under --loss mse there is no
-        variance head to score, so it falls back to MSE."""
+        variance head to score, so it falls back to MSE.
+
+        Evaluated on the VALIDATION block only. Pointing this at the test period is the bug that
+        `dataset.selection_split` exists to prevent."""
         if a.loss == "mse":
             m = mk.float()
             return (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
@@ -235,11 +253,16 @@ def main():
     # untouched: a test target reaching BACK into train is not leakage, it is what an operational
     # run would legitimately have.
     n_before = len(tr_t)
-    tr_t = D.embargo_indices(tr_t, t_seq, int(te_t.min()) if len(te_t) else None)
-    n_embargoed = n_before - len(tr_t)
-    if n_embargoed:
+    tr_t, va_t, sel = D.selection_split(d["times"], tr_t, te_t, t_seq, val_days=a.val_days,
+                                          n_blocks=a.val_blocks)
+    n_embargoed = sel["n_train_dropped_embargo"]
+    print(f"selection: {sel['n_val_targets']} val steps carved from the END of train "
+          f"({sel['val_period'][0]}..{sel['val_period'][1]}). Early stopping and the epoch choice "
+          f"read ONLY these; the test block is untouched until the final Argo score.")
+    if n_embargoed or sel["n_val_dropped_embargo"]:
         print(f"embargo: dropped {n_embargoed} of {n_before} training targets whose T_SEQ={t_seq} "
-              f"window would have read the test block")
+              f"window would have read the val block, and {sel['n_val_dropped_embargo']} val "
+              f"targets whose window would have read the test block")
     if a.data == "monthly" and t_seq != 1:
         raise SystemExit("--t-seq > 1 needs --data daily: the monthly archive has one sample per "
                          "month, so a window of 31 steps would span 31 MONTHS, not 31 days.")
@@ -250,8 +273,10 @@ def main():
     _t = np.asarray(d["times"], dtype="datetime64[D]")
     train_period = (str(_t[tr_t].min()), str(_t[tr_t].max()))
     test_period = (str(_t[te_t].min()), str(_t[te_t].max()))
+    val_period = tuple(sel["val_period"])
     trained_on = (f"{a.data} bundle, T_SEQ={t_seq}, train {train_period[0]}..{train_period[1]}, "
-                  f"held-out GLORYS {test_period[0]}..{test_period[1]}, "
+                  f"selection on {val_period[0]}..{val_period[1]}, "
+                  f"scored on GLORYS {test_period[0]}..{test_period[1]}, "
                   f"{len(d['channels'])} channels {[str(c) for c in d['channels']]}")
     # 2019-2021 climatology, DISJOINT from the 2025-26 daily period -> no leakage path.
     # See scripts/phase2/build_daily_climatology.py for why not a train-split climatology.
@@ -261,11 +286,11 @@ def main():
                              tr_t, t_seq=t_seq,
                              max_samples=a.train_samples, seed=seed,
                              clim=clim, return_clim=True)
-    ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
-                             te_t, norm=ds_tr.norm, t_seq=t_seq,
-                             max_samples=a.test_samples,
+    ds_va = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
+                             va_t, norm=ds_tr.norm, t_seq=t_seq,
+                             max_samples=a.val_samples,
                              seed=seed + 1, clim=clim, return_clim=True)
-    print(f"train {len(ds_tr):,} samples  |  held-out GLORYS {len(ds_te):,}")
+    print(f"train {len(ds_tr):,} samples  |  validation {len(ds_va):,}")
 
     torch.manual_seed(seed)
     latent = a.latent or config.LATENT_DIM
@@ -288,13 +313,14 @@ def main():
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
     loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True,
                         num_workers=a.num_workers)
-    te_loader = DataLoader(ds_te, batch_size=512, shuffle=False,
+    va_loader = DataLoader(ds_va, batch_size=512, shuffle=False,
                            num_workers=a.num_workers)
 
-    # Keep the BEST-on-held-out weights, never the last. Measured on the first real run, held-out
-    # NLL bottomed at epoch 4 and rose every epoch after while train NLL kept falling; saving the
-    # final epoch would have checkpointed the single most overfit model and then reported its Argo
-    # numbers as the result.
+    # Keep the BEST-on-VALIDATION weights, never the last. Measured on the first real run,
+    # held-out NLL bottomed at epoch 4 and rose every epoch after while train NLL kept falling;
+    # saving the final epoch would have checkpointed the single most overfit model and then
+    # reported its Argo numbers as the result. What changed in 2026-09-07 is WHICH block that
+    # signal comes from: the val block carved out of train, never the scored test period.
     t0 = time.time()
     best = {"nll": float("inf"), "epoch": 0, "state": None}
     curve, stale = [], 0
@@ -312,13 +338,13 @@ def main():
         model.eval()
         vt, vn = 0.0, 0
         with torch.no_grad():
-            for x, g, y, mk, _, cp, mo in te_loader:
+            for x, g, y, mk, _, cp, mo in va_loader:
                 x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
-                vt += float(heldout(*model(x, g, cp, mo), y, mk))
+                vt += float(selection_nll(*model(x, g, cp, mo), y, mk))
                 vn += 1
         tr_nll, va_nll = tot / max(nb, 1), vt / max(vn, 1)
         curve.append({"epoch": ep + 1, "train_nll": round(tr_nll, 4),
-                      "heldout_nll": round(va_nll, 4)})
+                      "val_nll": round(va_nll, 4)})
 
         if va_nll < best["nll"] - 1e-4:
             best = {"nll": va_nll, "epoch": ep + 1,
@@ -328,21 +354,29 @@ def main():
             stale += 1
             flag = f"  ({stale}/{a.patience} without improvement)"
         print(f"  epoch {ep + 1}/{a.epochs}  train NLL {tr_nll:.4f}   "
-              f"held-out NLL {va_nll:.4f}{flag}", flush=True)
+              f"val NLL {va_nll:.4f}{flag}", flush=True)
 
         if stale >= a.patience:
-            print(f"  early stop: no held-out improvement for {a.patience} epochs")
+            print(f"  early stop: no validation improvement for {a.patience} epochs")
             break
     secs = time.time() - t0
 
     if best["state"] is None:
-        raise RuntimeError("no epoch improved on the initial held-out loss; refusing to save")
+        raise RuntimeError("no epoch improved on the initial validation loss; refusing to save")
     model.load_state_dict(best["state"])
     model.eval()
-    print(f"\nrestored the best epoch: {best['epoch']} (held-out NLL {best['nll']:.4f}). "
+    print(f"\nrestored the best epoch: {best['epoch']} (val NLL {best['nll']:.4f}). "
           f"Everything below is that model, not the last one.")
 
     # ---- independent Argo -------------------------------------------------
+    # The TEST block is instantiated HERE, after the epoch has been chosen, and nowhere earlier.
+    # It used to be built before the training loop and serve as the early-stopping set, which is
+    # the leak `dataset.selection_split` exists to remove. The Argo scorer only borrows the object
+    # for its normalisation and its T_SEQ window builder: `.index` is overwritten further down
+    # with the collocated (time, lat, lon) triples, so nothing here bounds what gets scored.
+    ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
+                             te_t, norm=ds_tr.norm, t_seq=t_seq,
+                             seed=seed + 1, clim=clim, return_clim=True)
     # The Argo set MUST cover the same period as the data. artifacts/argo_test.parquet is 2022;
     # against a 2026 test window the +/-5 day filter matches nothing, and the run then died on
     # "need at least one array to concatenate" AFTER a full training run had completed.
@@ -437,7 +471,9 @@ def main():
                 # Which temporal protocol produced these weights. Nothing in a checkpoint used to
                 # distinguish the boundary-overlap runs from the embargoed ones, so a stale
                 # checkpoint could not be told apart from a clean one.
-                "protocol": "embargoed_v2", "n_targets_embargoed": int(n_embargoed),
+                "protocol": "embargoed_v3_val_carved",
+                "n_targets_embargoed": int(n_embargoed),
+                "selection_protocol": D.SELECTION_PROTOCOL,
                 # The model is CONSTRUCTED at t_seq=1 above while T_SEQ is the DATA window. They are
                 # different numbers and only coincide at T_SEQ=1; cnn3d pools over time so its
                 # shapes do not change, but a reader must not have to know that to load us.
@@ -484,12 +520,19 @@ def main():
         "latent": latent, "unet_channels": list(widths),
         "n_params_encoder": n_enc, "n_params_decoder": n_dec,
         "seed": seed, "epochs_requested": a.epochs, "epochs_run": len(curve),
-        "best_epoch": best["epoch"], "best_heldout_nll": round(best["nll"], 4),
-        "protocol": "embargoed_v2",
-        "protocol_note": ("training targets whose T_SEQ window would reach into the test block are "
-                          "dropped; test indices unchanged. Runs before 2026-08-31 used "
-                          "'boundary_overlap_v1' and are NOT comparable to these."),
+        "best_epoch": best["epoch"], "best_val_nll": round(best["nll"], 4),
+        "protocol": "embargoed_v3_val_carved",
+        "protocol_note": ("model selection reads a validation block carved from the END of train, "
+                          "never the scored test period; training targets whose T_SEQ window would "
+                          "reach the val block are dropped, and val targets whose window would "
+                          "reach the test block are dropped too. Runs before 2026-09-07 are "
+                          "'embargoed_v2': correctly embargoed on INPUTS but selecting the epoch "
+                          "on the test period itself, so their epoch choice is not independent of "
+                          "their headline. Runs before 2026-08-31 are 'boundary_overlap_v1' and "
+                          "leak inputs as well. None of the three is comparable to another."),
         "n_targets_embargoed": int(n_embargoed),
+        "selection": sel,
+        "val_period": list(val_period),
         "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta, "w_grad": a.w_grad,
         "decoder": a.decoder, "loss": a.loss,
         "beta_nll_why": ("plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0."),

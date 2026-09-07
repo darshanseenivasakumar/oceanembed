@@ -782,3 +782,83 @@ never re-scored.
 
 **Deck layout after the text edits is [UNVERIFIED]** — no renderer on this machine. Schema, rels,
 content types and chart checks pass (`validate.py --original`).
+
+---
+---
+
+## 2026-09-07 — Audit #7: model selection no longer reads the period the headline is scored on
+
+**The bug.** `train_stage1.py:265` built the early-stopping loader from `te_t`, the
+2026-04-01..06-23 GLORYS test block, and the epoch with the lowest NLL on that block was the one
+saved. The Argo headline is then scored on the same days. So the shipped epoch was the one that
+best fit the block being scored. The temporal embargo already stopped training INPUTS from reaching
+the test block; nothing stopped the SELECTION SIGNAL from being computed on it. **[VERIFIED]** by
+reading the code and by the delta below.
+
+**The fix.** `dataset.selection_split(times, tr_t, te_t, t_seq, val_days, n_blocks)` carves the
+selection set out of the train block, with an embargo on **both** sides:
+
+* train → val: a training target within `t_seq//2` of a val day reads val surface fields, which
+  flatters the signal it is selected on. Dropped.
+* val → test: a validation target within `t_seq//2` of the first test day reads TEST surface
+  fields. Harmless for a test target — those observations genuinely precede the forecast date —
+  but not for a selection target. Dropped.
+
+`n_blocks=1` (default) reserves one trailing block. Above 1 the same budget is spread over evenly
+spaced blocks from the start of train to its end, purged on both sides; `embargo_indices` is
+single-sided and cannot express that, so the forbidden days are marked on the time axis and every
+training window is checked against them. On the shipped bundle:
+
+| layout | train steps | val steps | months the signal sees |
+|---|---|---|---|
+| 1 block, 46 days (default) | 253 | 41 | Feb, Mar |
+| 3 blocks, 45 days | 239 | 40 | Mar, Jun, Oct, Nov |
+
+The test block is now instantiated **after** the best epoch is restored, so it cannot be reached
+during training at all. Runs record `protocol: embargoed_v3_val_carved` and
+`selection.selection_protocol: val_carved_v1`; everything earlier is `test_period_v0`.
+`best_heldout_nll` is replaced by `best_val_nll` so a stale reader fails loudly instead of
+quietly changing meaning. `--test-samples` survives as an alias for `--val-samples`.
+
+**What it costs, three seeds, same 962 profiles and the same `seafloor_masked_v1` scoring:**
+
+| seed | control (`test_period_v0`) | leak-free (`val_carved_v1`) | delta | epoch chosen |
+|---|---|---|---|---|
+| 42 | 0.9006 | 1.0121 | +0.1115 | 4 → 1 |
+| 43 | 0.8989 | 0.9685 | +0.0696 | 3 → 1 |
+| 44 | 0.9023 | 0.9684 | +0.0661 | 5 → 4 |
+
+**Mean +0.0824 °C, spread 0.0454, sign holds 3/3.** Real-baseline skill falls from +0.156 mean to
++0.078. The delta bundles two things and is **not** attributable to the leak alone: the selection
+protocol changed AND the training block lost 46 of 299 days to make room for the validation set.
+
+**Why it costs that much — measured, not argued.** It is not noise. The pre-registered stability
+criterion (mean |Δ val NLL| ÷ mean |Δ train NLL|, computed from the training curve alone so the
+choice never touches the test score) rates the carved block the *least* noisy signal of the four:
+4.26 against the test block's 4.66 / 7.83 / 6.69. The mechanism is seasonal mismatch. On the
+Feb–Mar val block the NLL is lowest at **epoch 1** and rises after; on the Apr–Jun test block it
+keeps falling to epoch 4. Same architecture, same data, near-identical train curves, opposite
+verdicts on which epoch is best. Two of three seeds therefore early-stopped at epoch 6 holding a
+barely-trained model.
+
+**Open, and deliberately not decided here.** The 90-day trailing block and the 3-block seasonal
+layout were queued but had not finished when this was committed. No new checkpoint is promoted:
+**the shipped deliverable (`sat_7ch_s42`, RMSE 0.9006) was selected under `test_period_v0`**, and
+that stands as a stated property of it until a leak-free run is promoted. The manifest and the
+promoted metrics are untouched by this commit.
+
+**Also fixed here.** `freeze.py` hardcoded `"protocol": "embargoed_v2", "n_targets_embargoed": 5`
+into its manifest, so it would have kept asserting the old protocol after the run's own JSON
+changed. It now reads both from the run.
+
+**Held back from this commit.** `train/train_stage2.py` had the identical wiring and is fixed the
+same way **in the working tree**, where it passes the same structural check — but that file carries
+another session's uncommitted `--w-stab` work, so it cannot be committed here. The committed guard
+covers stage 1 only and its docstring says why and what to add.
+
+**Tests.** `tests/phase2/test_selection_split.py`, 21 of them: the two embargoes asserted on real
+geometry, chronological ordering, the refusals, a real-data pin on the shipped bundle, the
+multi-block both-sides purge, a regression pin that `n_blocks=1` reproduces the trailing block, and
+a structural guard that reads the training script and rejects any wiring where the test block is
+built before the epoch is chosen. Two of them are **controls** that fail on the pre-fix arrangement,
+so the checks are not vacuous.

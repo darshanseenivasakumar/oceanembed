@@ -158,8 +158,14 @@ def build(check: Check) -> dict:
         "data": {"bundle": bundle, "days": days, "sha256": bsha,
                  "target_source": prov.get("target_source"),
                  "deviation_from_ps": prov.get("deviation_from_ps")},
+        # Read from the run, never retyped. This block used to hardcode
+        # `embargoed_v2` and `n_targets_embargoed: 5`, so it would have kept asserting the old
+        # protocol after the run's own JSON changed.
         "split": {"train": m.get("train_period"), "test": m.get("test_period"),
-                  "protocol": "embargoed_v2", "n_targets_embargoed": 5},
+                  "val": m.get("val_period"),
+                  "protocol": m.get("protocol"),
+                  "selection_protocol": (m.get("selection") or {}).get("selection_protocol"),
+                  "n_targets_embargoed": m.get("n_targets_embargoed")},
         "metrics": {"argo_profiles": m.get("argo_profiles"), "n": o.get("n"),
                     "rmse": o.get("rmse"), "bias": o.get("bias"),
                     "correlation": o.get("correlation"),

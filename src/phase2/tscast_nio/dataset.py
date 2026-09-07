@@ -316,6 +316,139 @@ def embargo_indices(t_indices, t_seq, forbidden_start):
     return t_indices[t_indices + h < int(forbidden_start)]
 
 
+SELECTION_PROTOCOL = "val_carved_v1"
+LEGACY_SELECTION_PROTOCOL = "test_period_v0"
+VAL_FRACTION = 0.15
+MIN_VAL_STEPS = 3
+
+
+def selection_split(times, t_indices, te_t, t_seq, val_days=None, n_blocks=1):
+    """Carve the model-selection set out of the END of the TRAIN block, never from the test block.
+
+    THE BUG THIS EXISTS FOR
+    `train_stage1` used to build its early-stopping loader from `te_t` -- the GLORYS test period --
+    and keep the epoch with the lowest NLL on it. The Argo headline is then scored on that same
+    period, so the epoch that shipped was the one that best fit the block being scored. The
+    embargo already stopped training INPUTS from reaching the test block; nothing stopped the
+    SELECTION SIGNAL from being computed on it. Runs before this function are recorded as
+    `LEGACY_SELECTION_PROTOCOL` and their epoch choice is not independent of their headline.
+
+    WHAT THIS DOES INSTEAD
+    The last `val_days` steps of the train block become the validation set. Chronological, never
+    random: adjacent days share input frames through the T_SEQ window, so a random split would put
+    a target's own neighbours on both sides of the split and report an optimistic number.
+
+    TWO EMBARGOES, NOT ONE
+      train -> val : a training target within `t_seq // 2` of the val block reads val surface
+                     fields as input, which flatters the selection signal. Dropped.
+      val   -> test: a validation target within `t_seq // 2` of the first test day reads TEST
+                     surface fields. That is harmless for a TEST target -- those observations
+                     genuinely precede the forecast date, see `embargo_indices` -- but not for a
+                     SELECTION target, because it is the leak this function exists to remove.
+                     Dropped.
+    The train -> test embargo then comes for free: val sits between them, so a training target
+    that cannot reach val cannot reach test either. Asserted below rather than assumed.
+
+    times     : the bundle's time axis, one entry per step
+    t_indices : the train split, before any carving
+    te_t      : the test split, used only for its FIRST index
+    t_seq     : window length; <= 1 embargoes nothing
+    val_days  : TOTAL train steps to reserve. None -> VAL_FRACTION of the train block, at least
+                MIN_VAL_STEPS.
+    n_blocks  : 1 (default) reserves them as one trailing block. Above 1 splits them into evenly
+                spaced blocks running from the start of train to its end, which is what gives the
+                selection signal seasonal coverage; every block is purged from the training set on
+                BOTH sides, so the cost is val_days + 2 * n_blocks * (t_seq // 2) training steps.
+
+    Returns (train_indices, val_indices, info). `info` goes verbatim into the run's metrics JSON,
+    so a reader can tell the two protocols apart without rerunning anything.
+    """
+    t = np.asarray(times, dtype="datetime64[D]")
+    tr = np.sort(np.asarray(t_indices))
+    te = np.sort(np.asarray(te_t))
+    h = int(t_seq) // 2 if int(t_seq) > 1 else 0
+
+    n_val = int(val_days) if val_days else max(MIN_VAL_STEPS, round(len(tr) * VAL_FRACTION))
+    n_blocks = int(n_blocks)
+    if n_val < MIN_VAL_STEPS:
+        raise SystemExit(f"--val-days {n_val} is below MIN_VAL_STEPS={MIN_VAL_STEPS}: a selection "
+                         "signal that small is noise, and early stopping would follow it.")
+    if n_val >= len(tr) - MIN_VAL_STEPS:
+        raise SystemExit(f"--val-days {n_val} leaves {len(tr) - n_val} of {len(tr)} training "
+                         "steps. Refusing: the run would be selecting on more data than it trains "
+                         "on.")
+
+    if n_blocks < 1:
+        raise SystemExit(f"--val-blocks {n_blocks} makes no sense; it must be at least 1")
+    if n_blocks == 1:
+        blocks = [tr[-n_val:]]
+    else:
+        m = n_val // n_blocks
+        if m < MIN_VAL_STEPS:
+            raise SystemExit(f"{n_val} val steps over {n_blocks} blocks is {m} each, below "
+                             f"MIN_VAL_STEPS={MIN_VAL_STEPS}. Raise --val-days or drop a block.")
+        # Placed so the FIRST block starts at the start of train and the LAST ends at its end.
+        # That is what buys the seasonal coverage: this bundle's train block opens in June, the
+        # same season as the back half of the scored window, which no trailing block can reach.
+        span = len(tr) - m
+        starts = [round(i * span / (n_blocks - 1)) for i in range(n_blocks)]
+        if any(b - a < m + 2 * h for a, b in zip(starts, starts[1:])):
+            raise SystemExit(
+                f"{n_blocks} blocks of {m} steps do not fit in {len(tr)} training steps with a "
+                f"{h}-step purge on each side. Use fewer blocks or fewer --val-days.")
+        blocks = [tr[s:s + m] for s in starts]
+    va_all = np.sort(np.concatenate(blocks))
+
+    # A training target is dropped if its window touches ANY val block or the test block. The
+    # single-sided `embargo_indices` cannot express that, so the forbidden days are marked on the
+    # time axis and every window is checked against them.
+    forbidden = np.zeros(len(t), dtype=bool)
+    forbidden[va_all] = True
+    if len(te):
+        forbidden[te] = True
+    tr_rest = np.setdiff1d(tr, va_all)
+    reaches = np.array([bool(forbidden[max(0, int(i) - h):int(i) + h + 1].any()) for i in tr_rest],
+                       dtype=bool)
+    tr_keep = tr_rest[~reaches]
+    va_keep = embargo_indices(va_all, t_seq, int(te.min())) if len(te) else va_all
+
+    if len(va_keep) < MIN_VAL_STEPS:
+        raise SystemExit(f"the val block is {len(va_keep)} steps after its embargo against the "
+                         f"test block (T_SEQ={t_seq} costs {h} steps). Raise --val-days.")
+    if not len(tr_keep):
+        raise SystemExit("the embargo against the val block left no training targets at all")
+
+    assert not np.intersect1d(tr_keep, va_keep).size, "train and val target indices overlap"
+    assert not np.intersect1d(va_keep, te).size, "val and test target indices overlap"
+    assert not np.intersect1d(tr_keep, te).size, "train and test target indices overlap"
+    va_set = set(va_all.tolist()) | (set(te.tolist()) if len(te) else set())
+    for i in tr_keep:
+        w = range(max(0, int(i) - h), int(i) + h + 1)
+        assert not (set(w) & va_set), f"training target {int(i)} still reads a held-out day"
+    if len(te):
+        assert va_keep.max() + h < te.min(), "a validation window still reaches the test block"
+
+    info = {
+        "selection_protocol": SELECTION_PROTOCOL,
+        "why": ("early stopping and the epoch choice read ONLY the val block, which is carved "
+                "from the end of train. The test period is not touched until the final Argo "
+                f"score. Runs recorded as {LEGACY_SELECTION_PROTOCOL} selected on the test "
+                "period itself and their epoch choice is not independent of their headline."),
+        "val_days_requested": int(n_val),
+        "n_blocks": int(n_blocks),
+        "blocks": [[str(t[b].min()), str(t[b].max())] for b in blocks],
+        "val_months": sorted({int(str(x)[5:7]) for x in t[va_keep]}),
+        "n_train_targets": int(len(tr_keep)),
+        "n_val_targets": int(len(va_keep)),
+        "n_train_dropped_embargo": int(len(tr_rest) - len(tr_keep)),
+        "n_val_dropped_embargo": int(len(va_all) - len(va_keep)),
+        "train_period": [str(t[tr_keep].min()), str(t[tr_keep].max())],
+        "val_period": [str(t[va_keep].min()), str(t[va_keep].max())],
+        "test_period": [str(t[te].min()), str(t[te].max())] if len(te) else None,
+    }
+    return tr_keep, va_keep, info
+
+
 def split_indices(times, train_years=None, test_years=None):
     """Temporal holdout from the frozen config. Never a random split of adjacent cells."""
     yrs = np.array([int(str(t)[:4]) for t in times])

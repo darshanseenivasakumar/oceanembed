@@ -133,10 +133,17 @@ def skill_rmse_ratio(pred, truth, clim) -> float:
     return float(1.0 - r_m / r_c)
 
 
-def per_depth(pred, truth, clim=None, reference: str = "argo", window=None) -> dict:
+def per_depth(pred, truth, clim=None, reference: str = "argo", window=None,
+              baseline_ok=None) -> dict:
     """Metrics at each of the 15 contract depths, plus pooled.
 
     pred/truth/clim: (..., 15) -- any leading shape, depth LAST.
+    baseline_ok    : optional (N,) bool, one flag per PROFILE (so pred must be (N, 15)): True where
+                     the climatology at that profile's cell is a real per-cell climatology rather
+                     than the basin-mean fill (see eval_argo.baseline_exists_mask). When given, the
+                     overall block ADDS the skill measured on those profiles alone, with its own n.
+                     The blended skill is kept, because every artifact before 2026-09-07 reports it;
+                     the two are named apart rather than one replacing the other silently.
     Returns the aggregate record of tscast_output_schema.md section 6.
     """
     pred = np.asarray(pred, dtype="float64")
@@ -152,6 +159,12 @@ def per_depth(pred, truth, clim=None, reference: str = "argo", window=None) -> d
         clim = np.asarray(clim, dtype="float64")
         if clim.shape != pred.shape:
             raise ValueError(f"clim {clim.shape} does not match pred {pred.shape}")
+    if baseline_ok is not None:
+        baseline_ok = np.asarray(baseline_ok, dtype=bool).ravel()
+        if pred.ndim != 2 or baseline_ok.shape[0] != pred.shape[0]:
+            raise ValueError(
+                f"baseline_ok is one flag per profile, so it needs pred shaped (N, 15) with N == "
+                f"len(baseline_ok); got pred {pred.shape} and baseline_ok {baseline_ok.shape}")
 
     n_d = config.N_DEPTHS
     out = {k: np.full(n_d, np.nan) for k in
@@ -172,6 +185,27 @@ def per_depth(pred, truth, clim=None, reference: str = "argo", window=None) -> d
             out["skill_vs_climatology"][d] = skill_vs_climatology(p, t, clim[..., d])
             out["skill_rmse_ratio"][d] = skill_rmse_ratio(p, t, clim[..., d])
             out["rmse_climatology"][d] = rmse(clim[..., d], t)
+
+    # Skill where the baseline is REAL. Only meaningful with a climatology and a per-profile flag.
+    rb: dict = {}
+    skill_note_extra = ""
+    if baseline_ok is not None and clim is not None:
+        pb, tb, cb = pred[baseline_ok], truth[baseline_ok], clim[baseline_ok]
+        okb = np.isfinite(pb) & np.isfinite(tb) & np.isfinite(cb)
+        rb = {
+            "skill_rmse_ratio_real_baseline": skill_rmse_ratio(pb, tb, cb),
+            "skill_vs_climatology_real_baseline": skill_vs_climatology(pb, tb, cb),
+            "rmse_real_baseline": rmse(pb, tb),
+            "rmse_climatology_real_baseline": rmse_climatology_matched(pb, tb, cb),
+            "n_real_baseline": int(okb.sum()),
+            "n_profiles_real_baseline": int(baseline_ok.sum()),
+            "n_profiles_filled_baseline": int((~baseline_ok).sum()),
+        }
+        skill_note_extra = (
+            " `skill_rmse_ratio_real_baseline` is the same ratio on the profiles whose cell has a "
+            "REAL per-cell climatology; the others sit on a basin-mean fill (see "
+            "eval_argo.baseline_exists_mask), and beating a fill is not skill against climatology. "
+            "Quote the real-baseline figure when the claim is about climatology.")
 
     return {
         "depths_m": list(config.DEPTHS),
@@ -209,8 +243,10 @@ def per_depth(pred, truth, clim=None, reference: str = "argo", window=None) -> d
                 "(+0.387) uses -- compare against that one. `skill_vs_climatology` = "
                 "1 - MSE/MSE_clim is the Murphy score, standard in the literature. On the same "
                 "real Argo predictions they read 0.39 and 0.63. Never quote one beside the other."
+                + skill_note_extra
             ),
             "n": int((np.isfinite(pred) & np.isfinite(truth)).sum()),
+            **rb,
             "correlation_note": (
                 "`correlation` is the mean of the per-depth values -- quote THIS one. "
                 "`correlation_pooled` mixes all 15 depths into one cloud, so it mostly measures "

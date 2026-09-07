@@ -34,7 +34,7 @@ warnings.filterwarnings("ignore", message=".*enable_nested_tensor.*")
 
 from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
-from phase2.tscast_nio import config, dataset as D, metrics
+from phase2.tscast_nio import config, dataset as D, eval_argo as EA, metrics
 from phase2.tscast_nio.models import TSCastNIO, gaussian_nll
 from phase2.tscast_nio.models.tscast import gradient_loss
 from phase2.tscast_nio.models.tscast import temporal_pool_signature as TSCastNIO_pool_sig
@@ -364,6 +364,13 @@ def main():
     keep = offs.min(axis=1) <= MAX_DAYS
     t_idx = np.asarray(te_t)[offs.argmin(axis=1)]
     la, lo = D.cell_index(keys["lat"].values, keys["lon"].values)
+    # Decline what the product declines, and count it (eval_argo.apply_seafloor_mask). The
+    # metric and output.build_record must agree on what a valid prediction is; until 2026-09-07
+    # they did not, and the score charged the model at depths the product returns None for.
+    truth = np.asarray(truth, dtype="float64").copy()
+    truth[keep], refusals = EA.apply_seafloor_mask(truth[keep], la[keep], lo[keep],
+                                                   d["valid_mask"], d["land_mask"])
+    baseline_ok = EA.baseline_exists_mask(la[keep], lo[keep], d["valid_mask"], d["land_mask"])
 
     if int(keep.sum()) == 0:
         raise SystemExit(
@@ -400,7 +407,8 @@ def main():
                         lat=keys["lat"].values[keep], lon=keys["lon"].values[keep],
                         t_idx=t_idx[keep], la=la[keep], lo=lo[keep],
                         x0=_first[0], g0=_first[1], cp0=_first[2], mo0=_first[3])
-    m = metrics.per_depth(mu, truth[keep], clim=clim_at[keep], reference="argo")
+    m = metrics.per_depth(mu, truth[keep], clim=clim_at[keep], reference="argo",
+                          baseline_ok=baseline_ok)
     cal = calibration(mu, sigma, truth[keep])
 
     o = m["overall"]
@@ -491,6 +499,7 @@ def main():
         "train_samples": len(ds_tr), "train_seconds": round(secs, 1),
         "train_years": list(base.TRAIN_YEARS), "test_years": list(base.TEST_YEARS),
         "argo_profiles": int(keep.sum()), "max_days_offset": MAX_DAYS,
+        "scoring_protocol": EA.SCORING_PROTOCOL, "refusals": refusals,
         "metrics": m,
         "calibration": cal,
         "coverage_targets": {"1sigma": 0.683, "2sigma": 0.954,

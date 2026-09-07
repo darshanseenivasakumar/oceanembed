@@ -179,7 +179,7 @@ def explainer(calibrated: bool) -> Explainer:
                "points on any given day have an Argo float underneath to check against, and those "
                "are on the Argo overlay page (port 8508).",
                "artifacts/frozen_manifest.json -> deliverable_satellite"),
-        Caveat("0.9078 °C is a basin-wide average, not this cell's error.",
+        Caveat("0.9006 °C is a basin-wide average, not this cell's error.",
                "The headline RMSE is measured against 962 independent Argo profiles across the "
                "whole basin and the whole test window. A single point can be much better or much "
                "worse, and the Arabian Sea is measurably worse than the Bay of Bengal.",

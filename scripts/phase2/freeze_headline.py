@@ -15,7 +15,8 @@ THE DELIVERABLE IS THE SATELLITE-INPUT RUN
 ------------------------------------------
 The PS requires "the three-dimensional ocean temperature using ONLY surface satellite
 observations." The deliverable is therefore `sat_7ch_s42` (satellite inputs, GLORYS target),
-scored 0.9078 degC -- see `PHASE2_STATUS.md` row 16. The GLORYS-input runs (0.8548 stage-2, the
+scored 0.9006 degC under `seafloor_masked_v1` -- see `PHASE2_STATUS.md` row 16. The
+GLORYS-input runs (0.8548 stage-2, the
 0.8645 embargoed stage-1) are legitimate COMPARATORS, not the deliverable, because their inputs are
 reanalysis. An earlier version of this manifest named the 0.8548 GLORYS run as "headline"; that was
 before the satellite build and is corrected here.
@@ -52,7 +53,9 @@ RUNS = [
         key="deliverable_satellite",
         deliverable=True,
         input_source="satellite",
-        metrics="tscast_stage1_sat_7ch_s42_metrics.json",
+        # The re-score under seafloor_masked_v1 (2026-09-07). The training-run JSON beside it is
+        # unmasked_v1 and is kept untouched as the historical record.
+        metrics="tscast_stage1_sat_7ch_s42_rescore_seafloor_masked_v1.json",
         checkpoint="tscast_stage1_sat_7ch_s42.pt",
         role="THE PS DELIVERABLE -- stage-1, satellite inputs (OSTIA SST, DUACS altimetry, "
              "SMOS-blended SSS, GLOBCURRENT total currents, observational wind); GLORYS target.",
@@ -80,7 +83,7 @@ RUNS = [
         key="glorys_comparator_stage1_embargoed",
         deliverable=False,
         input_source="glorys",
-        metrics="tscast_stage1_embargo_withUV_s42_metrics.json",
+        metrics="tscast_stage1_embargo_withUV_s42_rescore_seafloor_masked_v1.json",
         checkpoint="tscast_stage1_embargo_withUV_s42.pt",
         role="GLORYS stage-1 (withUV) after the 1d3c135 _window() embargo -- a comparator, and "
              "the leak-corrected successor to the pre-embargo stage-1 runs.",
@@ -113,10 +116,16 @@ def scored_numbers(metrics_path: str) -> dict:
         m = json.load(f)
     picked = {k: m.get(k) for k in (
         "seed", "channels", "T_SEQ", "encoder", "argo_profiles", "train_period", "test_period",
-        "best_epoch", "protocol", "code_commit", "tag", "input_source", "stage")}
+        "best_epoch", "protocol", "code_commit", "tag", "input_source", "stage",
+        "scoring_protocol", "refusals", "rescored_from", "rescore_code_commit")}
+    # A metrics file written before 2026-09-07 carries no scoring_protocol: it is unmasked_v1.
+    picked.setdefault("scoring_protocol", None)
+    if picked["scoring_protocol"] is None:
+        picked["scoring_protocol"] = "unmasked_v1"
     overall = m.get("metrics", {}).get("overall", {})
     for key in ("rmse", "bias", "correlation", "skill_rmse_ratio", "skill_vs_climatology",
-                "rmse_climatology", "n"):
+                "rmse_climatology", "n", "skill_rmse_ratio_real_baseline",
+                "rmse_climatology_real_baseline", "n_real_baseline", "n_profiles_real_baseline"):
         if key in overall:
             picked[f"overall_{key}"] = overall[key]
     depths = m.get("metrics", {}).get("depths_m")
@@ -175,6 +184,16 @@ def do_freeze() -> int:
                                  "checkpoint_bytes", "checkpoint_note",
                                  "checkpoint_frozen_elsewhere", "scores_carried_forward")}
             nums["scores_carried_forward"] = True
+            # Carried from a machine that scored under the OLD protocol. Say so, or a reader
+            # compares a masked deliverable with an unmasked comparator and reads the gap as
+            # skill.
+            nums.setdefault("scoring_protocol", "unmasked_v1")
+            if nums["scoring_protocol"] != "seafloor_masked_v1":
+                nums["comparability_note"] = (
+                    f"scored under {nums['scoring_protocol']} on another machine; NOT directly "
+                    "comparable to the seafloor_masked_v1 deliverable (different n) until "
+                    "re-scored with scripts/phase2/rescore_checkpoint.py where the checkpoint "
+                    "lives")
         ck_src = os.path.join(ARTIFACTS, r["checkpoint"])
         present = os.path.exists(ck_src)
         entry = {
@@ -245,10 +264,14 @@ def do_freeze() -> int:
         "what": "Byte identity + verified scores of the shipped deliverable and its comparators. "
                 "A checksum proves a checkpoint is the file that produced the numbers beside it, "
                 "not what trained it (D-012).",
-        "supersedes": "the 2026-09-01 manifest (frozen at a5cdd3a) that named the GLORYS stage-2 "
-                      "run 0.8548 as HEADLINE. That predates the satellite-input build and the "
-                      "deeper _window() embargo fix (1d3c135); 0.8548 is a comparator, not the "
-                      "deliverable.",
+        "supersedes": "the 2026-09-04 manifest, which scored every claim under unmasked_v1: the "
+                      "model's raw output compared against Argo at every depth the float sampled, "
+                      "including the 93 comparisons (of 12,829) below the training target's own "
+                      "seafloor where output.build_record returns None. From 2026-09-07 the "
+                      "deliverable and the embargoed stage-1 comparator are scored under "
+                      "seafloor_masked_v1 (n 12,736); the stage-2 GLORYS comparators are carried "
+                      "forward under unmasked_v1 and labelled not comparable. Before that, the "
+                      "2026-09-01 manifest had named the GLORYS stage-2 run 0.8548 as HEADLINE.",
         "authoritative_source": "PHASE2_STATUS.md row 16 (the PS deliverable); docs/HANDOFF.md.",
         "deliverable_key": deliverable_key,
         "frozen_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

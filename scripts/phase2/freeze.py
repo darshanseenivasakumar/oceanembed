@@ -121,13 +121,19 @@ def build(check: Check) -> dict:
           f"2-sigma coverage {100*lo:.1f}%-{100*hi:.1f}% by depth (mean {100*sa.get('cov2_mean', 0):.1f}%, "
           f"Gaussian nominal 95.4%) -- reported as a RANGE, never as the mean alone")
 
+    # The worst-covered depth, READ from the calibration artifact rather than typed here.
+    _ca = cal.get("coverage_after") or {}
+    _c2 = {int(k): v["cov2"] for k, v in _ca.items() if v.get("cov2") is not None}
+    _wd = min(_c2, key=_c2.get) if _c2 else None
+    cov_note = ((f"Uncertainty is improved, not calibrated: 2-sigma covers {100 * _c2[_wd]:.1f}% at "
+                 f"{_wd} m against a 95.4% nominal. No confidence percentage is displayed anywhere.")
+                if _wd is not None else "Uncertainty calibration artifact absent; no coverage claim.")
     print("\nOPEN ITEMS CARRIED INTO THE FREEZE (not defects, but not hidden either)")
     for note in ("INCOIS LAS gridded Argo (PS req 16) is unreachable -- their data layer is down. "
                  "Validated on argopy floats with the deviation documented.",
                  "The Arabian Sea satellite penalty (+0.0341, 3 seeds) is reproducible and its "
                  "cause is UNKNOWN. Four mechanisms tested, none supported.",
-                 "Uncertainty is improved, not calibrated: 2-sigma covers 80.1% at 50 m against a "
-                 "95.4% nominal. No confidence percentage is displayed anywhere.",
+                 cov_note,
                  "Stage 2 HAS now been run on satellite input (2026-09-05, tags sat_s2 / _s43 / _s44, seeds 42/43/44, matched: same bundle, split, 962 Argo profiles, n=12829). Salinity RMSE 0.2695 psu mean (spread 0.0207) scored against independent Argo PSAL; density (eq. 5) 0.3039 kg m-3 mean (spread 0.0266). It is NOT promoted and NOT frozen -- stage 1 remains the deliverable. STAGE 2 DOES NOT IMPROVE TEMPERATURE: seed 42 read +0.0224 better than stage 1, but 43 and 44 read -0.0018 and -0.0080, so the sign does NOT hold and the mean +0.0042 sits inside a 0.0304 spread. The one-seed result was the lucky leg. The density calibration ratio is also unstable across seeds (1.245 / 1.281 / 1.491), so no stage-2 uncertainty claim should be quoted from a single run.",
                  "accept.py has one known pre-existing failure comparing two LEGACY Phase-1 "
                  "artifacts whose profile-retention rules differ; the RMSE agreement it also "

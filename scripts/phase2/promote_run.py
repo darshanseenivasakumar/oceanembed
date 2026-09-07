@@ -91,9 +91,14 @@ def available(stage: str = "stage1") -> list[str]:
     return tags
 
 
-def promote(tag: str, stage: str = "stage1", force: bool = False) -> None:
+def promote(tag: str, stage: str = "stage1", force: bool = False,
+            rescore: str | None = None) -> None:
     ck_src = config.art(f"tscast_{stage}_{tag}.pt")
-    m_src = config.art(f"tscast_{stage}_{tag}_metrics.json")
+    # A re-score under a named scoring protocol (scripts/phase2/rescore_checkpoint.py) is a full
+    # metrics record of the SAME checkpoint bytes. Promoting it ships those bytes with that
+    # protocol's numbers beside them; the training-run JSON stays on disk, untouched.
+    m_src = (config.art(f"tscast_{stage}_{tag}_rescore_{rescore}.json") if rescore
+             else config.art(f"tscast_{stage}_{tag}_metrics.json"))
     for p in (ck_src, m_src):
         if not os.path.exists(p):
             raise SystemExit(f"refusing: {p} does not exist. Available tags for {stage}: "
@@ -116,6 +121,7 @@ def promote(tag: str, stage: str = "stage1", force: bool = False) -> None:
 
     shutil.copy2(ck_src, ck_dst)
     m["promoted_from"] = tag
+    m["promoted_metrics_source"] = os.path.basename(m_src)
     m["promoted_at"] = dt.datetime.now().replace(microsecond=0).isoformat()
     m["checkpoint_sha256"] = _sha256(ck_dst)
     m["promotion_note"] = (
@@ -144,6 +150,10 @@ def main() -> None:
     ap.add_argument("--list", action="store_true", help="show promotable tags and exit")
     ap.add_argument("--force", action="store_true",
                     help="promote even a run that predates the embargo fix. Almost never right.")
+    ap.add_argument("--rescore", default=None, metavar="PROTOCOL",
+                    help="promote the metrics of tscast_<stage>_<tag>_rescore_<PROTOCOL>.json "
+                         "(written by rescore_checkpoint.py) instead of the training-run JSON. "
+                         "Same checkpoint bytes, scored under the named protocol.")
     a = ap.parse_args()
 
     if a.list or not a.tag:
@@ -153,7 +163,7 @@ def main() -> None:
         if not a.tag:
             raise SystemExit(0 if a.list else "give --tag")
         return
-    promote(a.tag, a.stage, a.force)
+    promote(a.tag, a.stage, a.force, a.rescore)
 
 
 if __name__ == "__main__":

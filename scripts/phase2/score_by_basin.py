@@ -93,7 +93,7 @@ def score(tag: str, device: str = "cuda") -> dict:
     assert_architecture_matches(model, ck, 'score_by_basin')
     model.load_state_dict(ck["state_dict"])
 
-    keys, truth, keep, t_idx, la, lo = eval_argo.collocate(d, te_t, verbose=False)
+    keys, truth, keep, t_idx, la, lo, refusals = eval_argo.collocate(d, te_t, verbose=False)
     mu, sigma, truth_k, clim_k = eval_argo.predict_at_argo(
         model, ds_te, keys, truth, keep, t_idx, la, lo, clim, dev)
     lat = keys["lat"].values[keep]
@@ -102,7 +102,8 @@ def score(tag: str, device: str = "cuda") -> dict:
     by_basin = metrics.per_depth_by_basin(mu, truth_k, lat, lon,
                                           clim=clim_k, reference="argo")
     return {"tag": tag, "input_source": src, "bundle": bundle,
-            "seed": ck.get("seed"), "by_basin": by_basin}
+            "seed": ck.get("seed"), "by_basin": by_basin,
+            "scoring_protocol": eval_argo.SCORING_PROTOCOL, "refusals": refusals}
 
 
 def _overall(block: dict) -> dict:

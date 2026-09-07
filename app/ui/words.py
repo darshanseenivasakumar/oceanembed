@@ -11,8 +11,9 @@ RULES FOR THIS FILE
    deleting them would be a claim this project has not earned.
 
 THE HEADLINE NUMBER, AND THE ONE IT IS CONSTANTLY CONFUSED WITH
-  0.9078 degC  <- THE DELIVERABLE. Satellite inputs only, which is what the problem statement
-                  asks for. 962 independent Argo profiles.
+  0.9006 degC  <- THE DELIVERABLE. Satellite inputs only, which is what the problem statement
+                  asks for. 962 independent Argo profiles, scored under seafloor_masked_v1 since
+                  2026-09-07 (0.9078 was the same checkpoint under the unmasked_v1 protocol).
   0.8548 degC  <- a COMPARATOR that reads reanalysis (GLORYS) as input. Better, and irrelevant:
                   it fails the satellite-only requirement. It is never the headline.
 Both come from artifacts/frozen_manifest.json, claims.{deliverable_satellite,
@@ -121,7 +122,7 @@ EXPLAIN = {
         "Input source",
         "**Satellite** is the deliverable. It uses only what a satellite can see — surface "
         "temperature, salinity, height and currents — which is what the problem statement asks "
-        "for. Scores **0.9078 °C** against Argo.\n\n"
+        "for. Scores **0.9006 °C** against Argo.\n\n"
         "**GLORYS** is a reanalysis: a model-assimilated ocean product. It scores better "
         "(0.8548 °C) because it is a richer input, but it **fails the satellite-only "
         "requirement**, so it is a comparator and never the headline."),
@@ -333,8 +334,9 @@ EXPLAIN = {
         "The bar every model must clear",
         "Climatology is simply the long-term average for that place and time of year. It requires "
         "no model at all.\n\n"
-        "If a model cannot beat climatology it has learned nothing. This one beats it by **45 %** "
-        "on error."),
+        "If a model cannot beat climatology it has learned nothing. This one cuts its **squared** "
+        "error by **42 %**, which is **24 %** on RMSE. The two ratios are different "
+        "quantities and we never quote them as one."),
     "rmse": (
         "Error, in one number",
         "Root-mean-square error: the typical distance between the model's temperature and the "
@@ -411,9 +413,10 @@ kind do not.
 
 It was checked against **962 Argo float profiles it never saw during training**.
 
-- Typical error: **0.9078 °C**
+- Typical error: **0.9006 °C**
 - Correlation with real measurements: **0.88**
-- **45 % better than climatology** — the long-term seasonal average, which is the bar any model
+- **42 % lower squared error than climatology** (28 % where a real per-cell climatology exists) — the long-term
+  seasonal average, which is the bar any model
   must clear to have learned anything at all
 
 Every number on this dashboard is read from a file produced by the training run itself. Nothing is

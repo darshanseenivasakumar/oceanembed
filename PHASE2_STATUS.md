@@ -9,18 +9,31 @@ Status vocabulary: `NOT STARTED` · `IN PROGRESS` · `IMPLEMENTED` · `TESTED` �
 >
 > | result | Argo RMSE | skill | INPUT SOURCE |
 > |---|---|---|---|
-> | **stage 1 satellite — SHIPPED** | **0.9078** | **+0.2595** | **satellite** ✅ the PS deliverable |
-> | stage 1 GLORYS — comparator | 0.8789 | +0.2831 | reanalysis ❌ |
-> | stage 2 GLORYS — best accuracy | 0.8548 | +0.3027 | reanalysis ❌ |
+> | **stage 1 satellite — SHIPPED** | **0.9006** | **+0.2400** (+0.1494 where the climatology is real) | **satellite** ✅ the PS deliverable — `seafloor_masked_v1`, n 12,736 |
+> | stage 1 GLORYS — comparator | 0.8743 | +0.2622 | reanalysis ❌ — `seafloor_masked_v1`, seed 42 |
+> | stage 2 GLORYS — best accuracy | 0.8548 | +0.3027 | reanalysis ❌ — `unmasked_v1`, n 12,829, NOT directly comparable |
 >
 > **Quoting 0.8548 as "our result" would present a reanalysis-fed model as satisfying a
 > satellite-input requirement.** It is a legitimate number and a legitimate comparator; it is not
 > the deliverable. Row 14's "CURRENT HEADLINE" label predates the satellite model and should be
 > read as "best accuracy on the GLORYS-input path".
 >
-> The honest framing for a jury: *real satellite observations cost +0.0289 °C against a
-> reanalysis-fed comparator and retain 92% of its skill* — that difference IS a result, measured
-> on identical points (rmse_climatology 1.2259 and n=12829 in both legs).
+> The honest framing for a jury (re-measured 2026-09-07 under `seafloor_masked_v1`, 3 seeds each,
+> identical points, rmse_climatology 1.1850 and n=12,736 in both legs): *satellite minus
+> reanalysis-fed reads +0.0263 / +0.0267 / −0.0028 °C — mean +0.0167 — and the sign does NOT hold,
+> so by our own three-seed rule the cost is not an established effect; the satellite model retains
+> ~94% of the comparator's skill.* The earlier "+0.0289, retains 92%" was one seed under `unmasked_v1`.
+>
+> **SCORING PROTOCOL CHANGE 2026-09-07 — `seafloor_masked_v1`.** Every number in this file dated
+> before 2026-09-07 was scored under `unmasked_v1`: the model's raw output compared against Argo at
+> every depth the float sampled, including the 93 of 12,829 comparisons below the training target's
+> own seafloor, where `output.build_record` returns None. The scorer now declines those and counts
+> them (`eval_argo.apply_seafloor_mask`). On the deliverable: RMSE 0.9078 → **0.9006**, skill
+> +0.2595 → **+0.2400**, n 12,829 → 12,736. Separately, `metrics.per_depth(baseline_ok=...)` now
+> reports skill on the 895 profiles whose cell has a REAL climatology: **+0.1494**. The other 67 sit
+> on a basin-mean fill (`build_samples` drops any-NaN columns, so shelf cells contribute no rows and
+> `climatology.build_climatology` fills them), where "skill" read +0.55 against a baseline that does
+> not exist. Historical rows below are left as written and are `unmasked_v1`.
 >
 > Stage 2 has not yet been run on satellite input. Until it is, there is no satellite T+S+density
 > number and none may be implied.
@@ -71,9 +84,9 @@ documented physical expectation.
 | 11 | **Wind input (PS req 8)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | n/a | ☑ 22 | ☑ | **0% → done.** 388 daily-mean fields from the only gap-filled global L4 covering 2025-26 (hourly, averaged by us; no P1D/P1M variant exists). Grid is offset 0.0625 deg from ours so it is block-averaged BY COORDINATE, never by position. Validated against the Findlater Jet: JJA 9.57 vs DJF 5.60 m/s over the western Arabian Sea, measured across seasons |
 | 12 | **TS-Cast-NIO v2 stage 1** | Darshan (from Arjhun) | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 36 | ☑ | ⚠ **SUPERSEDED 2026-09-01 — see row 14 and `EXPERIMENT_LOG :: v2-embargoed`.** As measured pre-embargo: ~~RMSE 0.8612 °C / skill +0.2975, wind −0.0149 °C and −41% warm bias~~. Those numbers were correct for commit `6e6ba9a` and are kept as the historical record; the leakage embargo (`a5cdd3a`) changed them. Post-embargo the same matched pair reads **7ch 0.8793 vs 5ch 0.8682 — wind COSTS +0.0111 °C** while still removing 14.6% of the warm bias. Skill still positive at all 15 depths. Stage 1 only — salinity and the eq. 5 density loss are stage 2. Mixed layer (20–50 m) remains model-limited; thermocline error is LARGELY inherited from the reanalysis -- 0.178 C of the 100 m error is the model's own, measured on the shipped v2 run (audit 2026-09-07), not the 0.023 C Phase-1 figure |
 | 13 | **v2 UI — explain every output** | Darshan | `phase2-tscast-nio` | **TESTED** | ☑ | ☑ | ☑ 15 | ◐ | Port 8504, four tabs, frozen demo untouched. Every rendered number is asserted equal to the metrics artifact to 4 dp by `accept.py check_v2_ui`. Marked TESTED not VALIDATED: it renders validated science correctly, which is not the same as validating anything itself |
-| 14 | **Stage 2 — salinity + density (CURRENT HEADLINE)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 26 | ☑ | **T RMSE 0.8548 °C / skill +0.3027 / bias +0.1055 on the same 962 independent Argo (n=12,829)**, plus salinity 0.2450 psu and density 0.2841 kg m⁻³. Beats stage-1 7ch on every accuracy metric, so this is the shipped headline as of 2026-09-01. The paper's eq. 5 density loss is OFF: with it ON the same run reads 0.8593 / +0.2990 / bias +0.1598, i.e. it costs accuracy — reported as a negative result, not hidden. Byte identity in `artifacts/frozen_manifest.json` |
+| 14 | **Stage 2 — salinity + density (best accuracy; a GLORYS-fed COMPARATOR, not the deliverable — see row 16)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 26 | ☑ | **T RMSE 0.8548 °C / skill +0.3027 / bias +0.1055 on the same 962 independent Argo (n=12,829, `unmasked_v1` scoring)**, plus salinity 0.2450 psu and density 0.2841 kg m⁻³. Beats stage-1 7ch on every accuracy metric, so this is the shipped headline as of 2026-09-01. The paper's eq. 5 density loss is OFF: with it ON the same run reads 0.8593 / +0.2990 / bias +0.1598, i.e. it costs accuracy — reported as a negative result, not hidden. Byte identity in `artifacts/frozen_manifest.json` |
 | 15 | **Phase 1 — provenance audit + freeze** | Darshan | `fix/provenance-audit` | **VALIDATED** | ☑ | n/a | ☑ 4 | ☑ | Three findings. (1) The Aug-26 synthetic-`X_train` alarm is STALE — verified four ways (row counts match provenance exactly; ssh mean 0.4463 not 0.0017; `norm_stats` derived from it; LightGBM ssh splits span 0.0–0.659). (2) The planned row-count gate was NOT built — it is the guard this repo already removed for cause (D-012). (3) **The wind result reverses post-embargo** and was independently re-scored from disk at a 0.00e+00 gap before being written down. `freeze_headline.py` proven to fail on a tampered file |
-| 16 | **Stage 1 SATELLITE-INPUT (the PS deliverable)** | Arjhun | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 44 | ☑ | **T RMSE 0.9078 °C / skill +0.2595 / bias +0.1003 on 962 independent Argo (n=12,829)** — the first result whose INPUTS are satellite observations (OSTIA SST, DUACS altimetry, SMOS-blended SSS, GLOBCURRENT total currents, observational wind). GLORYS remains the target, which the PS names. Bundle `daily_sat/v001`, 388 days, 0 dropped, passed 44 provenance + data-lineage checks and a negative test that caught GLORYS injected into all five satellite channels. Config identical to the GLORYS-input leg; only the input source differs. **n=1 — multi-seed is A10.**
+| 16 | **Stage 1 SATELLITE-INPUT (the PS deliverable)** | Arjhun | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 44 | ☑ | **T RMSE 0.9006 °C / skill +0.2400 (+0.1494 on the 895 profiles with a real climatology) / bias +0.1066 on 962 independent Argo (n=12,736, `seafloor_masked_v1`; the same checkpoint read 0.9078 / +0.2595 / n=12,829 under `unmasked_v1`)** — the first result whose INPUTS are satellite observations (OSTIA SST, DUACS altimetry, SMOS-blended SSS, GLOBCURRENT total currents, observational wind). GLORYS remains the target, which the PS names. Bundle `daily_sat/v001`, 388 days, 0 dropped, passed 44 provenance + data-lineage checks and a negative test that caught GLORYS injected into all five satellite channels. Config identical to the GLORYS-input leg; only the input source differs. **n=1 — multi-seed is A10.**
 
 
 ## F5 — detail (Arjhun, `phase2-physics`)

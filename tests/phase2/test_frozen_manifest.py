@@ -166,11 +166,29 @@ def test_a_better_scoring_glorys_comparator_is_not_the_deliverable(manifest):
 def test_all_legs_are_scored_on_the_same_argo_set(manifest):
     """Cross-leg comparison is only meaningful on identical sample counts. If a leg was scored on
     a different Argo set, its RMSE is not comparable to the others and the manifest would be
-    inviting an apples-to-oranges read."""
-    ns = {k: v["overall_n"] for k, v in manifest["claims"].items() if v.get("overall_n")}
-    if len(ns) < 2:
+    inviting an apples-to-oranges read.
+
+    Since 2026-09-07 the manifest can hold legs under two SCORING PROTOCOLS: the deliverable and
+    the embargoed comparator are re-scored under seafloor_masked_v1 (n 12,736), while the stage-2
+    GLORYS comparators live on another machine and are carried forward under unmasked_v1
+    (n 12,829). Identical n is required WITHIN a protocol; a leg under a different protocol from
+    the deliverable must carry a note saying it is not directly comparable."""
+    by_proto: dict = {}
+    for k, v in manifest["claims"].items():
+        if v.get("overall_n"):
+            by_proto.setdefault(v.get("scoring_protocol", "unmasked_v1"), {})[k] = v["overall_n"]
+    if sum(len(g) for g in by_proto.values()) < 2:
         pytest.skip("fewer than two scored legs present")
-    assert len(set(ns.values())) == 1, f"legs scored on different sample counts: {ns}"
+    for proto, ns in by_proto.items():
+        assert len(set(ns.values())) == 1, (
+            f"legs under {proto} scored on different sample counts: {ns}")
+    deliverable_proto = manifest["claims"][manifest["deliverable_key"]].get(
+        "scoring_protocol", "unmasked_v1")
+    for k, v in manifest["claims"].items():
+        if v.get("overall_n") and v.get("scoring_protocol", "unmasked_v1") != deliverable_proto:
+            assert v.get("comparability_note"), (
+                f"{k} is scored under a different protocol from the deliverable and carries no "
+                f"comparability note -- a reader would compare its RMSE straight across")
 
 
 # ── --verify on a manifest that spans two machines (audit 2026-09-06) ───────────────────

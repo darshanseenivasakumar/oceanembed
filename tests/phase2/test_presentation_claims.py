@@ -206,3 +206,61 @@ def test_the_buoy_series_are_not_described_as_independent_validation():
     assert re.search(r"in-sample|IN-SAMPLE", text), (
         "the buoy result must be labelled in-sample: its series span the training period and "
         "moored profiles feed the reanalysis the model is trained against")
+
+
+# ── the live UI must quote the CURRENT scoring protocol (audit 2026-09-07) ──────────────
+#
+# From 2026-09-07 the deliverable is scored under seafloor_masked_v1 (eval_argo). The previous
+# headline, 0.9078 under unmasked_v1, may still appear in the app only where it is labelled as
+# such: a page that describes an experiment whose artifact was scored under the old protocol, or a
+# line that names it as superseded. A bare 0.9078 presented as the current error is the defect
+# `app/ui/data.py` warns about in its own docstring: a UI that hardcodes the number "will still say
+# 0.9078 after the model changes". It did.
+
+APP_DIR = os.path.join(REPO, "app")
+SUPERSEDED_HEADLINE = ("0.9078", "0.2595", "12,829", "12829")
+LABELS = ("unmasked", "superseded", "before 2026-09-07", "old protocol", "previous protocol")
+
+
+def _app_sources() -> dict[str, list[str]]:
+    out = {}
+    for root, _dirs, files in os.walk(APP_DIR):
+        for name in files:
+            if name.endswith(".py"):
+                p = os.path.join(root, name)
+                with open(p, encoding="utf-8") as f:
+                    out[os.path.relpath(p, REPO)] = f.read().splitlines()
+    return out
+
+
+def test_the_app_does_not_present_the_superseded_headline_as_current():
+    offenders = []
+    for path, lines in _app_sources().items():
+        for i, line in enumerate(lines, 1):
+            if any(tok in line for tok in SUPERSEDED_HEADLINE):
+                window = " ".join(lines[max(0, i - 3):i + 2]).lower()
+                if not any(lbl in window for lbl in LABELS):
+                    offenders.append(f"{path}:{i}: {line.strip()[:90]}")
+    assert not offenders, (
+        "these lines present the unmasked_v1 headline (0.9078 / +0.2595 / 12,829) as the current "
+        "number. The deliverable is scored under seafloor_masked_v1 since 2026-09-07; either read the "
+        "figure from artifacts/frozen_manifest.json or label the line as the superseded protocol:\n  "
+        + "\n  ".join(offenders))
+
+
+def test_the_manifest_deliverable_is_scored_under_the_current_protocol():
+    """If someone re-freezes from the unmasked training JSON, the deck/manifest test above would
+    happily pass against the wrong protocol. Pin the protocol itself."""
+    if not os.path.exists(MANIFEST):
+        pytest.skip("no frozen_manifest.json on this machine")
+    import json
+    from phase2.tscast_nio import eval_argo as EA
+
+    with open(MANIFEST, encoding="utf-8") as f:
+        man = json.load(f)
+    claim = man["claims"][man["deliverable_key"]]
+    assert claim.get("scoring_protocol") == EA.SCORING_PROTOCOL, (
+        f"the deliverable is frozen under {claim.get('scoring_protocol')!r}, the code scores under "
+        f"{EA.SCORING_PROTOCOL!r}: re-run rescore_checkpoint.py and freeze_headline.py")
+    assert claim.get("refusals", {}).get("n_refused_below_seafloor") is not None, (
+        "a claim under the masked protocol must carry its refusal count beside the score")

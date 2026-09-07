@@ -92,6 +92,10 @@ def main() -> int:
     keep = offs.min(axis=1) <= MAX_DAYS
     t_idx = np.asarray(te_t)[offs.argmin(axis=1)]
     la, lo = D.cell_index(keys["lat"].values, keys["lon"].values)
+    # Decline what the product declines (eval_argo.apply_seafloor_mask).
+    truth = np.asarray(truth, dtype="float64").copy()
+    truth[keep], refusals = EA.apply_seafloor_mask(truth[keep], la[keep], lo[keep],
+                                                   d["valid_mask"], d["land_mask"])
 
     ds_te.index = np.stack([t_idx[keep], la[keep], lo[keep]], axis=1)
     mus = []
@@ -148,6 +152,7 @@ def main() -> int:
         "what": "does the shipped model reproduce the SHAPE of a profile, not just its values?",
         "checkpoint": os.path.basename(ckpt), "tag": a.tag,
         "argo_profiles": int(pred.shape[0]), "reference": "independent Argo",
+        "scoring_protocol": EA.SCORING_PROTOCOL, "refusals": refusals,
         "thermocline_window_m": list(THERMOCLINE),
         "gradient_ratio_thermocline": th_ratio,
         "gradient_ratio_whole_column": all_ratio,

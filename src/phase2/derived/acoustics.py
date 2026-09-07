@@ -27,7 +27,7 @@ WHY SALINITY UNCERTAINTY BARELY MATTERS HERE, AND TEMPERATURE IS THE WHOLE GAME
 Mackenzie's temperature terms are far stronger than its salinity term over this basin's range.
 [MEASURED at mean basin conditions, T = 20.81 degC, S = 35.19 psu, 100 m]
 
-    the deliverable's temperature RMSE   0.9078 degC  ->  2.410 m/s
+    the deliverable's temperature RMSE   0.9006 degC  ->  2.392 m/s
     stage 2's salinity RMSE (A18)        0.2695 psu   ->  0.304 m/s
                                                           ------- temperature dominates 7.9x
 
@@ -174,7 +174,8 @@ def error_budget(theta_c: float, salinity_psu: float, depth_m: float, *,
     Both are evaluated as a one-sided perturbation at the given conditions, because Mackenzie is
     mildly non-linear in T and a symmetric difference would hide that.
 
-    t_rmse : the temperature model's RMSE, degC   (the deliverable: 0.9078 against 962 Argo)
+    t_rmse : the temperature model's RMSE, degC   (the deliverable: 0.9006 against 962 Argo,
+             scoring protocol seafloor_masked_v1; it read 0.9078 under unmasked_v1)
     s_rmse : the salinity source's RMSE, psu      (stage 2: 0.2695, A18, seeds 42/43/44)
     """
     c0 = float(sound_speed(salinity_psu, theta_c, depth_m))

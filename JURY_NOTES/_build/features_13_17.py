@@ -347,7 +347,8 @@ SPECS.append(dict(
         "a perfectly plausible ordinary-temperature pixel. The error would barely move and the "
         "result would read <i>'robust to 60% cloud cover'</i> having tested precisely nothing.",
         "And then the curve did something nobody expected. <b>Blanking 15% of the sea-surface "
-        "temperature made the model better</b> - 0.8950 against the control's 0.9078, with a spread "
+        "temperature made the model better</b> - 0.8950 against the control's 0.9078, both scored "
+        "under the unmasked_v1 protocol this artifact predates, with a spread "
         "across random masks of 0.0002, so sixty times the noise. It would have been easy, and "
         "completely wrong, to report that as tolerance of cloud.",
         "It is two errors partially cancelling. The shipped model runs <b>0.1003 degC warm</b>. A "
@@ -417,7 +418,10 @@ SPECS.append(dict(
          "be worth."],
     ],
     numbers_intro="The full sweep, on 962 Argo profiles with the shipped checkpoint unmodified "
-                  "[VERIFIED]:",
+                  "[VERIFIED]. Every figure in this table is <b>unmasked_v1</b>, the scoring "
+                  "protocol this artifact was produced under; the 0.9078 control is the same "
+                  "checkpoint that reads 0.9006 under today's seafloor_masked_v1. The comparison "
+                  "across the row is unaffected - all nine columns share one protocol:",
     numbers_table=dict(
         rows=[
             ["SST blanked", "0%", "10%", "15%", "20%", "30%", "50%", "70%", "100%"],

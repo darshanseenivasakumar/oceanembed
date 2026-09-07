@@ -33,9 +33,9 @@ def build_note(path):
     )
 
     s.append(kvstrip([
-        ("Shipped RMSE", "0.9078 degC"),
+        ("Shipped RMSE", "0.9006 degC"),
         ("PS audit", "16 pass / 0 fail / 1 blocked"),
-        ("Tests", "892 passing, 9 skipped"),
+        ("Tests", "925 passing, 9 skipped"),
         ("Working surfaces", "17, one port each"),
     ]))
 
@@ -58,17 +58,18 @@ def build_note(path):
     s.append(table([
         ["What was delivered", "Evidence"],
         ["A working satellite-input reconstruction",
-         "RMSE <b>0.9078 degC</b>, correlation <b>0.8812</b>, bias +0.1003 degC, skill "
-         "<b>+0.2595</b> over climatology, on <b>962 independent Argo profiles</b> and 12,829 depth "
-         "comparisons. Beats climatology at <b>14 of 15</b> depths."],
+         "RMSE <b>0.9006 degC</b>, correlation <b>0.8809</b>, bias +0.1066 degC, skill "
+         "<b>+0.2400</b> over climatology (<b>+0.1494</b> where a real per-cell climatology exists), "
+         "on <b>962 independent Argo profiles</b> and 12,736 depth comparisons under the "
+         "seafloor_masked_v1 protocol. Beats climatology at <b>14 of 15</b> depths."],
         ["Uncertainty on every value",
-         "A plus-or-minus 2 sigma band whose coverage is reported as a <b>range</b> (80.1% to 95.5% "
+         "A plus-or-minus 2 sigma band whose coverage is reported as a <b>range</b> (80.1% to 96.0% "
          "by depth) because the mean would hide an 80% depth at 50 m."],
         ["A complete system, not a model",
          "<b>17 working surfaces</b> - validation, physics, events, 3-D cube, transect, acoustics, "
          "cyclone heat, case study, export, API, uncertainty, robustness and observation priority."],
         ["Verification machinery",
-         "<b>892 tests passing</b>, an <b>18-check freeze</b> on the shipped artifact, a "
+         "<b>925 tests passing</b>, an <b>18-check freeze</b> on the shipped artifact, a "
          "<b>44-check</b> satellite-bundle verifier including a negative test that injects "
          "reanalysis and confirms it is caught, and a <b>17-row PS audit</b> that opens an artifact "
          "per clause."],
@@ -84,7 +85,7 @@ def build_note(path):
                 "[all VERIFIED]:"))
     s.append(table([
         ["#", "The flaw", "Magnitude", "Ours or inherited?"],
-        ["1", "<b>The model runs warm</b>", "bias +0.1003 degC overall, peaking at <b>+0.657 degC "
+        ["1", "<b>The model runs warm</b>", "bias +0.1066 degC overall, peaking at <b>+0.657 degC "
          "at 50 m</b>", "<b>Mostly inherited.</b> The GLORYS target is +0.1078 degC warm against "
          "the same floats and the model is -0.007 against its own target, so the average is the "
          "target's. The <b>+0.447 degC</b> the model adds at 50 m is ours."],
@@ -95,7 +96,7 @@ def build_note(path):
          "and does not hold for this model."],
         ["3", "The mixed layer (20-50 m) is worse than the reanalysis", "by +0.23 to +0.38 degC",
          "<b>Ours</b> - and the one place effort would clearly pay."],
-        ["4", "Climatology beats the model at 1000 m", "by 0.012 degC",
+        ["4", "Climatology beats the model at 1000 m", "by 0.055 degC",
          "Ours, small, and labelled on the chart. 14 of 15 depths, not 15."],
         ["5", "An Arabian Sea satellite penalty", "+0.0341 degC, sign holds across 3 of 3 seeds",
          "<b>Cause UNKNOWN after four tested hypotheses.</b> Reported as unexplained."],
@@ -169,12 +170,13 @@ def build_note(path):
         "962-profile headline.",
     ]))
     s.append(callout(
-        "One unresolved discrepancy, recorded as open rather than explained away",
-        "The Validation Lab headline (0.9638 degC over 879 profiles) still disagrees with the freeze "
-        "manifest (0.9078 degC over 962 profiles). The likely reading is that the Lab reports the "
-        "Phase-1 satellite-driven number while the manifest reports the Phase-2 model - but that has "
-        "<b>not been confirmed</b>, so it is tagged UNKNOWN and stays in the open-items list. If a "
-        "juror spots it, agree immediately and say it is a known open item.", "warn"))
+        "A discrepancy that WAS open, now traced (2026-09-07)",
+        "The Validation Lab headline (0.9638 degC over 879 profiles) and the freeze manifest "
+        "(0.9006 degC over 962 profiles) are two different models on two different records: "
+        "<b>src/phase2/validation/lab.py reads artifacts/argo_error_by_depth.json</b>, the Phase-1 "
+        "satellite-driven model scored against 2022 floats on the monthly grid, while the manifest "
+        "records the v2 daily model against 2025-26 floats. Confirmed by reading the code, not "
+        "inferred. If a juror asks, say exactly that.", "warn"))
 
     # 5 -----------------------------------------------------------------
     s += heading("5.  What novelty is missing - the honest position")
@@ -328,12 +330,15 @@ def build_note(path):
 
     s += _qa("A.  The headline result", [
         ("What exactly is your result, and against what?",
-         "RMSE 0.9078 degC, correlation 0.8812, bias +0.1003 degC, and +0.2595 skill against "
-         "climatology - measured on 962 independent Argo profiles and 12,829 depth comparisons, "
-         "using satellite inputs only. The profiles were never used in training."),
+         "RMSE 0.9006 degC, correlation 0.8809, bias +0.1066 degC, and +0.2400 skill against "
+         "climatology - measured on 962 independent Argo profiles and 12,736 depth comparisons, "
+         "using satellite inputs only. The profiles were never used in training. Where the cell has "
+         "a real per-cell climatology - 895 of the 962 - the skill is +0.1494; the other 67 sit on a "
+         "basin-mean fill that flatters any model."),
         ("Is 0.9 degrees of error good?",
-         "It is meaningful in context and we can give you three. First, it is 26% better than "
-         "climatology, and it beats climatology at 14 of 15 depths. Second, most of the error at "
+         "It is meaningful in context and we can give you three. First, it is 24% better than "
+         "climatology - 15% where the baseline is a real per-cell climatology - and it beats "
+         "climatology at 14 of 15 depths. Second, most of the error at "
          "the hardest depth is the ceiling our training target sets: at 100 m the GLORYS reanalysis "
          "itself scores 1.042 degC against the same floats while we score 1.218, so 0.178 degC of "
          "that gap is ours and the rest is inherited. Third, it is achieved from satellite surface "
@@ -343,8 +348,10 @@ def build_note(path):
          "Our best number, 0.8548, is fed reanalysis inputs. The problem statement asks for "
          "satellite observations, so quoting it would present a reanalysis-fed model as satisfying a "
          "satellite requirement. The freeze script asserts the shipped artifact's input source reads "
-         "'satellite'. Real observations cost us 0.019 degC and retain about 92% of the skill - and "
-         "that cost is itself a measured result."),
+         "'satellite'. Against the reanalysis-fed stage-1 comparator the satellite model reads "
+         "+0.026, +0.027 and -0.003 degC across three seeds - a mean cost of +0.017 whose sign does "
+         "not hold, so by our own rule we do not claim a cost; it retains about 94% of the skill, "
+         "and the two inputs are within seed noise."),
         ("Where is the model worst?",
          "At 100 metres - the thermocline - where RMSE reaches 1.22 degC and correlation falls to "
          "0.776. Most of that is inherited - the reanalysis scores 1.042 degC at the same depth - "
@@ -569,7 +576,7 @@ def build_note(path):
 
     s += recap(
         "OceanEmbed reconstructs the North Indian Ocean's subsurface temperature daily from "
-        "satellites at 0.9078 degC against independent floats - and its most valuable output is an "
+        "satellites at 0.9006 degC against independent floats - and its most valuable output is an "
         "honest account of exactly where it is wrong.",
         [("16 / 0 / 1", "PS requirements: pass / fail / blocked"),
          ("10", "scientific flaws, published by us first"),

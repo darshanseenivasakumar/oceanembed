@@ -104,7 +104,7 @@ SPECS.append(dict(
                   "reviewer than a polished one with no history."],
     impact_rows=[
         ["The jury", "A visible before-and-after. They can watch the project improve from 0.9638 to "
-         "0.9078 degC and see exactly what bought the improvement."],
+         "0.9006 degC and see exactly what bought the improvement."],
         ["The sponsor (INCOIS / MoES)", "Proof the full pipeline exists and runs on their region, "
          "their depths and their grid - not on a toy problem."],
         ["The team", "A frozen reference point. Any later regression is instantly visible because "
@@ -123,12 +123,14 @@ SPECS.append(dict(
     qa=[
         ("Why show us an old version at all?",
          "Because it is the control. Without it, our final number is just a number. With it, we can "
-         "show a measured improvement from 0.9638 to 0.9078 degC on independent floats, and name "
-         "exactly what caused it: daily data instead of monthly, and a climatology-anchored decoder "
-         "instead of a plain network."),
+         "show a measured improvement from 0.9638 to 0.9006 degC on independent floats - different "
+         "years, grids and scoring protocols, so a comparison of eras rather than a controlled one - "
+         "and name what changed: daily data instead of monthly, and a 3-D encoder over an 11-day "
+         "window instead of a per-column MLP. The climatology-anchored decoder we built was measured "
+         "to cost accuracy and is NOT shipped."),
         ("Is climatology not a very weak baseline?",
          "It is the standard one in this field, and it is not weak everywhere. At 1000 m climatology "
-         "still beats our shipped model by 0.012 degC. We label that on the chart rather than hide "
+         "still beats our shipped model by 0.055 degC. We label that on the chart rather than hide "
          "it - our model wins at 14 of 15 depths, not 15."),
         ("How do you know the floats were really held out?",
          "The Argo profiles are never in the training set, and the train/test split is a frozen "
@@ -365,7 +367,7 @@ SPECS.append(dict(
             ["20-50 m (mixed layer)", "<b>0.31 to 0.38 degC worse</b> than the reanalysis in "
              "Phase 1; <b>0.23 to 0.38</b> on the shipped v2 model",
              "<b>Ours.</b> This is the one place effort would clearly pay."],
-            ["1000 m", "Climatology beats the shipped model by <b>0.012 degC</b>",
+            ["1000 m", "Climatology beats the shipped model by <b>0.055 degC</b>",
              "Ours, small, and labelled on the chart. We win at 14 of 15 depths, not 15."],
         ],
         widths=[0.22, 0.42, 0.36], font_size=8.2,
@@ -397,7 +399,7 @@ SPECS.append(dict(
           "thermocline most of our error is inherited - at 100 m the reanalysis scores 1.042 degC "
           "against the same floats while the shipped model scores 1.218, so 0.178 degC of that gap "
           "is ours. In the mixed layer we are 0.23 to 0.38 degC worse than the reanalysis, and that "
-          "one is squarely ours. And at 1000 m plain climatology beats us by 0.012 degC, which we "
+          "one is squarely ours. And at 1000 m plain climatology beats us by 0.055 degC, which we "
           "label on the chart. We beat climatology at 14 of 15 depths, not 15. The figures on the "
           "page itself are the Phase-1 measurement; the v2 equivalents are in the table.",
     pitch_note="Deliver this before the jury asks. Volunteering the weak number is the point.",
@@ -413,16 +415,17 @@ SPECS.append(dict(
          "1.22 degC at 100 m and correlation falls to 0.776 there. The reanalysis peaks at almost "
          "exactly the same depth, which is why we call that error inherited."),
         ("A crossover where climatology wins - is that not a failure?",
-         "It is a limit, at one depth of fifteen, worth 0.012 degC, and a test asserts the chart "
+         "It is a limit, at one depth of fifteen, worth 0.055 degC, and a test asserts the chart "
          "label appears on real data and does not appear when a model genuinely wins everywhere. We "
          "would rather be the team that labels it than the team that is caught by it."),
     ],
-    limit=("One unresolved disagreement, recorded as open", "The Validation Lab headline (0.9638 "
-           "degC over 879 profiles) still disagrees with the freeze manifest (0.9078 degC over 962 "
-           "profiles). The likely reading is that the Lab reports the Phase-1 satellite-driven "
-           "number while the manifest reports the Phase-2 model - but that has <b>not</b> been "
-           "confirmed on this machine, so it is tagged UNKNOWN and stays in the open-items list "
-           "rather than being explained away."),
+    limit=("A disagreement that WAS open, now traced", "The Validation Lab headline (0.9638 "
+           "degC over 879 profiles) and the freeze manifest (0.9006 degC over 962 profiles) are two "
+           "different models on two different records: <b>lab.py reads "
+           "artifacts/argo_error_by_depth.json</b>, the Phase-1 satellite-driven model scored "
+           "against 2022 floats on the monthly grid, while the manifest records the v2 daily model "
+           "against 2025-26 floats under the seafloor_masked_v1 protocol. Confirmed by reading the "
+           "code on 2026-09-07, not inferred."),
 ))
 
 # ------------------------------------------------------------------ 4

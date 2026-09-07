@@ -92,9 +92,11 @@ SPECS.append(dict(
         "scientific integrity cost us accuracy. Our <b>most accurate</b> configuration scores 0.8548 "
         "degC - but it is fed reanalysis inputs, and the problem statement asks for satellite "
         "observations. We do not ship it and we do not quote it as our result. The shipped model "
-        "scores 0.9078 degC on genuine satellite input. Real observations cost us +0.019 degC "
-        "against a reanalysis-fed comparator, measured over three seeds on identical points, and we "
-        "retain about 92% of its skill.",
+        "scores 0.9006 degC on genuine satellite input. Against the reanalysis-fed stage-1 "
+        "comparator, real observations read +0.026, +0.027 and -0.003 degC on seeds 42, 43 and 44 "
+        "- a mean of +0.017 degC whose <b>sign does not hold</b>, so by our own three-seed rule the "
+        "cost is not an established effect: the two inputs are within seed noise of each other, "
+        "and the satellite model retains about 94% of the comparator's skill.",
     ],
     ps_rows=[
         ["Compact satellite embedding via deep learning",
@@ -110,18 +112,24 @@ SPECS.append(dict(
          "GLORYS12V1 daily, with the target's own error separately measured in Feature 3."],
     ],
     numbers_intro="The shipped result, on 962 independent Argo profiles never used in training, "
-                  "12,829 depth comparisons [VERIFIED]. The 962 are the profiles within 5 days of "
-                  "the test window; 908 fall strictly inside it, and scoring those alone reads "
-                  "0.9054 degC:",
+                  "12,736 depth comparisons [VERIFIED, scoring protocol seafloor_masked_v1]. The "
+                  "962 are the profiles within 5 days of the test window; 908 fall strictly inside "
+                  "it, and scoring those alone reads 0.8978 degC. The scorer declines the 93 "
+                  "comparisons (0.7%) at depths where the training target has no water and the "
+                  "product itself returns nothing, plus one profile on a land cell; scored WITH "
+                  "them, as every artifact before 2026-09-07 was, the same checkpoint read 0.9078 "
+                  "degC and skill +0.2595:",
     numbers_table=dict(
         rows=[
             ["Metric", "Value", "How to read it"],
-            ["RMSE", "<b>0.9078 degC</b>", "The headline. Average error across all depths."],
-            ["Correlation", "0.8812", "Mean of the 15 per-depth values."],
-            ["Bias", "+0.1003 degC", "Positive means the model runs warm. See Feature 15."],
-            ["Skill vs climatology", "+0.2595", "1 - RMSE/RMSE_clim, where RMSE_clim = 1.2259."],
-            ["Murphy skill", "+0.4517", "1 - MSE/MSE_clim. <b>Never quote one beside the other.</b>"],
-            ["Depths beaten climatology", "14 of 15", "At 1000 m climatology wins by 0.012 degC, and "
+            ["RMSE", "<b>0.9006 degC</b>", "The headline. Average error across all depths."],
+            ["Correlation", "0.8809", "Mean of the 15 per-depth values."],
+            ["Bias", "+0.1066 degC", "Positive means the model runs warm. See Feature 15."],
+            ["Skill vs climatology", "+0.2400", "1 - RMSE/RMSE_clim, where RMSE_clim = 1.1850. "
+             "<b>Where the cell has a REAL per-cell climatology (895 of 962 profiles) it is "
+             "+0.1494</b>; the other 67 sit on a basin-mean fill, and beating a fill is not skill."],
+            ["Murphy skill", "+0.4225", "1 - MSE/MSE_clim. <b>Never quote one beside the other.</b>"],
+            ["Depths beaten climatology", "14 of 15", "At 1000 m climatology wins by 0.055 degC, and "
              "the chart says so."],
         ],
         widths=[0.29, 0.22, 0.49],
@@ -130,7 +138,7 @@ SPECS.append(dict(
         "<b>The error has a shape, and the shape is the story.</b> It is small at the surface (0.47 "
         "degC at 5 m), bulges through the thermocline (peak <b>1.22 degC at 100 m</b>, where a "
         "surface field constrains depth least), and collapses below 500 m (0.31 degC at 1000 m). The "
-        "widest gain over climatology is <b>+0.56 degC at 200 m</b>.",
+        "widest gain over climatology is <b>+0.53 degC at 5 m</b>.",
         "<b>Two measured disagreements with the paper we re-implemented, and one withdrawn.</b> "
         "Its density constraint costs accuracy (0.8593 against 0.8548 with it off), and its FiLM "
         "decoder was measured to cost accuracy, so it is built, tested and deliberately <b>not "
@@ -161,11 +169,12 @@ SPECS.append(dict(
             "'everywhere, daily' is the entire point of the project.",
     pitch="This is the deliverable. Seven satellite channels over eleven days go in; fifteen depths "
           "of temperature across the whole basin come out, with an uncertainty on every one. Against "
-          "962 Argo floats it never saw, it scores 0.9078 degC and beats climatology at fourteen of "
+          "962 Argo floats it never saw, it scores 0.9006 degC and beats climatology at fourteen of "
           "fifteen depths. And I want to be explicit about one choice: our most accurate model "
           "scores 0.8548, but it is fed reanalysis, and the problem statement asks for satellite "
-          "observations. We do not ship it and we do not quote it. Real observations cost us 0.019 "
-          "degC, measured across three seeds - and that cost is itself one of our results.",
+          "observations. We do not ship it and we do not quote it. Across three seeds, real "
+          "observations read between -0.003 and +0.027 degC against it - a mean of +0.017 whose sign "
+          "does not hold, so we do not claim a cost either: the two are within seed noise.",
     pitch_note="The refusal to quote 0.8548 is the single most credible thing you can say.",
     qa=[
         ("Why is your headline number not your best number?",
@@ -336,7 +345,7 @@ SPECS.append(dict(
          "average. Feature 13 covers that in full."),
     ],
     limit=("One float is one float", "A single overlay is a demonstration, not a statistic. The "
-           "defensible accuracy claim is the aggregate over 962 profiles and 12,829 depth "
+           "defensible accuracy claim is the aggregate over 962 profiles and 12,736 depth "
            "comparisons in Feature 7; this page makes that aggregate tangible but cannot replace it. "
            "It is also limited to the held-out window and to points where a float was genuinely "
            "nearby - and where none was, it says so rather than showing an empty comparison."),
@@ -742,7 +751,7 @@ SPECS.append(dict(
         "available and the inference path had never used it - the predictor loaded onto the CPU and "
         "was never moved. After the fix: <b>CPU 37.57 s against CUDA 8.86 s, a 4.24x speedup</b>, "
         "with a maximum difference of 6.9e-04 degC across 153,291 cells - float noise against a "
-        "0.9078 degC headline.",
+        "0.9006 degC headline.",
         "The export is deliberately kept on the CPU anyway, so that a downloaded file cannot differ "
         "in its last digits from the page displayed beside it.",
     ],
@@ -935,8 +944,8 @@ _RECAPS = {
     7: ("The deliverable: seven satellite channels over eleven days in, fifteen depths of "
         "temperature with uncertainty out, straight from a 128-number satellite embedding - and the "
         "more accurate reanalysis-fed model deliberately not shipped.",
-        [("0.9078 degC", "RMSE vs 962 independent profiles"),
-         ("+0.2595", "skill over climatology"),
+        [("0.9006 degC", "RMSE vs 962 independent profiles"),
+         ("+0.2400", "skill over climatology (+0.1494 where the baseline is real)"),
          ("548,582", "parameters - 13x smaller than the paper's")]),
     8: ("The audience picks the point; the model is measured against a real float it has never seen, "
         "with the strength of that check shown on screen.",

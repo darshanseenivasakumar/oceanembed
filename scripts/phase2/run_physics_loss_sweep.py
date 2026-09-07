@@ -9,8 +9,11 @@ swept from zero and judged on three seeds, exactly as `run_sat_ablations.py` jud
 THE CONTROL ALREADY EXISTS AND IS NOT RE-RUN
 `abl_full_s42/43/44` are the same 7-channel satellite configuration at the same three seeds:
 
-    seed 42  0.9078      seed 43  0.9047      seed 44  0.9084
+    seed 42  0.9078      seed 43  0.9047      seed 44  0.9084     [unmasked_v1 scoring]
     mean 0.9070, SPREAD 0.0037  <- the noise floor any effect has to clear
+
+The sweep compares like with like, so the protocol cancels: every leg here is unmasked_v1. Do not
+carry these figures across to the promoted metrics, which are seafloor_masked_v1 (0.9006 for s42).
 
 Re-training them would burn 28 minutes to reproduce numbers already on disk, and would produce
 slightly different ones, because training here is NOT deterministic: there is no

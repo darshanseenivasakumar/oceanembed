@@ -689,3 +689,96 @@ and 11.
 Still open from the audit and NOT touched: epoch selection on test-period GLORYS, Argo pressure
 treated as depth, the buoy split, below-seafloor comparisons inside the headline. Those change
 numbers or need retraining.
+
+---
+---
+
+## 2026-09-07 — Audit #10 closed: the scorer no longer compares below the seafloor (`seafloor_masked_v1`)
+
+**The bug.** `eval_argo.collocate` handed every Argo depth to `metrics.per_depth`, including depths
+where the GLORYS training target has no water. The shipped product refuses those points —
+`output.build_record` returns None below the target's seafloor — so the headline was scored on
+comparisons the product itself will not make. 93 of 12,829 comparisons, plus one profile whose
+nearest cell is land. RMSE there was 1.614 °C, so they were not noise. **[VERIFIED]**
+
+**The fix.** A named scoring protocol, `SCORING_PROTOCOL = "seafloor_masked_v1"`, in
+`src/phase2/tscast_nio/eval_argo.py`:
+
+* `seafloor_mask(la, lo, valid_mask, land_mask)` → (N,15) water-and-not-land,
+* `apply_seafloor_mask(truth, ...)` → truth with those cells set NaN, plus a `refusals` dict that
+  **counts what was declined and why** (`n_refused_below_seafloor`, `n_profiles_on_land`,
+  `per_depth_refused`). Refusals are recorded in every metrics JSON, never silently dropped.
+
+`collocate` now returns the masked truth and the refusals. `train_stage1`, the reliability harness,
+`calibrate_uncertainty`, `run_cloud_dropout`, `measure_physical_consistency` and `score_by_basin`
+were wired through it; `harness.control_rmse` is protocol-aware and returns `agrees=None` with a
+note rather than comparing across protocols.
+
+**Held back from this commit, deliberately.** Five files carry another session's uncommitted
+work, so committing them whole would commit that work: `train/train_stage2.py` (its `--w-stab`
+branch), the wholly untracked `src/phase2/reliability/harness.py`, `app/ui/words.py`, and the
+untracked `app/ui/features/{buoy,assimilate}.py`. **The stage-2 mask wiring, the harness's
+protocol-aware `control_rmse`, and the buoy/assimilate labels are in the working tree and tested
+there, but are NOT in this commit** — they will land with that session's own commit, and a fresh
+clone of this branch does not have them. `app/ui/words.py` is committed as a synthesized blob:
+HEAD plus my four headline corrections, none of their additions.
+
+**The deliverable, re-scored** (`scripts/phase2/rescore_checkpoint.py`, same checkpoint
+`53848bb5…`, promoted with `promote_run.py --rescore seafloor_masked_v1`):
+
+| | `unmasked_v1` | **`seafloor_masked_v1`** |
+|---|---|---|
+| RMSE | 0.9078 | **0.9006** |
+| bias | +0.1003 | **+0.1066** |
+| correlation | 0.8812 | **0.8809** |
+| skill vs climatology | +0.2595 | **+0.2400** |
+| Murphy skill | +0.4517 | **+0.4225** |
+| n | 12,829 | **12,736** |
+
+**A second finding, from the same work.** `build_samples` drops any-NaN columns, so no cell
+shallower than 1000 m contributes a training row — and `build_climatology` fills those cells with a
+**basin mean**. 67 of the 962 profiles are therefore scored against a climatology that does not
+exist, where "skill" read +0.55. `metrics.per_depth(baseline_ok=…)` now reports a second, labelled
+number on the 895 profiles whose cell has a real per-cell climatology:
+**skill +0.1494** (RMSE 0.8768 against climatology 1.0308, n = 12,054). Both are recorded; the
+blended +0.2400 is no longer quoted alone.
+
+**Two claims changed sign or size under the mask, and were corrected everywhere:**
+
+* *Satellite input costs +0.019 °C, retains 92 % of the comparator's skill.* Re-measured on three
+  seeds: **+0.0263 / +0.0267 / −0.0028**, mean +0.0167. **The sign does not hold**, so by this
+  project's own three-seed rule the overall cost is no longer an established effect — the two input
+  sources are within seed noise, and the satellite model retains ~94 %. The per-basin split was
+  **not** re-run and is now labelled `unmasked_v1`.
+* *At 1000 m climatology wins by 0.012 °C.* Now **0.055 °C** (climatology 0.2497, model 0.3048).
+  Dropping the 21 below-seafloor comparisons there costs climatology far more than the model, so
+  scoring them flattered us. Still 14 of 15 depths. The widest gain moves from +0.56 at 200 m to
+  **+0.53 at 5 m**.
+
+**Recalibrated** (`artifacts/uncertainty_calibration.json`; the old file kept as
+`…_unmasked_v1.json`): ±1σ 0.6389, **±2σ 0.9127**, per-depth range **[0.8007, 0.9601]**. The "80.1 %
+at 50 m" limit is unchanged; the top of the range moves 95.5 → 96.0 %.
+
+**Also traced and closed:** the Validation Lab / freeze manifest disagreement (0.9638 / 879 against
+0.9006 / 962), open as **[UNKNOWN]** since 2026-09-03. `validation/lab.py` reads
+`artifacts/argo_error_by_depth.json`, written by `scripts/eval_satellite_vs_argo.py`, which scores
+the **Phase-1** model on **12 monthly dates in 2022** against `argo_test.parquet`. Two models, two
+eras, two records — not a contradiction. **[VERIFIED]** by reading the code, not inferred.
+
+**Tests.** `tests/phase2/test_eval_argo_seafloor.py` (7 new: toy-grid behaviour plus a real-data pin
+on 962 kept / 93 refused / 1 land / n 12,736 / 21 refused at 1000 m / 895 real-baseline profiles).
+`test_frozen_manifest.py` now groups legs by protocol and demands a `comparability_note` on any leg
+scored under a different one from the deliverable. `test_presentation_claims.py` gains two guards:
+the app must not present a superseded headline unlabelled, and the manifest's deliverable must carry
+the current protocol. Both were confirmed RED before the fix (13 offending UI lines).
+
+**Every quoted surface was moved or labelled**, in two audited passes with a `count == 1` guard per
+region: the five jury-note sources and their 19 rebuilt PDFs, `PHASE2_STATUS.md`,
+`PROJECT_RECORD.md`, eight `app/` files, `src/phase2/derived/acoustics.py`,
+`scripts/phase2/freeze_headline.py`, and eight runs in the deck (slides 7, 8, 12 and speaker notes
+7 and 9). Historical artifacts are **not** rewritten — they are labelled `unmasked_v1` where they
+appear. The manifest was re-frozen; the stage-2 legs carry a `comparability_note` because they were
+never re-scored.
+
+**Deck layout after the text edits is [UNVERIFIED]** — no renderer on this machine. Schema, rels,
+content types and chart checks pass (`validate.py --original`).

@@ -7,7 +7,8 @@ TWO RULES THIS FILE EXISTS TO ENFORCE
 1. NO NUMBER IS TYPED. The headline scores are read from artifacts/frozen_manifest.json, which
    was written by the training run and states its own rule: "Every number in claims is read from
    the run's metrics JSON, never retyped." A UI that hardcodes 0.9078 is a UI that will still say
-   0.9078 after the model changes.
+   0.9078 after the model changes. (It did: when the scoring protocol changed on 2026-09-07, every
+   typed 0.9078 in app/ was stale -- the unmasked_v1 number -- and had to be found by a test.)
 
 2. NO UNDERSCORE-PREFIXED CACHE ARGUMENTS. Streamlit silently DROPS any argument to a cached
    function whose name starts with an underscore. A cache key that is silently dropped is no

@@ -63,7 +63,18 @@ def _collocate(d, te_t):
     la, lo = D.cell_index(keys["lat"].values, keys["lon"].values)
     if int(keep.sum()) == 0:
         raise SystemExit("no Argo profile in the test window -- refusing to score on zero profiles")
+    # Decline what the product declines (eval_argo.apply_seafloor_mask); the count is kept on
+    # the function so the artifact can record it beside the score.
+    truth = np.asarray(truth, dtype="float64").copy()
+    truth[keep], _collocate.last_refusals = EA.apply_seafloor_mask(
+        truth[keep], la[keep], lo[keep], d["valid_mask"], d["land_mask"])
+    _collocate.last_baseline_ok = EA.baseline_exists_mask(la[keep], lo[keep],
+                                                          d["valid_mask"], d["land_mask"])
     return keys, truth, keep, t_idx, la, lo
+
+
+_collocate.last_refusals = {}
+_collocate.last_baseline_ok = None
 
 
 def score_once(d, surface, norm, clim, model, dev, te_t, coll, t_seq, test_samples) -> dict:
@@ -81,7 +92,8 @@ def score_once(d, surface, norm, clim, model, dev, te_t, coll, t_seq, test_sampl
             mus.append(mu.cpu().numpy())
     mu = np.concatenate(mus) * ds.y_std + ds.y_mean
     clim_at = clim[pd.to_datetime(keys["date"].values).month - 1, la, lo, :]
-    m = metrics.per_depth(mu, truth[keep], clim=clim_at[keep], reference="argo")
+    m = metrics.per_depth(mu, truth[keep], clim=clim_at[keep], reference="argo",
+                          baseline_ok=_collocate.last_baseline_ok)
     return {"rmse": float(m["overall"]["rmse"]), "bias": float(m["overall"]["bias"]),
             "correlation": float(m["overall"]["correlation"]),
             "skill_rmse_ratio": float(m["overall"]["skill_rmse_ratio"]),
@@ -106,10 +118,21 @@ def main() -> int:
     metrics_path = base.art(f"tscast_stage1_{a.tag}_metrics.json")
     if not os.path.exists(ckpt_path):
         raise SystemExit(f"no checkpoint at {ckpt_path}")
-    recorded = None
-    if os.path.exists(metrics_path):
-        with open(metrics_path, encoding="utf-8") as f:
-            recorded = float(json.load(f)["metrics"]["overall"]["rmse"])
+    # The control must be compared with a record made under the SAME scoring protocol. The
+    # training JSON of every checkpoint before 2026-09-07 is unmasked_v1; the re-score under the
+    # current protocol lives beside it as *_rescore_<protocol>.json (scripts/phase2/rescore_checkpoint.py).
+    recorded, recorded_from = None, None
+    for cand in (metrics_path,
+                 base.art(f"tscast_stage1_{a.tag}_rescore_{EA.SCORING_PROTOCOL}.json")):
+        if os.path.exists(cand):
+            with open(cand, encoding="utf-8") as f:
+                rec = json.load(f)
+            if rec.get("scoring_protocol", EA.UNMASKED_PROTOCOL) == EA.SCORING_PROTOCOL:
+                recorded, recorded_from = float(rec["metrics"]["overall"]["rmse"]), os.path.basename(cand)
+                break
+    if recorded is None:
+        print(f"no record under {EA.SCORING_PROTOCOL} beside {os.path.basename(ckpt_path)}; run "
+              f"scripts/phase2/rescore_checkpoint.py --tag {a.tag} first, or the control cannot be checked")
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     d = D.load_daily(a.daily_dir)
@@ -214,8 +237,10 @@ def main() -> int:
                    "test bundle before normalisation; the training normalisation recovered from "
                    "the pristine array",
             "checkpoint": os.path.basename(ckpt_path), "tag": a.tag,
-            "recorded_rmse": recorded, "control_rmse": control["rmse"],
+            "recorded_rmse": recorded, "recorded_from": recorded_from,
+            "control_rmse": control["rmse"],
             "control_agrees": ok, "control_tolerance": CONTROL_TOL,
+            "scoring_protocol": EA.SCORING_PROTOCOL, "refusals": _collocate.last_refusals,
             "channel_masked": a.channel, "argo_profiles": n_prof,
             "t_seq": a.t_seq, "daily_dir": a.daily_dir,
             "mask_seeds": a.mask_seeds, "fractions": a.fractions,

@@ -10,11 +10,13 @@ runs no inference and needs no checkpoint: the experiment is the script's, and a
 recomputed its own numbers would be a second definition of them.
 
 THE RESULT IS NOT MONOTONE, AND THE INTERESTING PART IS WHY
-Blanking 15% of ocean SST makes the score BETTER -- 0.8950 against the control's 0.9078, with a
+Blanking 15% of ocean SST makes the score BETTER -- 0.8950 against the control's 0.9078 (both under
+the unmasked_v1 scoring protocol; the artifact predates the 2026-09-07 seafloor mask), with a
 spread across mask draws of 0.0002, so it is 60x the noise and not a fluke. It would be easy, and
 completely wrong, to report that as "the model tolerates cloud cover".
 
-It is two errors partially cancelling. The shipped model carries a +0.1003 degC WARM bias. A
+It is two errors partially cancelling. The shipped model carries a +0.1003 degC WARM bias under
+unmasked_v1 (+0.1066 under seafloor_masked_v1). A
 blanked pixel reaches the encoder as the channel mean (see the caveat below), which pulls the
 prediction cooler. The RMSE minimum at 15% sits essentially where the bias crosses zero, ~19%. So
 the honest reading is a finding about the DELIVERABLE -- it runs warm, and a bias correction is

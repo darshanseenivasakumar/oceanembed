@@ -2,7 +2,8 @@
 
 WHY THIS EXISTS
 The first stage-2 satellite run (seed 42) scored T 0.8854 against stage 1's 0.9078 on the SAME 962
-Argo profiles -- 0.0224 better. That is exactly the scale at which this project has already been
+Argo profiles -- 0.0224 better. (Both unmasked_v1; stage 1 reads 0.9006 under seafloor_masked_v1,
+and the stage-2 runs have not been re-scored. The comparison below is internally consistent.) That is exactly the scale at which this project has already been
 burned: the wind channel's own ablation effect flipped sign from -0.0149 to +0.0111 under a
 retrain, which is why `run_sat_ablations.py` requires three seeds before a sign is believed. One
 seed is an anecdote no matter how carefully it was measured.

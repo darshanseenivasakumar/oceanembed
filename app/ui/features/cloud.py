@@ -167,7 +167,7 @@ def render(ctx) -> None:
          ("0", "what the encoder actually receives — which IS the channel mean, so the model "
                "cannot tell a missing pixel from average water", "—",
           "src/phase2/tscast_nio/dataset.py"),
-         ("bias", "systematic offset against Argo; +0.1003 °C unmasked", "°C",
+         ("bias", "systematic offset against Argo; +0.1003 °C with no SST blanked (unmasked_v1 scoring)", "°C",
           "artifacts/cloud_dropout.json analysis.control_bias"),
          ("RMSE² = bias² + var", "why cancelling the bias lowers RMSE without improving the "
                                  "model at all", "—", "the identity the whole finding rests on")],

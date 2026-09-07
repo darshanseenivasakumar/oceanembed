@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore", message=".*enable_nested_tensor.*")
 
 from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
-from phase2.tscast_nio import calibrate, config, dataset as D
+from phase2.tscast_nio import calibrate, config, dataset as D, eval_argo as EA
 from phase2.tscast_nio.models import TSCastNIO
 from phase2.tscast_nio.models.tscast import assert_architecture_matches
 
@@ -102,6 +102,13 @@ def main() -> None:
     offs = np.array([np.abs((times - x).astype("timedelta64[D]").astype(int)) for x in dts])
     near = offs.min(axis=1) <= MAX_DAYS
     t_idx = offs.argmin(axis=1)
+    # Decline what the product declines, on BOTH sides of the split: a scale fitted on residuals
+    # at depths the product never serves is fitted on errors it never makes.
+    _la, _lo = D.cell_index(keys["lat"].values, keys["lon"].values)
+    truth, refusals = EA.apply_seafloor_mask(truth, _la, _lo, d["valid_mask"], d["land_mask"])
+    print(f"seafloor mask: {refusals['n_refused_below_seafloor']} comparisons declined across "
+          f"the whole table, {refusals['n_profiles_on_land']} profile(s) on land "
+          f"[{EA.SCORING_PROTOCOL}]")
 
     is_test = dts >= SPLIT
     fit_mask = near & ~is_test          # TRAIN-window Argo -> fit the scales
@@ -173,6 +180,7 @@ def main() -> None:
         "is_shipped_model": len(chans) == 7 and ck["T_SEQ"] == 11,
         "n_fit_profiles": int(fit_mask.sum()), "n_eval_profiles": int(eval_mask.sum()),
         "split": str(SPLIT), "max_days_offset": MAX_DAYS,
+        "scoring_protocol": EA.SCORING_PROTOCOL, "refusals": refusals,
         "method_used": "coverage",
         "method_comparison": {m: {"summary": results[m]["summary"],
                                   "pit_uniform_deviation": results[m]["pit"]["uniform_deviation"],

@@ -53,9 +53,48 @@ def _claim() -> dict:
     return man["claims"][man["deliverable_key"]]
 
 
+TEMPLATE = os.path.join(REPO, "scripts", "deck", "template",
+                        "SIH2026-IDEA-Presentation-Format.pptx")
+
+#: The template's own prompt text. Filling the deck means replacing these, not sitting beside them.
+POINTERS = ("Detailed explanation of the proposed solution", "Technologies to be used",
+            "Potential challenges and risks", "Benefits of the solution (social, economic")
+
+
 @needs_deck
-def test_the_idea_deck_has_five_slides():
-    assert len(_slide_text()) == 5
+def test_the_idea_deck_obeys_the_templates_own_six_slide_maximum():
+    """The template's instruction slide: "maximum slides limit up to six (6). (Including the title
+    slide)". That slide is itself deleted, which is what it tells you to do before uploading."""
+    assert len(_slide_text()) == 6
+
+
+@needs_deck
+def test_the_template_prompt_text_was_replaced_not_left_in():
+    blob = " ".join(_slide_text().values())
+    for pointer in POINTERS:
+        assert pointer not in blob, (
+            f"the template's prompt {pointer!r} is still on a slide next to our content.")
+
+
+@needs_deck
+@pytest.mark.skipif(not os.path.exists(TEMPLATE), reason="the SIH template is not on this machine")
+def test_the_official_template_chrome_survived():
+    """The SIH logo, the footer bar, the slide numbers and the team oval are the portal's, and the
+    template says to use it unchanged. Filling it must not cost any of them."""
+    pptx = pytest.importorskip("pptx")
+    tpl = pptx.Presentation(TEMPLATE)
+    deck = pptx.Presentation(DECK)
+
+    for i, (t, d) in enumerate(zip(list(tpl.slides)[:6], deck.slides), 1):
+        want = {sh.name for sh in t.shapes} - {"TextBox 8", "TextBox 9"}
+        got = {sh.name for sh in d.shapes}
+        missing = want - got
+        assert not missing, f"slide {i} lost template shapes: {sorted(missing)}"
+
+    logos = sum(1 for s in deck.slides for sh in s.shapes if sh.shape_type == 13
+                and sh.name in {sh2.name for sh2 in list(tpl.slides)[0].shapes}
+                | {"Picture 10", "Picture 11", "Picture 12"})
+    assert logos >= 5, f"only {logos} slides still carry the official SIH logo"
 
 
 @needs_deck

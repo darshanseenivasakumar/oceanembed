@@ -207,7 +207,9 @@ STEPS = ["Download\nCMEMS + Argo", "Regrid to\n0.25° daily", "Window 11 d\n5-da
 
 def flow() -> str:
     """The implementation pipeline as chevrons. The rubric asks for this; the reference omits it."""
-    fig, ax = _fig(12.45, 1.02)
+    # Short on purpose: the official template's content band stops at y=6.88 (the footer bar
+    # starts at 6.95), so a taller strip would sit under the footer.
+    fig, ax = _fig(12.40, 0.75)
 
     n = len(STEPS)
     pad, notch, edge = 0.006, 0.020, 0.004
@@ -220,7 +222,7 @@ def flow() -> str:
         pts = [(left, 0.88), (right - notch, 0.88), (right, 0.5), (right - notch, 0.12),
                (left, 0.12), (left + (notch if i else 0), 0.5)]
         ax.add_patch(Polygon(pts, closed=True, facecolor=fc, edgecolor="white", lw=1.4, zorder=2))
-        _txt(ax, (left + right) / 2 + 0.004, 0.50, label, size=8.0, color="white", weight="bold")
+        _txt(ax, (left + right) / 2 + 0.004, 0.50, label, size=7.5, color="white", weight="bold")
 
     return _save(fig, "flow.png")
 
@@ -238,18 +240,18 @@ FACTS = [
 
 def facts() -> str:
     """The green supporting-facts card, mirroring the reference deck's."""
-    fig, ax = _fig(6.05, 2.45)
+    fig, ax = _fig(6.05, 2.10)
 
     _box(ax, 0.060, 0.04, 0.985, 0.96, fc="#2F9E5E", ec="#25804B", lw=1.4, r=0.05)
-    _txt(ax, 0.535, 0.885, "Supporting facts for feasibility and viability",
-         size=10.2, color="white", weight="bold")
+    _txt(ax, 0.535, 0.888, "Supporting facts for feasibility and viability",
+         size=9.4, color="white", weight="bold")
 
-    _circle(ax, fig, 0.060, 0.50, 0.135, fc="white", ec="#25804B")
-    ax.text(0.060, 0.487, "✓", fontsize=19, color="#2F9E5E", fontweight="bold",
+    _circle(ax, fig, 0.060, 0.50, 0.150, fc="white", ec="#25804B")
+    ax.text(0.060, 0.487, "✓", fontsize=17, color="#2F9E5E", fontweight="bold",
             ha="center", va="center", family="DejaVu Sans", zorder=6)
 
     for i, line in enumerate(FACTS):
-        _txt(ax, 0.145, 0.760 - i * 0.235, line, size=7.4, color="white", ha="left", va="top")
+        _txt(ax, 0.150, 0.755 - i * 0.226, line, size=6.6, color="white", ha="left", va="top")
 
     return _save(fig, "facts.png")
 

@@ -256,9 +256,12 @@ def main():
     tr_t, va_t, sel = D.selection_split(d["times"], tr_t, te_t, t_seq, val_days=a.val_days,
                                           n_blocks=a.val_blocks)
     n_embargoed = sel["n_train_dropped_embargo"]
-    print(f"selection: {sel['n_val_targets']} val steps carved from the END of train "
-          f"({sel['val_period'][0]}..{sel['val_period'][1]}). Early stopping and the epoch choice "
-          f"read ONLY these; the test block is untouched until the final Argo score.")
+    _where = (f"one trailing block, {sel['val_period'][0]}..{sel['val_period'][1]}"
+              if sel["n_blocks"] == 1 else
+              f"{sel['n_blocks']} blocks, " + " + ".join(f"{a}..{b}" for a, b in sel["blocks"]))
+    print(f"selection: {sel['n_val_targets']} val steps carved out of train -- {_where}. "
+          f"Early stopping and the epoch choice read ONLY these; the test block is untouched "
+          f"until the final Argo score.")
     if n_embargoed or sel["n_val_dropped_embargo"]:
         print(f"embargo: dropped {n_embargoed} of {n_before} training targets whose T_SEQ={t_seq} "
               f"window would have read the val block, and {sel['n_val_dropped_embargo']} val "

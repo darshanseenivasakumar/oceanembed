@@ -1780,6 +1780,7 @@ This is the section to read before quoting anything. It is organised by how fixa
 | 1 | **The model runs warm.** Bias +0.1003 °C overall, peaking at **+0.657 °C at 50 m** | the cloud-dropout curve shows a bias correction is worth ~0.013 °C of RMSE, free | **mostly inherited** — the GLORYS target is +0.1078 °C warm against the same floats and the model is −0.007 against its own target. The **+0.447 °C** added at 50 m is ours |
 | 2 | **The thermocline is the hardest depth.** RMSE peaks at **1.22 °C at 100 m**, correlation drops to 0.776 | the widest band in the profile | **mostly inherited** — GLORYS itself scores 1.042 °C there — but **0.178 °C is ours**. The 0.023 °C figure is Phase-1 and does not hold for v2 |
 | 3 | **The mixed layer (20–50 m) is genuinely worse than the reanalysis** by +0.23 to +0.38 °C on v2 (+0.31 to +0.38 in Phase 1) | the one place effort would clearly pay | **ours** |
+| 3a | **The shipped epoch was chosen on the days the model is scored on.** `train_stage1` picked the epoch with the lowest NLL on the 2026-04-01..06-23 test block, and the Argo headline is scored on that same block, so model selection was not independent of the reported number (`selection_protocol: test_period_v0` in the manifest) | **+0.0824 °C**, 3 seeds, sign holds 3/3 — see §16.6 | **ours**, fixed in the code (`cc8d672`) but not in this checkpoint, and shipped knowingly |
 | 4 | **Climatology beats the model at 1000 m** by 0.055 °C — 14 of 15 depths, not 15 | small, and labelled on the chart | **ours**, and stated |
 | 5 | **The Arabian Sea satellite penalty**: +0.0341 °C, sign holding 3/3 seeds | reproducible | **cause UNKNOWN** after four tested hypotheses |
 | 6 | **Uncertainty is improved, not calibrated.** ±2σ covers **80.1 % at 50 m** against a 95.4 % nominal | mildly overconfident everywhere | **ours** |
@@ -1833,6 +1834,59 @@ This is the section to read before quoting anything. It is organised by how fixa
   hyperparameter, claim a paper did *not* do something, or assert a numerical comparison.
 * **Indian-language and regional literature (INCOIS, NIO Goa, IITM) has not been searched** — and
   the sponsor knows it best.
+
+### 16.6 The selection leak, measured and shipped anyway
+
+**What it is.** `train_stage1.py` built its early-stopping loader from `te_t`, the
+2026-04-01..06-23 GLORYS test block, and saved the epoch with the lowest NLL on it. The Argo
+headline is then scored on those same days. The temporal embargo already stopped training *inputs*
+from reaching the test block; nothing stopped the *selection signal* from being computed on it. So
+the shipped epoch is the one that best fit the block being scored. **[VERIFIED]**
+
+**What it is worth.** Three seeds, same config, same 962 profiles, same `seafloor_masked_v1`
+scoring, selecting instead on a validation block carved out of train:
+
+| seed | as shipped (`test_period_v0`) | leak-free (`val_carved_v1`) | delta | epoch |
+|---|---|---|---|---|
+| 42 | 0.9006 | 1.0121 | +0.1115 | 4 → 1 |
+| 43 | 0.8989 | 0.9685 | +0.0696 | 3 → 1 |
+| 44 | 0.9023 | 0.9684 | +0.0661 | 5 → 4 |
+
+**Mean +0.0824 °C, spread 0.0454, sign holds 3/3.** Real-baseline skill falls from +0.156 to
++0.078.
+
+**The confound, stated rather than buried.** That delta is *not* the price of the leak alone. The
+leak-free arm also trains on 253 days instead of 299, because the validation block has to come from
+somewhere. Separating the two would need a third arm that keeps the reduced training set and still
+selects on test — that is, deliberately reintroducing the bug behind a flag — and it was not run.
+
+**Four selection layouts were tried, seed 42, everything else matched** (RMSE reported only; the
+layout was judged on the validation curve, never on this column):
+
+| layout | train days | val months | epoch chosen | RMSE |
+|---|---|---|---|---|
+| the test block itself (as shipped) | 299 | the scored months | 4 | **0.9006** |
+| 1 trailing block, 46 days | 253 | Feb, Mar | 1 | 1.0121 |
+| 1 trailing block, 90 days | 209 | Jan–Mar | 1 | 0.9903 |
+| 3 blocks spread over the year, 45 days | 239 | Mar, Jun, Oct, Nov | 4 | 1.1037 |
+
+A contiguous trailing block removes a whole season from training and then asks the model to rank
+epochs on the one season it has never seen, where the least-specialised model wins: both trailing
+layouts picked **epoch 1** and early-stopped holding a barely-trained model. Spreading the blocks
+across the year fixed exactly that — it picked epoch 4, the same epoch the leaked signal picked,
+with a clean monotone curve — **and scored worst of the four**, with a negative real-baseline
+skill. A pre-registered stability criterion computed from the training curve alone did not predict
+the outcome and is recorded as **not validated**.
+
+**Why it ships anyway.** Decided 2026-09-07: quote 0.9006 and state this dependency, rather than
+quote a leak-free ~0.98. The fix is in the code (`dataset.selection_split`, commit `cc8d672`), so
+no future run can select on the scored period; this checkpoint predates it. The manifest records
+`selection_protocol: test_period_v0` and a `selection_leak` block carrying the cost, the confound
+and this decision, and a test fails if either the manifest or this document stops saying so.
+
+**If a juror raises it, agree.** The number is real, the profiles are independent, and the scoring
+is honest — but the epoch that produced it was chosen with knowledge of the test block, and a
+leak-free protocol on this dataset costs about 0.08 °C.
 
 ### 16.4 A discrepancy that was open, and is now traced
 

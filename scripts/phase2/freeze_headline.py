@@ -122,6 +122,31 @@ def scored_numbers(metrics_path: str) -> dict:
     picked.setdefault("scoring_protocol", None)
     if picked["scoring_protocol"] is None:
         picked["scoring_protocol"] = "unmasked_v1"
+    # Likewise for HOW THE EPOCH WAS CHOSEN. A run with no `selection` block selected its epoch on
+    # the test period -- the days its own headline is scored on -- because that is what
+    # train_stage1 did until 2026-09-07. Recording it as an explicit label rather than an absence
+    # is the whole point: a reader must not have to know the date a bug was fixed to know whether
+    # a number carries it.
+    sel = m.get("selection") or {}
+    picked["selection_protocol"] = sel.get("selection_protocol") or "test_period_v0"
+    if picked["selection_protocol"] == "test_period_v0":
+        picked["selection_leak"] = {
+            "what": ("the epoch was chosen by lowest NLL on the 2026-04-01..06-23 GLORYS test "
+                     "block, which is the period this run's Argo headline is scored on. Model "
+                     "selection was therefore not independent of the reported number."),
+            "measured_cost_degC": 0.0824,
+            "measured_how": ("three seeds, same config and the same 962 profiles under "
+                             "seafloor_masked_v1, selecting instead on a validation block carved "
+                             "out of train: 0.9006/0.8989/0.9023 becomes 1.0121/0.9685/0.9684. "
+                             "Mean +0.0824 degC, spread 0.0454, sign holds 3/3."),
+            "confound": ("that delta is NOT the price of the leak alone -- the leak-free arm also "
+                         "trains on 253 days instead of 299, because the validation block has to "
+                         "come from somewhere. The two were not separated."),
+            "why_shipped": ("decided 2026-09-07: ship this number and state the dependency, "
+                            "rather than ship a leak-free run that scores ~0.98. The fix is in "
+                            "the code (dataset.selection_split); this checkpoint predates it."),
+            "fixed_in": "cc8d672",
+        }
     overall = m.get("metrics", {}).get("overall", {})
     for key in ("rmse", "bias", "correlation", "skill_rmse_ratio", "skill_vs_climatology",
                 "rmse_climatology", "n", "skill_rmse_ratio_real_baseline",
@@ -188,6 +213,10 @@ def do_freeze() -> int:
             # compares a masked deliverable with an unmasked comparator and reads the gap as
             # skill.
             nums.setdefault("scoring_protocol", "unmasked_v1")
+            # Same reasoning for the epoch choice: these are pre-2026-09-07 stage-2 runs, so they
+            # were selected on the test period too. Left as None it reads as "unknown" when it is
+            # in fact known.
+            nums.setdefault("selection_protocol", "test_period_v0")
             if nums["scoring_protocol"] != "seafloor_masked_v1":
                 nums["comparability_note"] = (
                     f"scored under {nums['scoring_protocol']} on another machine; NOT directly "

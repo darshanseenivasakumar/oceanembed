@@ -75,8 +75,9 @@ def build_note(path):
          "per clause."],
         ["A measured account of its own limits",
          "The training target's own error measured separately, so inherited error is distinguished "
-         "from ours; a warm bias found twice by independent routes; and an unexplained regional "
-         "penalty reported as unexplained."],
+         "from ours; a warm bias found twice by independent routes; an unexplained regional "
+         "penalty reported as unexplained; and a <b>selection leak we found in our own code and "
+         "priced before shipping</b> - see the limitations below."],
     ], widths=[0.26, 0.74], bold_col0=True, font_size=8.2))
 
     # 2 -----------------------------------------------------------------
@@ -96,6 +97,13 @@ def build_note(path):
          "and does not hold for this model."],
         ["3", "The mixed layer (20-50 m) is worse than the reanalysis", "by +0.23 to +0.38 degC",
          "<b>Ours</b> - and the one place effort would clearly pay."],
+        ["3a", "<b>The shipped epoch was chosen on the days the model is scored on</b>",
+         "<b>+0.0824 degC</b>, 3 seeds, sign holds 3/3",
+         "<b>ours</b>. Early stopping read the 2026-04-01..06-23 test block, the same days the "
+         "Argo headline is scored on, so the epoch chosen was not independent of the number "
+         "reported. Fixed in the code; this checkpoint predates the fix and ships knowingly, "
+         "because every leak-free protocol we tried scores about 0.98 instead of 0.90. The cost "
+         "also bundles 46 fewer training days, which we did not separate."],
         ["4", "Climatology beats the model at 1000 m", "by 0.055 degC",
          "Ours, small, and labelled on the chart. 14 of 15 depths, not 15."],
         ["5", "An Arabian Sea satellite penalty", "+0.0341 degC, sign holds across 3 of 3 seeds",

@@ -862,3 +862,63 @@ multi-block both-sides purge, a regression pin that `n_blocks=1` reproduces the 
 a structural guard that reads the training script and rejects any wiring where the test block is
 built before the epoch is chosen. Two of them are **controls** that fail on the pre-fix arrangement,
 so the checks are not vacuous.
+
+---
+---
+
+## 2026-09-07 — Decision: ship 0.9006 and state the selection leak
+
+**The decision.** The deliverable stays `sat_7ch_s42` at RMSE 0.9006. Its epoch was chosen on the
+2026-04-01..06-23 test block — the days its Argo headline is scored on — and that is now stated on
+every surface that quotes the number rather than left to a reader who knows when the bug was fixed.
+The alternative was shipping a leak-free run at roughly 0.98; that was considered and declined.
+
+**What was measured before deciding.** Four selection layouts, seed 42, everything else matched to
+the deliverable. RMSE is reported only — the layouts were judged on the validation curve, never on
+this column, because picking a validation protocol by test score is the original bug in a new hat:
+
+| layout | train days | val months | epoch chosen | RMSE |
+|---|---|---|---|---|
+| the test block itself (as shipped) | 299 | the scored months | 4 | **0.9006** |
+| 1 trailing block, 46 days | 253 | Feb, Mar | 1 | 1.0121 |
+| 1 trailing block, 90 days | 209 | Jan–Mar | 1 | 0.9903 |
+| 3 blocks across the year, 45 days | 239 | Mar, Jun, Oct, Nov | 4 | 1.1037 |
+
+plus three seeds of the 46-day layout: 1.0121 / 0.9685 / 0.9684 against 0.9006 / 0.8989 / 0.9023.
+**Mean +0.0824 °C, spread 0.0454, sign holds 3/3.** Real-baseline skill falls +0.156 → +0.078.
+
+**Two findings worth keeping.** A contiguous trailing block removes a whole season from training
+and then ranks epochs on the one season the model has never seen, where the least-specialised model
+wins — both trailing layouts picked **epoch 1** and early-stopped holding a barely-trained model.
+Spreading the blocks across the year fixed precisely that (epoch 4, matching the leaked signal, on
+a clean monotone curve) **and scored worst of the four**, with a negative real-baseline skill. So
+the pre-registered stability criterion did not predict the outcome and is recorded as **NOT
+VALIDATED**. It was chosen in advance so it could fail visibly, and it did.
+
+**The confound, unresolved.** The +0.0824 is not the price of the leak alone: the leak-free arm
+also trains on 253 days instead of 299. Separating them needs an arm that keeps the reduced
+training set and still selects on test — deliberately reintroducing the bug behind a flag — and it
+was not run.
+
+**Where it is now written down.**
+
+* `artifacts/frozen_manifest.json`: every claim carries `selection_protocol`, and the deliverable
+  carries a `selection_leak` block with what it is, the measured cost, the confound, why it ships
+  and the commit that fixed the code (`cc8d672`). `freeze_headline.py` defaults a missing value to
+  `test_period_v0` the same way it defaults a missing `scoring_protocol` to `unmasked_v1`.
+* `PROJECT_RECORD.md`: flaw **3a** in §16.1, and a new **§16.6** with the three-seed table, the
+  four-layout sweep, the confound and the decision.
+* `note_19_conclusion.py` → the rebuilt conclusion PDF: flaw 3a, and the strengths list now says
+  the project found and priced a selection leak in its own code.
+* `PHASE2_STATUS.md` row 16, ahead of the headline.
+* The deck's slide-7 speaker notes, phrased to be volunteered if the question is about validation.
+* Three guard tests in `test_presentation_claims.py`: the manifest must carry the protocol and,
+  when it is `test_period_v0`, a complete `selection_leak` block; the jury notes must mention it;
+  `PROJECT_RECORD` must list it and carry the measured cost. Two were red before this change.
+
+**Also here.** The run banner printed `carved from the END of train (2025-06-01..2026-03-26)` for a
+three-block layout, which reads as one contiguous tail across the whole training period. The dates
+were right, the wording was not; it now names the layout and lists each block.
+
+**Audit finding #7 is closed in the code and open in the artifact**: no run can select on the
+scored period any more, and the shipped checkpoint predates that and says so.

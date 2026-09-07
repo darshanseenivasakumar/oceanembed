@@ -23,6 +23,8 @@ that disappears at the next `build_all.py`.
 """
 from __future__ import annotations
 
+import io
+import json
 import os
 import re
 import zipfile
@@ -264,3 +266,44 @@ def test_the_manifest_deliverable_is_scored_under_the_current_protocol():
         f"{EA.SCORING_PROTOCOL!r}: re-run rescore_checkpoint.py and freeze_headline.py")
     assert claim.get("refusals", {}).get("n_refused_below_seafloor") is not None, (
         "a claim under the masked protocol must carry its refusal count beside the score")
+
+
+# --------------------------------------------------------------- the selection leak, stated
+
+SELECTION_LEAK_WORDS = ("chose its epoch", "chosen on the test", "selection leak",
+                        "epoch was chosen", "selected on the test", "test_period_v0")
+
+
+def test_the_manifest_says_how_the_deliverable_chose_its_epoch():
+    """The shipped checkpoint selected its epoch on the days it is scored on. It ships anyway, by
+    decision (2026-09-07), so the manifest must SAY so rather than leave it to a reader who knows
+    what date the bug was fixed."""
+    man = json.load(open(os.path.join(REPO, "artifacts", "frozen_manifest.json"), encoding="utf-8"))
+    d = man["claims"]["deliverable_satellite"]
+    assert d.get("selection_protocol"), "the deliverable records no selection protocol"
+    if d["selection_protocol"] == "test_period_v0":
+        leak = d.get("selection_leak")
+        assert leak, "a test_period_v0 deliverable must carry its selection_leak block"
+        for k in ("what", "measured_cost_degC", "confound", "why_shipped", "fixed_in"):
+            assert leak.get(k), f"selection_leak is missing {k}"
+        assert leak["measured_cost_degC"] > 0
+
+
+def test_the_jury_notes_state_the_selection_leak():
+    """A juror reading the conclusion must find it without asking. Checked on the note SOURCES,
+    which is what a rebuild regenerates, not on the built PDFs."""
+    blob = ""
+    for name in ("note_19_conclusion.py", "note_01_problem.py", "features_07_12.py"):
+        p = os.path.join(REPO, "JURY_NOTES", "_build", name)
+        if os.path.exists(p):
+            blob += io.open(p, encoding="utf-8").read().lower()
+    assert any(w.lower() in blob for w in SELECTION_LEAK_WORDS), (
+        "no jury note mentions that the shipped epoch was chosen on the scored period")
+
+
+def test_the_project_record_lists_the_selection_leak_as_a_flaw():
+    rec = io.open(os.path.join(REPO, "PROJECT_RECORD.md"), encoding="utf-8").read().lower()
+    assert any(w.lower() in rec for w in SELECTION_LEAK_WORDS), (
+        "PROJECT_RECORD does not list the selection leak among the flaws"
+    )
+    assert "0.0824" in rec, "PROJECT_RECORD does not carry the measured cost of the leak"

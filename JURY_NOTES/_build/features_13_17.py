@@ -89,7 +89,7 @@ SPECS.append(dict(
         rows=[
             ["Measurement", "Value", "How it is stated"],
             ["Coverage of the plus-or-minus 2 sigma band",
-             "<b>91.2% mean</b>, range <b>80.1% to 95.5%</b> by depth, on 908 held-out profiles",
+             "<b>91.4% mean</b>, range <b>79.7% to 96.2%</b> by depth, on 909 held-out profiles",
              "Reported as a <b>range</b>, never as the mean alone - the mean would hide an 80% depth "
              "at 50 m."],
             ["Nominal target", "95.4%",
@@ -146,7 +146,7 @@ SPECS.append(dict(
          "post-hoc per-depth scaling brought us from clearly overconfident to mildly overconfident. "
          "The freeze check verifies that our claim wording has not drifted upward."),
         ("Why not just report the average coverage of 91.2%?",
-         "Because it hides the worst depth. Coverage runs from 80.1% at 50 m up to 95.5%, and a user "
+         "Because it hides the worst depth. Coverage runs from 79.7% at 50 m up to 96.2%, and a user "
          "acting on a 50 m value deserves to know that band is the weakest one. Reporting a range "
          "costs us a nicer headline and gains a defensible one."),
         ("How do you know the calibration is not fitted to the same data it is scored on?",

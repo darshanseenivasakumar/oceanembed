@@ -124,7 +124,7 @@ def test_the_0023_thermocline_figure_is_always_labelled_phase_1():
         return bool(re.search(r"phase[- ]1", w, re.IGNORECASE))
 
     for name, text in _notes_sources().items():
-        for m in re.finditer(r"0\.023", text):
+        for m in re.finditer(r"0\.023(?!\d)", text):
             assert scoped(text, m.start()), (
                 f"{name} quotes 0.023 degC near offset {m.start()} without naming Phase 1. "
                 f"Restated about the v2 deliverable it is wrong: the gap there is 0.178 degC at "
@@ -220,8 +220,14 @@ def test_the_buoy_series_are_not_described_as_independent_validation():
 # 0.9078 after the model changes". It did.
 
 APP_DIR = os.path.join(REPO, "app")
-SUPERSEDED_HEADLINE = ("0.9078", "0.2595", "12,829", "12829")
-LABELS = ("unmasked", "superseded", "before 2026-09-07", "old protocol", "previous protocol")
+# Two generations of superseded headline. 0.9078 / +0.2595 / 12,829 was unmasked_v1; 0.9006 /
+# +0.2400 / 12,736 was seafloor_masked_v1, scored against the Argo table whose depth axis was
+# pressure read as metres (audit #8). The current number lives only in the manifest.
+SUPERSEDED_HEADLINE = ("0.9078", "0.2595", "12,829", "12829",
+                       "0.9006", "0.2400", "12,736", "12736")
+LABELS = ("unmasked", "superseded", "before 2026-09-07", "old protocol", "previous protocol",
+          "seafloor_masked_v1", "pressure-as-depth", "pressure as depth", "depth-axis fix",
+          "before the depth-axis")
 
 
 def _app_sources() -> dict[str, list[str]]:
@@ -306,4 +312,4 @@ def test_the_project_record_lists_the_selection_leak_as_a_flaw():
     assert any(w.lower() in rec for w in SELECTION_LEAK_WORDS), (
         "PROJECT_RECORD does not list the selection leak among the flaws"
     )
-    assert "0.0824" in rec, "PROJECT_RECORD does not carry the measured cost of the leak"
+    assert "0.0725" in rec, "PROJECT_RECORD does not carry the measured cost of the leak"

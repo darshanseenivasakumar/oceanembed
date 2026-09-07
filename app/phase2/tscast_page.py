@@ -388,8 +388,9 @@ def _depth_error_chart(depths, rmse, clim) -> alt.LayerChart:
     vertical gradient is steepest and a surface field constrains depth least, then collapses below
     500 m where the ocean barely varies. That is the physics, visible at a glance.
 
-    But the model does NOT beat climatology everywhere: at 1000 m climatology wins by 0.055 degC
-    (0.2497 vs 0.3048 under seafloor_masked_v1; it was 0.012 when below-seafloor comparisons were
+    But the model does NOT beat climatology everywhere: at 1000 m climatology wins by 0.024 degC
+    (0.263 vs 0.287 under seafloor_masked_v2, the depth-axis table; 0.055 under seafloor_masked_v1
+    with pressure read as depth; it was 0.012 when below-seafloor comparisons were
     still scored). 14 of 15 depths, not 15. The shaded band is therefore drawn from the SIGNED
     difference and the crossover is labelled outright, because a jury that later finds the one
     depth we glossed over stops believing the fourteen we did not.

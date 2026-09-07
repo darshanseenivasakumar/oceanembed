@@ -9,8 +9,8 @@ Status vocabulary: `NOT STARTED` · `IN PROGRESS` · `IMPLEMENTED` · `TESTED` �
 >
 > | result | Argo RMSE | skill | INPUT SOURCE |
 > |---|---|---|---|
-> | **stage 1 satellite — SHIPPED** | **0.9006** | **+0.2400** (+0.1494 where the climatology is real) | **satellite** ✅ the PS deliverable — `seafloor_masked_v1`, n 12,736 |
-> | stage 1 GLORYS — comparator | 0.8743 | +0.2622 | reanalysis ❌ — `seafloor_masked_v1`, seed 42 |
+> | **stage 1 satellite — SHIPPED** | **0.9063** | **+0.2379** (+0.1480 where the climatology is real) | **satellite** ✅ the PS deliverable — `seafloor_masked_v2`, n 12,727 |
+> | stage 1 GLORYS — comparator | 0.8826 | +0.2578 | reanalysis ❌ — `seafloor_masked_v2`, seed 42 |
 > | stage 2 GLORYS — best accuracy | 0.8548 | +0.3027 | reanalysis ❌ — `unmasked_v1`, n 12,829, NOT directly comparable |
 >
 > **Quoting 0.8548 as "our result" would present a reanalysis-fed model as satisfying a
@@ -18,11 +18,13 @@ Status vocabulary: `NOT STARTED` · `IN PROGRESS` · `IMPLEMENTED` · `TESTED` �
 > the deliverable. Row 14's "CURRENT HEADLINE" label predates the satellite model and should be
 > read as "best accuracy on the GLORYS-input path".
 >
-> The honest framing for a jury (re-measured 2026-09-07 under `seafloor_masked_v1`, 3 seeds each,
-> identical points, rmse_climatology 1.1850 and n=12,736 in both legs): *satellite minus
-> reanalysis-fed reads +0.0263 / +0.0267 / −0.0028 °C — mean +0.0167 — and the sign does NOT hold,
+> The honest framing for a jury (re-measured 2026-09-07 under `seafloor_masked_v2`, 3 seeds each,
+> identical points, rmse_climatology 1.1892 and n=12,727 in both legs): *satellite minus
+> reanalysis-fed reads +0.0237 / +0.0231 / −0.0040 °C — mean +0.0143 — and the sign does NOT hold,
 > so by our own three-seed rule the cost is not an established effect; the satellite model retains
-> ~94% of the comparator's skill.* The earlier "+0.0289, retains 92%" was one seed under `unmasked_v1`.
+> ~95% of the comparator's skill (three-seed mean).* Under `seafloor_masked_v1` the same three
+> seeds read +0.0263 / +0.0267 / −0.0028; the earlier "+0.0289, retains 92%" was one seed under
+> `unmasked_v1`.
 >
 > **SCORING PROTOCOL CHANGE 2026-09-07 — `seafloor_masked_v1`.** Every number in this file dated
 > before 2026-09-07 was scored under `unmasked_v1`: the model's raw output compared against Argo at
@@ -34,6 +36,18 @@ Status vocabulary: `NOT STARTED` · `IN PROGRESS` · `IMPLEMENTED` · `TESTED` �
 > on a basin-mean fill (`build_samples` drops any-NaN columns, so shelf cells contribute no rows and
 > `climatology.build_climatology` fills them), where "skill" read +0.55 against a baseline that does
 > not exist. Historical rows below are left as written and are `unmasked_v1`.
+>
+> **TRUTH-TABLE CHANGE 2026-09-07 — `seafloor_masked_v2` (audit #8).** Argo reports PRESSURE in
+> decibars; `config.DEPTHS` is metres. `download_argo._profiles_to_rows` interpolated one onto the
+> other directly, sampling every float ~1% too shallow — 0.6 m at 100 m, 8.2 m at 1000 m — which
+> in a thermocline is a tenth of a degree charged to the model. The table was regenerated with the
+> UNESCO 1983 conversion (`phase2.data.argo_depth`); the re-fetch itself changed nothing (surface
+> levels agree to 0.005 °C on the 4,330 shared profiles), so the deltas are the axis alone: the
+> truth moved **colder** by 0.05–0.06 °C at 100–150 m, and 89 comparisons at 1000 m existed only
+> because a float reaching 1000 dbar had been read as reaching 1000 m. On the deliverable: RMSE
+> 0.9006 → **0.9063**, bias +0.1066 → **+0.1400** (a third of the warm bias had been hidden),
+> skill +0.2400 → **+0.2379**, n 12,736 → 12,727, 962 → 963 profiles. Every v1 record is kept
+> on disk under its own name; the old table is `argo_daily_period_pres_as_depth_v1.parquet`.
 >
 > Stage 2 has not yet been run on satellite input. Until it is, there is no satellite T+S+density
 > number and none may be implied.
@@ -86,7 +100,7 @@ documented physical expectation.
 | 13 | **v2 UI — explain every output** | Darshan | `phase2-tscast-nio` | **TESTED** | ☑ | ☑ | ☑ 15 | ◐ | Port 8504, four tabs, frozen demo untouched. Every rendered number is asserted equal to the metrics artifact to 4 dp by `accept.py check_v2_ui`. Marked TESTED not VALIDATED: it renders validated science correctly, which is not the same as validating anything itself |
 | 14 | **Stage 2 — salinity + density (best accuracy; a GLORYS-fed COMPARATOR, not the deliverable — see row 16)** | Darshan | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 26 | ☑ | **T RMSE 0.8548 °C / skill +0.3027 / bias +0.1055 on the same 962 independent Argo (n=12,829, `unmasked_v1` scoring)**, plus salinity 0.2450 psu and density 0.2841 kg m⁻³. Beats stage-1 7ch on every accuracy metric, so this is the shipped headline as of 2026-09-01. The paper's eq. 5 density loss is OFF: with it ON the same run reads 0.8593 / +0.2990 / bias +0.1598, i.e. it costs accuracy — reported as a negative result, not hidden. Byte identity in `artifacts/frozen_manifest.json` |
 | 15 | **Phase 1 — provenance audit + freeze** | Darshan | `fix/provenance-audit` | **VALIDATED** | ☑ | n/a | ☑ 4 | ☑ | Three findings. (1) The Aug-26 synthetic-`X_train` alarm is STALE — verified four ways (row counts match provenance exactly; ssh mean 0.4463 not 0.0017; `norm_stats` derived from it; LightGBM ssh splits span 0.0–0.659). (2) The planned row-count gate was NOT built — it is the guard this repo already removed for cause (D-012). (3) **The wind result reverses post-embargo** and was independently re-scored from disk at a 0.00e+00 gap before being written down. `freeze_headline.py` proven to fail on a tampered file |
-| 16 | **Stage 1 SATELLITE-INPUT (the PS deliverable)** | Arjhun | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 44 | ☑ | **⚠ the epoch behind this number was chosen on the test period itself (`selection_protocol: test_period_v0`); a leak-free protocol costs +0.0824 °C over 3 seeds, sign holding 3/3 — see PROJECT_RECORD §16.6.** T RMSE 0.9006 °C / skill +0.2400 (+0.1494 on the 895 profiles with a real climatology) / bias +0.1066 on 962 independent Argo (n=12,736, `seafloor_masked_v1`; the same checkpoint read 0.9078 / +0.2595 / n=12,829 under `unmasked_v1`)** — the first result whose INPUTS are satellite observations (OSTIA SST, DUACS altimetry, SMOS-blended SSS, GLOBCURRENT total currents, observational wind). GLORYS remains the target, which the PS names. Bundle `daily_sat/v001`, 388 days, 0 dropped, passed 44 provenance + data-lineage checks and a negative test that caught GLORYS injected into all five satellite channels. Config identical to the GLORYS-input leg; only the input source differs. **n=1 — multi-seed is A10.**
+| 16 | **Stage 1 SATELLITE-INPUT (the PS deliverable)** | Arjhun | `phase2-tscast-nio` | **VALIDATED** | ☑ | ☑ | ☑ 44 | ☑ | **⚠ the epoch behind this number was chosen on the test period itself (`selection_protocol: test_period_v0`); a leak-free protocol costs +0.0725 °C over 3 seeds, sign holding 3/3 — see PROJECT_RECORD §16.6.** T RMSE 0.9063 °C / skill +0.2379 (+0.1480 on the 896 profiles with a real climatology) / bias +0.1400 on 963 independent Argo (n=12,727, `seafloor_masked_v2`; the same checkpoint read 0.9006 / +0.2400 / n=12,736 under `seafloor_masked_v1` — pressure read as depth — and 0.9078 / +0.2595 / n=12,829 under `unmasked_v1`)** — the first result whose INPUTS are satellite observations (OSTIA SST, DUACS altimetry, SMOS-blended SSS, GLOBCURRENT total currents, observational wind). GLORYS remains the target, which the PS names. Bundle `daily_sat/v001`, 388 days, 0 dropped, passed 44 provenance + data-lineage checks and a negative test that caught GLORYS injected into all five satellite channels. Config identical to the GLORYS-input leg; only the input source differs. **n=1 — multi-seed is A10.**
 
 
 ## F5 — detail (Arjhun, `phase2-physics`)

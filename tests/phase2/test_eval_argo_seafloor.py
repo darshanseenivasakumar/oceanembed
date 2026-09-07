@@ -63,7 +63,8 @@ def test_applying_the_mask_removes_only_the_refused_comparisons_and_counts_them(
     assert ref["n_refused_below_seafloor"] == 15 + 7
     assert ref["n_profiles_on_land"] == 1
     assert ref["per_depth_refused"][7] == 1 and ref["per_depth_refused"][8] == 2
-    assert ref["scoring_protocol"] == EA.SCORING_PROTOCOL == "seafloor_masked_v1"
+    assert ref["scoring_protocol"] == EA.SCORING_PROTOCOL == "seafloor_masked_v2"
+    assert ref["truth_axis"] == EA.TRUTH_AXIS == "depth_m_unesco1983"
     # a level the float never reached is NOT a refusal -- it was never a comparison
     assert sum(ref["per_depth_refused"]) == 22
 
@@ -119,19 +120,22 @@ needs_data = pytest.mark.skipif(not (os.path.isdir(_BUNDLE) and os.path.exists(_
 
 
 @needs_data
-def test_the_shipped_collocation_refuses_93_comparisons_and_one_land_profile():
+def test_the_shipped_collocation_refuses_92_comparisons_and_one_land_profile():
     """Pinned so the number the deck and notes quote cannot drift from the code that produced it.
-    Measured 2026-09-06 on the shipped bundle: 93 below-seafloor comparisons, 1 land profile,
-    12,829 -> 12,736 comparisons."""
+    Measured 2026-09-07 on the shipped bundle against the depth-axis Argo table
+    (seafloor_masked_v2): 963 profiles, 92 below-seafloor comparisons, 1 land profile,
+    12,819 -> 12,727 comparisons. Under the pressure-as-depth table (v1) it was 962 / 93 /
+    12,829 -> 12,736: one float that reached 1000 dbar no longer reaches 1000 m, and one
+    profile that used to interpolate to nothing now carries a level."""
     from phase2.tscast_nio import dataset as D
 
     d = D.load_daily(_BUNDLE)
     _tr, te = D.daily_split_indices(d["times"])
     keys, truth, keep, t_idx, la, lo, ref = EA.collocate(d, te, verbose=False)
-    assert int(keep.sum()) == 962
-    assert ref["n_refused_below_seafloor"] == 93
+    assert int(keep.sum()) == 963
+    assert ref["n_refused_below_seafloor"] == 92
     assert ref["n_profiles_on_land"] == 1
-    assert int(np.isfinite(truth[keep]).sum()) == 12829 - 93
+    assert int(np.isfinite(truth[keep]).sum()) == 12819 - 92
     assert ref["per_depth_refused"][-1] == 21, "the deepest level carried the most refusals"
     ok = EA.baseline_exists_mask(la[keep], lo[keep], d["valid_mask"], d["land_mask"])
-    assert int(ok.sum()) == 895, "895 of the 962 profiles sit in cells with a real climatology"
+    assert int(ok.sum()) == 896, "896 of the 963 profiles sit in cells with a real climatology"

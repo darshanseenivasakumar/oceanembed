@@ -90,11 +90,12 @@ asserts `input_source == "satellite"` on the shipped artifact so this cannot sil
 
 **The framing that is defensible to a jury:**
 
-> Against a reanalysis-fed comparator, satellite inputs read **+0.0263 / +0.0267 / −0.0028 °C** across
-> seeds 42/43/44 (mean +0.0167) under `seafloor_masked_v1`, on identical points — `rmse_climatology
-> = 1.1850`, `n = 12,736` in both legs. **The sign does not hold**, so by the three-seed rule no cost
-> is claimed; the satellite model retains **~94 %** of the comparator's skill. (Corrected 2026-09-07;
-> the earlier "+0.019, ~92 %" was measured under `unmasked_v1`.)
+> Against a reanalysis-fed comparator, satellite inputs read **+0.0237 / +0.0231 / −0.0040 °C** across
+> seeds 42/43/44 (mean +0.0143) under `seafloor_masked_v2`, on identical points — `rmse_climatology
+> = 1.1892`, `n = 12,727` in both legs. **The sign does not hold**, so by the three-seed rule no cost
+> is claimed; the satellite model retains **~95 %** of the comparator's skill (three-seed mean).
+> (Corrected 2026-09-07 twice: under `seafloor_masked_v1` it read +0.0263 / +0.0267 / −0.0028; the
+> earlier "+0.019, ~92 %" was measured under `unmasked_v1`.)
 
 ---
 
@@ -675,7 +676,7 @@ claims. See the protocol note at the head of §8.
 
 | tag | seed | stage | input source | bundle | Argo RMSE | skill | bias |
 |---|---|---|---|---|---|---|---|
-| **`sat_7ch_s42`** ← **SHIPPED** | 42 | 1 | **satellite** | `daily_sat/v001` | **0.9006** (`unmasked_v1`: 0.9078) | **+0.2400** (`unmasked_v1`: +0.2595) | +0.1066 |
+| **`sat_7ch_s42`** ← **SHIPPED** | 42 | 1 | **satellite** | `daily_sat/v001` | **0.9063** (`seafloor_masked_v1`: 0.9006; `unmasked_v1`: 0.9078) | **+0.2379** (`unmasked_v1`: +0.2595) | +0.1066 |
 | `abl_full_s42` (same config) | 42 | 1 | satellite | `daily_sat/v001` | 0.9078 | +0.2595 | +0.1003 |
 | `abl_full_s43` | 43 | 1 | satellite | `daily_sat/v001` | 0.9047 | +0.2620 | +0.0992 |
 | `abl_full_s44` | 44 | 1 | satellite | `daily_sat/v001` | 0.9084 | +0.2590 | +0.0742 |
@@ -723,7 +724,7 @@ lr                 1e-3  weight_decay 0.01  batch_size 256
 device             cuda                     train_seconds 550.7
 params             encoder 507,848  +  decoder 40,734   =  548,582
 code_commit        a67feea
-argo               962 profiles, max 5 days offset
+argo               963 profiles, max 5 days offset (depth-axis table, 2026-09-07)
                    n = 12,829 depth comparisons as trained/scored (unmasked_v1)
                    n = 12,736 under seafloor_masked_v1, the protocol of the promoted metrics
 sha256             53848bb52533752d15a4e25f6e0fb038297bd32671606b290dd0260e991441ae
@@ -781,28 +782,35 @@ had to be independent-Argo RMSE.
 > which scored the model's raw output against Argo at every depth the float sampled — including 93
 > of 12,829 comparisons below the training target's own seafloor, where the product returns None.
 > The shipped number is now scored under `seafloor_masked_v1` (`eval_argo.apply_seafloor_mask`), which
-> declines and counts those: **RMSE 0.9006 °C, bias +0.1066, correlation 0.8809, skill +0.2400, n
-> 12,736**. The tables below are left as the record of the compilation and are NOT re-scored, except
+> declines and counts those. A second change the same day (audit #8): the Argo truth table had
+> been interpolated with PRESSURE in decibars read as metres, sampling every float ~1% too
+> shallow; it was regenerated on a depth axis (`phase2.data.argo_depth`, UNESCO 1983) and the
+> deliverable is scored against it under `seafloor_masked_v2`: **RMSE 0.9063 °C, bias +0.1400,
+> correlation 0.8804, skill +0.2379, n 12,727** (under `seafloor_masked_v1`, the same mask on the
+> old table: 0.9006 / +0.1066 / 0.8809 / +0.2400 / 12,736). The tables below are left as the
+> record of the compilation and are NOT re-scored, except
 > §8.1. A second correction sits beside it: the climatology baseline is a basin-mean fill at every
 > cell shallower than 1000 m (`build_samples` drops any-NaN columns; `climatology.build_climatology`
 > fills the empty cells), so skill there is against a baseline that does not exist. Where the
-> climatology is real — 895 of 962 profiles — skill is **+0.1494**; at the 67 shelf profiles it read
+> climatology is real — 896 of 963 profiles — skill is **+0.1480**; at the 67 shelf profiles it read
 > +0.55. The blended +0.24 (and the earlier +0.26) mixes the two.
 
 ### 8.1 The shipped result
 
 ```
-Model      TS-Cast-NIO stage 1, satellite inputs, seed 42     scoring protocol: seafloor_masked_v1
-Reference  962 INDEPENDENT Argo profiles (never used in training), n = 12,736 depth comparisons
-           (93 comparisons below the target's seafloor and 1 land-cell profile declined and counted)
+Model      TS-Cast-NIO stage 1, satellite inputs, seed 42     scoring protocol: seafloor_masked_v2
+Reference  963 INDEPENDENT Argo profiles (never used in training), n = 12,727 depth comparisons
+           (92 comparisons below the target's seafloor and 1 land-cell profile declined and counted;
+            Argo interpolated on DEPTH in metres, UNESCO 1983 -- see audit #8)
 
-  RMSE            0.9006 degC       (0.9078 under unmasked_v1, the protocol of every earlier artifact)
-  bias            +0.1066 degC      (convention: model - truth; positive = model runs warm)
-  correlation     0.8809            (mean of the 15 per-depth values)
-  skill           +0.2400           (1 - RMSE/RMSE_clim; RMSE_clim = 1.1850)
-  skill, real     +0.1494           (same ratio on the 895 profiles whose cell has a real climatology;
-    baseline                         RMSE 0.8768 vs RMSE_clim 1.0308, n = 12,054)
-  Murphy skill    +0.4225           (1 - MSE/MSE_clim)
+  RMSE            0.9063 degC       (0.9006 under seafloor_masked_v1 with pressure read as depth;
+                                     0.9078 under unmasked_v1, the protocol of every earlier artifact)
+  bias            +0.1400 degC      (convention: model - truth; positive = model runs warm)
+  correlation     0.8804            (mean of the 15 per-depth values)
+  skill           +0.2379           (1 - RMSE/RMSE_clim; RMSE_clim = 1.1892)
+  skill, real     +0.1480           (same ratio on the 896 profiles whose cell has a real climatology;
+    baseline                         RMSE 0.8830 vs RMSE_clim 1.0363, n = 12,045)
+  Murphy skill    +0.4192           (1 - MSE/MSE_clim)
 ```
 
 Both skill definitions are stored, with a note in the artifact: *"On the same real Argo predictions
@@ -833,10 +841,11 @@ thermocline** (peak 1.22 °C at 100 m — where a surface field constrains depth
 below 500 m. The widest gain over climatology is **+0.53 °C at 5 m** (+0.56 at 200 m under
 `unmasked_v1`; the mask moves the widest gain to the surface).
 
-**The model does NOT beat climatology everywhere.** At 1000 m climatology wins by 0.055 °C
-(0.2497 vs 0.3048) — **14 of 15 depths, not 15**. The dashboard chart labels that crossover outright
-("climatology wins by 0.055 °C here"), and a test asserts the label appears on the real data and
-does *not* appear when a model really does win everywhere. **[VERIFIED]** The gap was 0.012 °C under
+**The model does NOT beat climatology everywhere.** At 1000 m climatology wins by 0.024 °C
+(0.263 vs 0.287 on the depth-axis table) — **14 of 15 depths, not 15**. The dashboard chart labels
+that crossover outright ("climatology wins by 0.024 °C here"), and a test asserts the label appears
+on the real data and does *not* appear when a model really does win everywhere. **[VERIFIED]** The
+gap was 0.055 °C under `seafloor_masked_v1` (0.2497 vs 0.3048) and 0.012 °C under
 `unmasked_v1`. Dropping the 21 below-seafloor comparisons at this depth costs the climatology
 baseline far more than the model (climatology 0.293 → 0.2497, the model 0.305 → 0.3048), so scoring
 them was flattering the model's standing at 1000 m.
@@ -1125,7 +1134,7 @@ Per-depth scale factors actually applied (coverage method):
 
 ### 11.2 What is claimed, exactly
 
-**The band is `±2σ`. It is never labelled "95 %".** Coverage is reported as a **range (80.1 %–95.5 %
+**The band is `±2σ`. It is never labelled "95 %".** Coverage is reported as a **range (79.7 %–96.2 %
 by depth, mean 91.2 %)**, never as the mean alone, because the mean hides an 80 % depth at 50 m.
 No ±1σ band and no confidence percentage appear anywhere in the UI, because neither is defensible.
 `freeze.py` checks this claim wording as one of its 18 checks. **[VERIFIED — live run]**
@@ -1376,7 +1385,7 @@ level**. So the page ships a map of *where the axis is resolvable*, and on this 
 in words rather than drawing 24,000 cells of grid edge.
 
 **Why an acoustics page is defensible from a temperature model — measured, not argued.** At
-2026-06-23's mean conditions the deliverable's 0.9006 °C temperature error moves sound speed
+2026-06-23's mean conditions the deliverable's 0.9063 °C temperature error moves sound speed
 **about +2.3 m/s**; stage 2's 0.2695 psu salinity error moves it **+0.30 m/s**. **Temperature is 89 % of
 the budget.** Computed live, so it moves with conditions — and the direction is not the intuitive
 one: Mackenzie's quadratic term is negative, so **dc/dT falls as water warms** (4.08 m/s per °C at
@@ -1538,11 +1547,11 @@ artifact and checks it. **[VERIFIED — live output, 2026-09-05]**
 | 9 | compact satellite embedding via DL | **ok** | cnn3d → 128-dim latent, chosen over 4 candidates, `input_source=satellite` |
 | 10 | reconstruction: surface → profile | **ok** | one forward pass returns 15 depths per (lat, lon, date) |
 | 11 | 15 standard depths, exactly | **ok** | `config.DEPTHS == the PS list: True` |
-| 12 | evaluate: RMSE | **ok** | RMSE at 15/15 depths, overall 0.9006 |
-| 13 | evaluate: correlation | **ok** | correlation at 15/15 depths, overall 0.8809 |
-| 14 | evaluate: bias | **ok** | bias at 15/15 depths, overall +0.1066 |
+| 12 | evaluate: RMSE | **ok** | RMSE at 15/15 depths, overall 0.9063 |
+| 13 | evaluate: correlation | **ok** | correlation at 15/15 depths, overall 0.8804 |
+| 14 | evaluate: bias | **ok** | bias at 15/15 depths, overall +0.1400 |
 | 15 | training target: GLORYS reanalysis | **ok** | GLORYS12V1 daily `cmems_mod_glo_phy_my_0.083deg_P1D-m` |
-| 16 | independent validation: **INCOIS LAS gridded Argo** | **BLOCKED** | 962 independent argopy profiles used; deviation documented in `docs/INCOIS_PROBE.md` |
+| 16 | independent validation: **INCOIS LAS gridded Argo** | **BLOCKED** | 963 independent argopy profiles used; deviation documented in `docs/INCOIS_PROBE.md` |
 | 17 | PoC over Bay of Bengal / Arabian Sea | **ok** | per-basin skill over 3 seeds: Arabian +0.0341, BoB −0.0194 |
 
 > **BLOCKED is a real answer, not a softer word for FAIL.** It means the requirement is understood,
@@ -1781,9 +1790,9 @@ This is the section to read before quoting anything. It is organised by how fixa
 | 2 | **The thermocline is the hardest depth.** RMSE peaks at **1.22 °C at 100 m**, correlation drops to 0.776 | the widest band in the profile | **mostly inherited** — GLORYS itself scores 1.042 °C there — but **0.178 °C is ours**. The 0.023 °C figure is Phase-1 and does not hold for v2 |
 | 3 | **The mixed layer (20–50 m) is genuinely worse than the reanalysis** by +0.23 to +0.38 °C on v2 (+0.31 to +0.38 in Phase 1) | the one place effort would clearly pay | **ours** |
 | 3a | **The shipped epoch was chosen on the days the model is scored on.** `train_stage1` picked the epoch with the lowest NLL on the 2026-04-01..06-23 test block, and the Argo headline is scored on that same block, so model selection was not independent of the reported number (`selection_protocol: test_period_v0` in the manifest) | **+0.0824 °C**, 3 seeds, sign holds 3/3 — see §16.6 | **ours**, fixed in the code (`cc8d672`) but not in this checkpoint, and shipped knowingly |
-| 4 | **Climatology beats the model at 1000 m** by 0.055 °C — 14 of 15 depths, not 15 | small, and labelled on the chart | **ours**, and stated |
+| 4 | **Climatology beats the model at 1000 m** by 0.024 °C — 14 of 15 depths, not 15 | small, and labelled on the chart | **ours**, and stated |
 | 5 | **The Arabian Sea satellite penalty**: +0.0341 °C, sign holding 3/3 seeds | reproducible | **cause UNKNOWN** after four tested hypotheses |
-| 6 | **Uncertainty is improved, not calibrated.** ±2σ covers **80.1 % at 50 m** against a 95.4 % nominal | mildly overconfident everywhere | **ours** |
+| 6 | **Uncertainty is improved, not calibrated.** ±2σ covers **79.7 % at 50 m** against a 95.4 % nominal | mildly overconfident everywhere | **ours** |
 | 7 | **The encoder has no missing-data channel.** A gap and average water arrive as the same number | see §10 | **ours**, architectural, unfixed |
 | 8 | **Stage 2 does not improve temperature on satellite input** (3 seeds, sign does not hold) and is **not promoted, not frozen** | mean +0.0042 inside a 0.0304 spread | measured |
 | 9 | **Stage-2 MLD is −14.12 m biased and its barrier layer +8.88 m**, from +0.19 psu of surface salinity bias against a 0.03 kg m⁻³ threshold | ~4× the 2.4 m signal the published claim rests on | **ours**; needs a better salinity head, not a UI change |
@@ -1848,12 +1857,13 @@ scoring, selecting instead on a validation block carved out of train:
 
 | seed | as shipped (`test_period_v0`) | leak-free (`val_carved_v1`) | delta | epoch |
 |---|---|---|---|---|
-| 42 | 0.9006 | 1.0121 | +0.1115 | 4 → 1 |
-| 43 | 0.8989 | 0.9685 | +0.0696 | 3 → 1 |
-| 44 | 0.9023 | 0.9684 | +0.0661 | 5 → 4 |
+| 42 | 0.9063 | 0.9970 | +0.0907 | 4 → 1 |
+| 43 | 0.9021 | 0.9757 | +0.0736 | 3 → 1 |
+| 44 | 0.9036 | 0.9567 | +0.0531 | 5 → 4 |
 
-**Mean +0.0824 °C, spread 0.0454, sign holds 3/3.** Real-baseline skill falls from +0.156 to
-+0.078.
+**Mean +0.0725 °C, spread 0.0376, sign holds 3/3** (under `seafloor_masked_v2`; the same runs read
++0.0824 / spread 0.0454 on the pressure-as-depth table). Real-baseline skill falls from +0.157 to
++0.090 (three-seed means; +0.156 → +0.078 on the old table).
 
 **The confound, stated rather than buried.** That delta is *not* the price of the leak alone. The
 leak-free arm also trains on 253 days instead of 299, because the validation block has to come from
@@ -1865,10 +1875,10 @@ layout was judged on the validation curve, never on this column):
 
 | layout | train days | val months | epoch chosen | RMSE |
 |---|---|---|---|---|
-| the test block itself (as shipped) | 299 | the scored months | 4 | **0.9006** |
-| 1 trailing block, 46 days | 253 | Feb, Mar | 1 | 1.0121 |
-| 1 trailing block, 90 days | 209 | Jan–Mar | 1 | 0.9903 |
-| 3 blocks spread over the year, 45 days | 239 | Mar, Jun, Oct, Nov | 4 | 1.1037 |
+| the test block itself (as shipped) | 299 | the scored months | 4 | **0.9063** |
+| 1 trailing block, 46 days | 253 | Feb, Mar | 1 | 0.9970 |
+| 1 trailing block, 90 days | 209 | Jan–Mar | 1 | 0.9994 |
+| 3 blocks spread over the year, 45 days | 239 | Mar, Jun, Oct, Nov | 4 | 1.0869 |
 
 A contiguous trailing block removes a whole season from training and then asks the model to rank
 epochs on the one season it has never seen, where the least-specialised model wins: both trailing
@@ -1878,7 +1888,7 @@ with a clean monotone curve — **and scored worst of the four**, with a negativ
 skill. A pre-registered stability criterion computed from the training curve alone did not predict
 the outcome and is recorded as **not validated**.
 
-**Why it ships anyway.** Decided 2026-09-07: quote 0.9006 and state this dependency, rather than
+**Why it ships anyway.** Decided 2026-09-07: quote the headline and state this dependency, rather than
 quote a leak-free ~0.98. The fix is in the code (`dataset.selection_split`, commit `cc8d672`), so
 no future run can select on the scored period; this checkpoint predates it. The manifest records
 `selection_protocol: test_period_v0` and a `selection_leak` block carrying the cost, the confound
@@ -1891,7 +1901,7 @@ leak-free protocol on this dataset costs about 0.08 °C.
 ### 16.4 A discrepancy that was open, and is now traced
 
 **The Validation Lab headline (RMSE 0.9638 / 879 profiles) disagreed with the freeze manifest
-(0.9006 / 962).** Flagged 2026-09-03; **traced 2026-09-07 by reading the code** and now closed.
+(0.9063 / 963).** Flagged 2026-09-03; **traced 2026-09-07 by reading the code** and now closed.
 `src/phase2/validation/lab.py` loads `artifacts/argo_error_by_depth.json`, which is the **Phase-1**
 satellite-driven model scored against **2022** floats on the monthly grid; the manifest records the
 **v2** daily model against **2025–26** floats. Two models, two records, two eras — not a
@@ -2257,11 +2267,11 @@ qualified by the fact that our data scale is far smaller than theirs.
 > Ocean at 0.25°, daily, **from satellite surface observations alone**. The shipped model is
 > TS-Cast-NIO stage 1 — a 3-D CNN satellite encoder feeding a decoder that *adjusts the monthly
 > climatology* rather than guessing a profile — 548,582 parameters, trained on 388 consecutive days
-> of seven-channel satellite input against a GLORYS12V1 target. Against **962 independent Argo
-> profiles it scores RMSE 0.9006 °C, correlation 0.8809, bias +0.1066 °C, and +24 % skill over
+> of seven-channel satellite input against a GLORYS12V1 target. Against **963 independent Argo
+> profiles it scores RMSE 0.9063 °C, correlation 0.8804, bias +0.1400 °C, and +24 % skill over
 > climatology** (+15 % where the cell has a real per-cell climatology rather than a basin-mean
 > fill), beating climatology at 14 of 15 depths. It ships with a ±2σ band whose coverage is
-> reported as a **range** (80.1–96.0 % by depth) because the mean would hide an 80 % depth, fifteen
+> reported as a **range** (79.7–96.2 % by depth) because the mean would hide an 80 % depth, fifteen
 > dashboards, a NetCDF export and an HTTP API, an 18-check freeze, a 44-check bundle
 > verifier and a 17-row PS audit that reads **16 PASS / 0 FAIL / 1 BLOCKED**. Its known flaws are
 > stated rather than hidden: it runs warm, its mixed layer is worse than the reanalysis, its

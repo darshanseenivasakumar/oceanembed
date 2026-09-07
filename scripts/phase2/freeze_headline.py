@@ -15,7 +15,7 @@ THE DELIVERABLE IS THE SATELLITE-INPUT RUN
 ------------------------------------------
 The PS requires "the three-dimensional ocean temperature using ONLY surface satellite
 observations." The deliverable is therefore `sat_7ch_s42` (satellite inputs, GLORYS target),
-scored 0.9006 degC under `seafloor_masked_v1` -- see `PHASE2_STATUS.md` row 16. The
+scored 0.9063 degC under `seafloor_masked_v2` -- see `PHASE2_STATUS.md` row 16. The
 GLORYS-input runs (0.8548 stage-2, the
 0.8645 embargoed stage-1) are legitimate COMPARATORS, not the deliverable, because their inputs are
 reanalysis. An earlier version of this manifest named the 0.8548 GLORYS run as "headline"; that was
@@ -43,6 +43,9 @@ from datetime import datetime, timezone
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ARTIFACTS = os.path.join(REPO, "artifacts")
 FROZEN_DIR = os.path.join(ARTIFACTS, "frozen")
+sys.path.insert(0, os.path.join(REPO, "src"))
+# Protocol NAMES are read from the module that defines them, never retyped here. protocols.py is torch-free, so this costs nothing.
+from phase2.tscast_nio import protocols as PROTO  # noqa: E402
 MANIFEST = os.path.join(ARTIFACTS, "frozen_manifest.json")
 
 # Each run behind a shipped claim. `deliverable` marks the single PS answer; the rest are
@@ -53,9 +56,10 @@ RUNS = [
         key="deliverable_satellite",
         deliverable=True,
         input_source="satellite",
-        # The re-score under seafloor_masked_v1 (2026-09-07). The training-run JSON beside it is
-        # unmasked_v1 and is kept untouched as the historical record.
-        metrics="tscast_stage1_sat_7ch_s42_rescore_seafloor_masked_v1.json",
+        # The re-score under seafloor_masked_v2 (2026-09-07): the v1 mask against the Argo
+        # table whose depth axis is metres, not decibars read as metres (audit #8). The v1
+        # re-score and the unmasked_v1 training JSON stay on disk as the historical record.
+        metrics="tscast_stage1_sat_7ch_s42_rescore_seafloor_masked_v2.json",
         checkpoint="tscast_stage1_sat_7ch_s42.pt",
         role="THE PS DELIVERABLE -- stage-1, satellite inputs (OSTIA SST, DUACS altimetry, "
              "SMOS-blended SSS, GLOBCURRENT total currents, observational wind); GLORYS target.",
@@ -83,7 +87,7 @@ RUNS = [
         key="glorys_comparator_stage1_embargoed",
         deliverable=False,
         input_source="glorys",
-        metrics="tscast_stage1_embargo_withUV_s42_rescore_seafloor_masked_v1.json",
+        metrics="tscast_stage1_embargo_withUV_s42_rescore_seafloor_masked_v2.json",
         checkpoint="tscast_stage1_embargo_withUV_s42.pt",
         role="GLORYS stage-1 (withUV) after the 1d3c135 _window() embargo -- a comparator, and "
              "the leak-corrected successor to the pre-embargo stage-1 runs.",
@@ -121,7 +125,10 @@ def scored_numbers(metrics_path: str) -> dict:
     # A metrics file written before 2026-09-07 carries no scoring_protocol: it is unmasked_v1.
     picked.setdefault("scoring_protocol", None)
     if picked["scoring_protocol"] is None:
-        picked["scoring_protocol"] = "unmasked_v1"
+        picked["scoring_protocol"] = PROTO.UNMASKED_PROTOCOL
+    # Which truth table the numbers were scored against (protocols.argo_table_provenance). A
+    # record without one predates the depth-axis fix and was scored on pressure read as metres.
+    picked["argo_table"] = m.get("argo_table") or {"truth_axis": PROTO.LEGACY_TRUTH_AXIS}
     # Likewise for HOW THE EPOCH WAS CHOSEN. A run with no `selection` block selected its epoch on
     # the test period -- the days its own headline is scored on -- because that is what
     # train_stage1 did until 2026-09-07. Recording it as an explicit label rather than an absence
@@ -134,11 +141,13 @@ def scored_numbers(metrics_path: str) -> dict:
             "what": ("the epoch was chosen by lowest NLL on the 2026-04-01..06-23 GLORYS test "
                      "block, which is the period this run's Argo headline is scored on. Model "
                      "selection was therefore not independent of the reported number."),
-            "measured_cost_degC": 0.0824,
-            "measured_how": ("three seeds, same config and the same 962 profiles under "
-                             "seafloor_masked_v1, selecting instead on a validation block carved "
-                             "out of train: 0.9006/0.8989/0.9023 becomes 1.0121/0.9685/0.9684. "
-                             "Mean +0.0824 degC, spread 0.0454, sign holds 3/3."),
+            "measured_cost_degC": 0.0725,
+            "measured_how": ("three seeds, same config and the same 963 profiles under "
+                             "seafloor_masked_v2, selecting instead on a validation block carved "
+                             "out of train: 0.9063/0.9021/0.9036 becomes 0.9970/0.9757/0.9567. "
+                             "Mean +0.0725 degC, spread 0.0376, sign holds 3/3 (on the "
+                             "pressure-as-depth table, seafloor_masked_v1, the same runs read "
+                             "+0.0824, spread 0.0454)."),
             "confound": ("that delta is NOT the price of the leak alone -- the leak-free arm also "
                          "trains on 253 days instead of 299, because the validation block has to "
                          "come from somewhere. The two were not separated."),
@@ -212,17 +221,19 @@ def do_freeze() -> int:
             # Carried from a machine that scored under the OLD protocol. Say so, or a reader
             # compares a masked deliverable with an unmasked comparator and reads the gap as
             # skill.
-            nums.setdefault("scoring_protocol", "unmasked_v1")
+            nums.setdefault("scoring_protocol", PROTO.UNMASKED_PROTOCOL)
             # Same reasoning for the epoch choice: these are pre-2026-09-07 stage-2 runs, so they
             # were selected on the test period too. Left as None it reads as "unknown" when it is
             # in fact known.
             nums.setdefault("selection_protocol", "test_period_v0")
-            if nums["scoring_protocol"] != "seafloor_masked_v1":
+            # And the truth axis: carried from before the depth-axis fix (audit #8).
+            nums.setdefault("argo_table", {"truth_axis": PROTO.LEGACY_TRUTH_AXIS})
+            if nums["scoring_protocol"] != PROTO.SCORING_PROTOCOL:
                 nums["comparability_note"] = (
                     f"scored under {nums['scoring_protocol']} on another machine; NOT directly "
-                    "comparable to the seafloor_masked_v1 deliverable (different n) until "
-                    "re-scored with scripts/phase2/rescore_checkpoint.py where the checkpoint "
-                    "lives")
+                    f"comparable to the {PROTO.SCORING_PROTOCOL} deliverable (different truth "
+                    "table and different n) until re-scored with "
+                    "scripts/phase2/rescore_checkpoint.py where the checkpoint lives")
         ck_src = os.path.join(ARTIFACTS, r["checkpoint"])
         present = os.path.exists(ck_src)
         entry = {
@@ -293,14 +304,17 @@ def do_freeze() -> int:
         "what": "Byte identity + verified scores of the shipped deliverable and its comparators. "
                 "A checksum proves a checkpoint is the file that produced the numbers beside it, "
                 "not what trained it (D-012).",
-        "supersedes": "the 2026-09-04 manifest, which scored every claim under unmasked_v1: the "
-                      "model's raw output compared against Argo at every depth the float sampled, "
-                      "including the 93 comparisons (of 12,829) below the training target's own "
-                      "seafloor where output.build_record returns None. From 2026-09-07 the "
-                      "deliverable and the embargoed stage-1 comparator are scored under "
-                      "seafloor_masked_v1 (n 12,736); the stage-2 GLORYS comparators are carried "
-                      "forward under unmasked_v1 and labelled not comparable. Before that, the "
-                      "2026-09-01 manifest had named the GLORYS stage-2 run 0.8548 as HEADLINE.",
+        "supersedes": "the earlier 2026-09-07 manifest (seafloor_masked_v1), whose Argo truth "
+                      "table had been interpolated with PRES in decibars read as metres, sampling "
+                      "every float ~1% too shallow (audit #8; phase2.data.argo_depth). The table "
+                      "was regenerated on a depth axis and the deliverable and the embargoed "
+                      "stage-1 comparator are scored against it under seafloor_masked_v2. Before "
+                      "that: the 2026-09-04 manifest scored every claim under unmasked_v1, "
+                      "including 93 comparisons below the target's own seafloor; and the "
+                      "2026-09-01 manifest had named the GLORYS stage-2 run 0.8548 as HEADLINE. "
+                      "The stage-2 GLORYS comparators are still carried forward under unmasked_v1 "
+                      "and labelled not comparable.",
+        "protocol_history": PROTO.PROTOCOL_HISTORY,
         "authoritative_source": "PHASE2_STATUS.md row 16 (the PS deliverable); docs/HANDOFF.md.",
         "deliverable_key": deliverable_key,
         "frozen_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

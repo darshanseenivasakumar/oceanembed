@@ -1,17 +1,34 @@
 {
   "what": "Byte identity + verified scores of the shipped deliverable and its comparators. A checksum proves a checkpoint is the file that produced the numbers beside it, not what trained it (D-012).",
-  "supersedes": "the 2026-09-04 manifest, which scored every claim under unmasked_v1: the model's raw output compared against Argo at every depth the float sampled, including the 93 comparisons (of 12,829) below the training target's own seafloor where output.build_record returns None. From 2026-09-07 the deliverable and the embargoed stage-1 comparator are scored under seafloor_masked_v1 (n 12,736); the stage-2 GLORYS comparators are carried forward under unmasked_v1 and labelled not comparable. Before that, the 2026-09-01 manifest had named the GLORYS stage-2 run 0.8548 as HEADLINE.",
+  "supersedes": "the earlier 2026-09-07 manifest (seafloor_masked_v1), whose Argo truth table had been interpolated with PRES in decibars read as metres, sampling every float ~1% too shallow (audit #8; phase2.data.argo_depth). The table was regenerated on a depth axis and the deliverable and the embargoed stage-1 comparator are scored against it under seafloor_masked_v2. Before that: the 2026-09-04 manifest scored every claim under unmasked_v1, including 93 comparisons below the target's own seafloor; and the 2026-09-01 manifest had named the GLORYS stage-2 run 0.8548 as HEADLINE. The stage-2 GLORYS comparators are still carried forward under unmasked_v1 and labelled not comparable.",
+  "protocol_history": {
+    "unmasked_v1": {
+      "mask": "none",
+      "truth_axis": "pressure_dbar_read_as_metres",
+      "argo_table": "argo_daily_period_pres_as_depth_v1.parquet"
+    },
+    "seafloor_masked_v1": {
+      "mask": "below-seafloor comparisons declined and counted",
+      "truth_axis": "pressure_dbar_read_as_metres",
+      "argo_table": "argo_daily_period_pres_as_depth_v1.parquet"
+    },
+    "seafloor_masked_v2": {
+      "mask": "below-seafloor comparisons declined and counted",
+      "truth_axis": "depth_m_unesco1983",
+      "argo_table": "argo_daily_period.parquet (regenerated 2026-09-07)"
+    }
+  },
   "authoritative_source": "PHASE2_STATUS.md row 16 (the PS deliverable); docs/HANDOFF.md.",
   "deliverable_key": "deliverable_satellite",
-  "frozen_at": "2026-09-07T06:10:05+00:00",
-  "git_commit": "cc8d6728c251d58e567ec0fbfc7dc12edf962ca8",
+  "frozen_at": "2026-09-07T14:13:24+00:00",
+  "git_commit": "7b56f4d6c364a44b4da0417232125f4bc650b319",
   "frozen_copy_dir": "artifacts/frozen/",
   "claims": {
     "deliverable_satellite": {
       "role": "THE PS DELIVERABLE -- stage-1, satellite inputs (OSTIA SST, DUACS altimetry, SMOS-blended SSS, GLOBCURRENT total currents, observational wind); GLORYS target.",
       "deliverable": true,
       "input_source": "satellite",
-      "metrics_file": "tscast_stage1_sat_7ch_s42_rescore_seafloor_masked_v1.json",
+      "metrics_file": "tscast_stage1_sat_7ch_s42_rescore_seafloor_masked_v2.json",
       "checkpoint": "tscast_stage1_sat_7ch_s42.pt",
       "checkpoint_present": true,
       "seed": 42,
@@ -26,7 +43,7 @@
       ],
       "T_SEQ": 11,
       "encoder": "cnn3d",
-      "argo_profiles": 962,
+      "argo_profiles": 963,
       "train_period": [
         "2025-06-01",
         "2026-03-26"
@@ -40,10 +57,11 @@
       "code_commit": "a67feea",
       "tag": "sat_7ch_s42",
       "stage": 1,
-      "scoring_protocol": "seafloor_masked_v1",
+      "scoring_protocol": "seafloor_masked_v2",
       "refusals": {
-        "scoring_protocol": "seafloor_masked_v1",
-        "n_refused_below_seafloor": 93,
+        "scoring_protocol": "seafloor_masked_v2",
+        "truth_axis": "depth_m_unesco1983",
+        "n_refused_below_seafloor": 92,
         "n_profiles_on_land": 1,
         "per_depth_refused": [
           0,
@@ -57,7 +75,7 @@
           8,
           9,
           21,
-          12,
+          11,
           4,
           6,
           21
@@ -65,27 +83,34 @@
         "why": "comparisons at depths where the GLORYS target has no water are declined, because output.build_record refuses to serve a value there; scoring the model's raw output at those depths charged the product for numbers it never emits"
       },
       "rescored_from": "tscast_stage1_sat_7ch_s42_metrics.json",
-      "rescore_code_commit": "4cefb9e",
+      "rescore_code_commit": "7b56f4d",
+      "argo_table": {
+        "file": "argo_daily_period.parquet",
+        "sha256": "7a6b23fa199ff240027c8e748fc71bddbeda53d5807047e0e1d17d98555c827d",
+        "rows": 58988,
+        "profiles": 4334,
+        "truth_axis": "depth_m_unesco1983"
+      },
       "selection_protocol": "test_period_v0",
       "selection_leak": {
         "what": "the epoch was chosen by lowest NLL on the 2026-04-01..06-23 GLORYS test block, which is the period this run's Argo headline is scored on. Model selection was therefore not independent of the reported number.",
-        "measured_cost_degC": 0.0824,
-        "measured_how": "three seeds, same config and the same 962 profiles under seafloor_masked_v1, selecting instead on a validation block carved out of train: 0.9006/0.8989/0.9023 becomes 1.0121/0.9685/0.9684. Mean +0.0824 degC, spread 0.0454, sign holds 3/3.",
+        "measured_cost_degC": 0.0725,
+        "measured_how": "three seeds, same config and the same 963 profiles under seafloor_masked_v2, selecting instead on a validation block carved out of train: 0.9063/0.9021/0.9036 becomes 0.9970/0.9757/0.9567. Mean +0.0725 degC, spread 0.0376, sign holds 3/3 (on the pressure-as-depth table, seafloor_masked_v1, the same runs read +0.0824, spread 0.0454).",
         "confound": "that delta is NOT the price of the leak alone -- the leak-free arm also trains on 253 days instead of 299, because the validation block has to come from somewhere. The two were not separated.",
         "why_shipped": "decided 2026-09-07: ship this number and state the dependency, rather than ship a leak-free run that scores ~0.98. The fix is in the code (dataset.selection_split); this checkpoint predates it.",
         "fixed_in": "cc8d672"
       },
-      "overall_rmse": 0.9005747572875351,
-      "overall_bias": 0.10661831202369239,
-      "overall_correlation": 0.8809378141047616,
-      "overall_skill_rmse_ratio": 0.2400409707917075,
-      "overall_skill_vs_climatology": 0.4224622739247895,
-      "overall_rmse_climatology": 1.1850306696477213,
-      "overall_n": 12736,
-      "overall_skill_rmse_ratio_real_baseline": 0.14941908350625177,
-      "overall_rmse_climatology_real_baseline": 1.0308318827697929,
-      "overall_n_real_baseline": 12054,
-      "overall_n_profiles_real_baseline": 895,
+      "overall_rmse": 0.9062647842998958,
+      "overall_bias": 0.1400344637995702,
+      "overall_correlation": 0.8804235721334458,
+      "overall_skill_rmse_ratio": 0.23792374662362714,
+      "overall_skill_vs_climatology": 0.4192397840398303,
+      "overall_rmse_climatology": 1.189204860123507,
+      "overall_n": 12727,
+      "overall_skill_rmse_ratio_real_baseline": 0.14795571239741423,
+      "overall_rmse_climatology_real_baseline": 1.0363342676295997,
+      "overall_n_real_baseline": 12045,
+      "overall_n_profiles_real_baseline": 896,
       "n_depths": 15,
       "checkpoint_sha256": "53848bb52533752d15a4e25f6e0fb038297bd32671606b290dd0260e991441ae",
       "checkpoint_bytes": 2214831
@@ -130,9 +155,12 @@
       "overall_n": 12829,
       "n_depths": 15,
       "scoring_protocol": "unmasked_v1",
-      "comparability_note": "scored under unmasked_v1 on another machine; NOT directly comparable to the seafloor_masked_v1 deliverable (different n) until re-scored with scripts/phase2/rescore_checkpoint.py where the checkpoint lives",
-      "scores_carried_forward": true,
+      "comparability_note": "scored under unmasked_v1 on another machine; NOT directly comparable to the seafloor_masked_v2 deliverable (different truth table and different n) until re-scored with scripts/phase2/rescore_checkpoint.py where the checkpoint lives",
       "selection_protocol": "test_period_v0",
+      "argo_table": {
+        "truth_axis": "pressure_dbar_read_as_metres"
+      },
+      "scores_carried_forward": true,
       "checkpoint_sha256": "53e73e4f3a5cbbd14a2fe0e54f79ea5bb35abc3f21755d02d02bbeefbc483f4c",
       "checkpoint_bytes": 2261397,
       "checkpoint_frozen_elsewhere": true,
@@ -178,9 +206,12 @@
       "overall_n": 12829,
       "n_depths": 15,
       "scoring_protocol": "unmasked_v1",
-      "comparability_note": "scored under unmasked_v1 on another machine; NOT directly comparable to the seafloor_masked_v1 deliverable (different n) until re-scored with scripts/phase2/rescore_checkpoint.py where the checkpoint lives",
-      "scores_carried_forward": true,
+      "comparability_note": "scored under unmasked_v1 on another machine; NOT directly comparable to the seafloor_masked_v2 deliverable (different truth table and different n) until re-scored with scripts/phase2/rescore_checkpoint.py where the checkpoint lives",
       "selection_protocol": "test_period_v0",
+      "argo_table": {
+        "truth_axis": "pressure_dbar_read_as_metres"
+      },
+      "scores_carried_forward": true,
       "checkpoint_sha256": "3b43ac09b43694c156b4cc28de9490b01b0de8aeae3a18969c4cc0cdb2900ae8",
       "checkpoint_bytes": 2260953,
       "checkpoint_frozen_elsewhere": true,
@@ -190,7 +221,7 @@
       "role": "GLORYS stage-1 (withUV) after the 1d3c135 _window() embargo -- a comparator, and the leak-corrected successor to the pre-embargo stage-1 runs.",
       "deliverable": false,
       "input_source": "glorys",
-      "metrics_file": "tscast_stage1_embargo_withUV_s42_rescore_seafloor_masked_v1.json",
+      "metrics_file": "tscast_stage1_embargo_withUV_s42_rescore_seafloor_masked_v2.json",
       "checkpoint": "tscast_stage1_embargo_withUV_s42.pt",
       "checkpoint_present": true,
       "seed": 42,
@@ -205,7 +236,7 @@
       ],
       "T_SEQ": 11,
       "encoder": "cnn3d",
-      "argo_profiles": 962,
+      "argo_profiles": 963,
       "train_period": [
         "2025-06-01",
         "2026-03-31"
@@ -218,10 +249,11 @@
       "code_commit": "8338d14",
       "tag": "embargo_withUV_s42",
       "stage": 1,
-      "scoring_protocol": "seafloor_masked_v1",
+      "scoring_protocol": "seafloor_masked_v2",
       "refusals": {
-        "scoring_protocol": "seafloor_masked_v1",
-        "n_refused_below_seafloor": 93,
+        "scoring_protocol": "seafloor_masked_v2",
+        "truth_axis": "depth_m_unesco1983",
+        "n_refused_below_seafloor": 92,
         "n_profiles_on_land": 1,
         "per_depth_refused": [
           0,
@@ -235,7 +267,7 @@
           8,
           9,
           21,
-          12,
+          11,
           4,
           6,
           21
@@ -243,27 +275,34 @@
         "why": "comparisons at depths where the GLORYS target has no water are declined, because output.build_record refuses to serve a value there; scoring the model's raw output at those depths charged the product for numbers it never emits"
       },
       "rescored_from": "tscast_stage1_embargo_withUV_s42_metrics.json",
-      "rescore_code_commit": "4cefb9e",
+      "rescore_code_commit": "7b56f4d",
+      "argo_table": {
+        "file": "argo_daily_period.parquet",
+        "sha256": "7a6b23fa199ff240027c8e748fc71bddbeda53d5807047e0e1d17d98555c827d",
+        "rows": 58988,
+        "profiles": 4334,
+        "truth_axis": "depth_m_unesco1983"
+      },
       "selection_protocol": "test_period_v0",
       "selection_leak": {
         "what": "the epoch was chosen by lowest NLL on the 2026-04-01..06-23 GLORYS test block, which is the period this run's Argo headline is scored on. Model selection was therefore not independent of the reported number.",
-        "measured_cost_degC": 0.0824,
-        "measured_how": "three seeds, same config and the same 962 profiles under seafloor_masked_v1, selecting instead on a validation block carved out of train: 0.9006/0.8989/0.9023 becomes 1.0121/0.9685/0.9684. Mean +0.0824 degC, spread 0.0454, sign holds 3/3.",
+        "measured_cost_degC": 0.0725,
+        "measured_how": "three seeds, same config and the same 963 profiles under seafloor_masked_v2, selecting instead on a validation block carved out of train: 0.9063/0.9021/0.9036 becomes 0.9970/0.9757/0.9567. Mean +0.0725 degC, spread 0.0376, sign holds 3/3 (on the pressure-as-depth table, seafloor_masked_v1, the same runs read +0.0824, spread 0.0454).",
         "confound": "that delta is NOT the price of the leak alone -- the leak-free arm also trains on 253 days instead of 299, because the validation block has to come from somewhere. The two were not separated.",
         "why_shipped": "decided 2026-09-07: ship this number and state the dependency, rather than ship a leak-free run that scores ~0.98. The fix is in the code (dataset.selection_split); this checkpoint predates it.",
         "fixed_in": "cc8d672"
       },
-      "overall_rmse": 0.8602148307151564,
-      "overall_bias": 0.11683832172622632,
-      "overall_correlation": 0.8871401651432602,
-      "overall_skill_rmse_ratio": 0.27409909907996244,
-      "overall_skill_vs_climatology": 0.4730678820434776,
-      "overall_rmse_climatology": 1.1850306696477213,
-      "overall_n": 12736,
-      "overall_skill_rmse_ratio_real_baseline": 0.18526713310713172,
-      "overall_rmse_climatology_real_baseline": 1.0308318827697929,
-      "overall_n_real_baseline": 12054,
-      "overall_n_profiles_real_baseline": 895,
+      "overall_rmse": 0.865191358106237,
+      "overall_bias": 0.1502187535854018,
+      "overall_correlation": 0.8870330890649665,
+      "overall_skill_rmse_ratio": 0.2724623089613164,
+      "overall_skill_vs_climatology": 0.47068890811810093,
+      "overall_rmse_climatology": 1.189204860123507,
+      "overall_n": 12727,
+      "overall_skill_rmse_ratio_real_baseline": 0.18443085786667357,
+      "overall_rmse_climatology_real_baseline": 1.0363342676295997,
+      "overall_n_real_baseline": 12045,
+      "overall_n_profiles_real_baseline": 896,
       "n_depths": 15,
       "checkpoint_sha256": "63e93cbda1f5d814d669117bbb4748da8855b4c58362f0e03a4e199b4f82d162",
       "checkpoint_bytes": 2215033

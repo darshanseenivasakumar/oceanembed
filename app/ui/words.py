@@ -11,9 +11,11 @@ RULES FOR THIS FILE
    deleting them would be a claim this project has not earned.
 
 THE HEADLINE NUMBER, AND THE ONE IT IS CONSTANTLY CONFUSED WITH
-  0.9006 degC  <- THE DELIVERABLE. Satellite inputs only, which is what the problem statement
-                  asks for. 962 independent Argo profiles, scored under seafloor_masked_v1 since
-                  2026-09-07 (0.9078 was the same checkpoint under the unmasked_v1 protocol).
+  0.9063 degC  <- THE DELIVERABLE. Satellite inputs only, which is what the problem statement
+                  asks for. 963 independent Argo profiles, scored under seafloor_masked_v2 since
+                  2026-09-07: the Argo truth on a depth axis in metres. 0.9006 was the same
+                  checkpoint under seafloor_masked_v1 (pressure-as-depth table) and 0.9078 under
+                  the unmasked_v1 protocol.
   0.8548 degC  <- a COMPARATOR that reads reanalysis (GLORYS) as input. Better, and irrelevant:
                   it fails the satellite-only requirement. It is never the headline.
 Both come from artifacts/frozen_manifest.json, claims.{deliverable_satellite,
@@ -81,6 +83,27 @@ FEATURES = [
      "Does the shape survive, not just the values?",
      "RMSE scores each depth alone. This asks whether the structure between them is real.",
      "STRESS IT"),
+    ("buoy", "Time at one point",
+     "Does it track change, not just place?",
+     "Argo drifts, so it cannot answer this. A moored buoy sits still and samples every few "
+     "hours.",
+     "PROVE IT"),
+    ("assimilate", "Learn from a float",
+     "Does an observation improve it, with no retraining?",
+     "A float surfaces; the model's internal state is corrected and the fix travels to water in "
+     "a similar state, not to water nearby.",
+     "PROVE IT"),
+
+    ("stability", "Physical profiles",
+     "Is every column one that could stand up?",
+     "Density must not fall with depth. Soft penalties make that rare; a projection makes it "
+     "impossible.",
+     "STRESS IT"),
+    ("observability", "What it can see",
+     "Where does the surface stop telling us anything?",
+     "Differentiate the model. It reads SST for the mixed layer and sea-surface height for the "
+     "thermocline — untaught.",
+     "STRESS IT"),
 ]
 
 #: Features that stay on their own ports for now, linked rather than rebuilt. Cloud dropout,
@@ -122,7 +145,7 @@ EXPLAIN = {
         "Input source",
         "**Satellite** is the deliverable. It uses only what a satellite can see — surface "
         "temperature, salinity, height and currents — which is what the problem statement asks "
-        "for. Scores **0.9006 °C** against Argo.\n\n"
+        "for. Scores **0.9063 °C** against Argo.\n\n"
         "**GLORYS** is a reanalysis: a model-assimilated ocean product. It scores better "
         "(0.8548 °C) because it is a richer input, but it **fails the satellite-only "
         "requirement**, so it is a comparator and never the headline."),
@@ -196,6 +219,34 @@ EXPLAIN = {
         "there was nothing to protect.\n\n"
         "It also shows the discipline. One seed suggested a win; three seeds showed the sign "
         "flipping. A result that does not survive a reseed is not a result."),
+
+    # ---- buoy time-axis validation
+    "buoystation": (
+        "The mooring",
+        "A buoy anchored to the sea floor, holding temperature sensors at fixed depths and "
+        "reporting every few hours. Because it does not move, its record is a clean history of "
+        "**one place through time**.\n\n"
+        "These are reported through NOAA's OSMC feed. Each entry is one station and one sensor "
+        "depth, scored separately."),
+    "timeaxis": (
+        "Why a time axis?",
+        "The headline number, 0.9063 °C, is a **space** score: 963 Argo profiles, each a "
+        "different patch of ocean. Argo floats drift, so none of them stays anywhere long enough "
+        "to say whether the model follows a place as it changes.\n\n"
+        "A moored buoy does stay. So this asks a question the headline structurally cannot: not "
+        "*is the map right*, but **does the model move with the ocean**.\n\n"
+        "It does not replace the headline. A handful of moorings is a small sample next to 962 "
+        "profiles."),
+    "bandpass": (
+        "The 30–90 day band",
+        "Ocean temperature at a point wobbles on every timescale at once — daily heating, weather, "
+        "the monsoon, the season. A **band-pass filter** removes everything faster than 30 days "
+        "and slower than 90, leaving the intra-seasonal swings the monsoon runs on.\n\n"
+        "Matching there is a stronger claim than matching the raw series, because the seasonal "
+        "cycle is easy: any sensible model gets summer warmer than winter. Getting the 40-day "
+        "wobbles right is not automatic.\n\n"
+        "The filter runs forwards and backwards so it introduces no time shift, and a series too "
+        "short or too gappy to filter honestly is refused rather than smoothed."),
 
     # ---- cyclone wake
     "storm": (
@@ -411,11 +462,11 @@ kind do not.
 
 ### Does it work?
 
-It was checked against **962 Argo float profiles it never saw during training**.
+It was checked against **963 Argo float profiles it never saw during training**.
 
-- Typical error: **0.9006 °C**
+- Typical error: **0.9063 °C**
 - Correlation with real measurements: **0.88**
-- **42 % lower squared error than climatology** (28 % where a real per-cell climatology exists) — the long-term
+- **42 % lower squared error than climatology** (27 % where a real per-cell climatology exists) — the long-term
   seasonal average, which is the bar any model
   must clear to have learned anything at all
 

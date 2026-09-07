@@ -12,7 +12,7 @@ using. It turns a temperature field into something an operator acts on.
 
 WHY IT IS DEFENSIBLE FROM A TEMPERATURE MODEL -- and this is measured, not argued
 Mackenzie's temperature terms dominate its salinity term over this basin's range. At mean basin
-conditions the deliverable's 0.9006 degC temperature RMSE moves sound speed by about 2.4 m/s, while
+conditions the deliverable's 0.9063 degC temperature RMSE moves sound speed by about 2.4 m/s, while
 stage 2's 0.2695 psu salinity RMSE moves it by 0.30 m/s -- temperature is 89% of the budget. The
 page computes that live rather than quoting it, so a reader can see it move with conditions.
 
@@ -71,7 +71,7 @@ SLD_VIEW = "sonic layer depth"
 SOFAR_VIEW = "where the SOFAR axis is resolvable"
 
 #: The RMSEs the error budget is computed from. Both measured against INDEPENDENT Argo.
-T_RMSE_DELIVERABLE = 0.9006          # frozen_manifest.json -> deliverable_satellite, seafloor_masked_v1 (2026-09-07)
+T_RMSE_DELIVERABLE = 0.9063          # frozen_manifest.json -> deliverable_satellite, seafloor_masked_v2 (2026-09-07)
 S_RMSE_STAGE2 = 0.2695               # AGENT_SYNC A18, mean over seeds 42/43/44, spread 0.0207
 
 

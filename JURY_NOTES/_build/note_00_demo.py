@@ -91,18 +91,18 @@ def build_note(out_path: str) -> str:
         "The same field, but colour is temperature and <b>fade is doubt</b>. Vivid where the "
         "model is sure, washed out where it is not.",
         "&ldquo;Every value ships with an uncertainty band. We report its coverage as a "
-        "<b>range, 80.1% to 96.0% by depth</b>, not as a single average, because the average "
+        "<b>range, 79.7% to 96.2% by depth</b>, not as a single average, because the average "
         "would hide the worst depth.&rdquo;",
         "Do not call it calibrated. It is <b>improved, not calibrated</b> -- at 50 m the band "
         "covers 80% where a perfect band would cover 95%."))
 
     s.append(_card(
         4, "Validation", "prove", "Validation",
-        "The model's answers next to <b>962 real Argo float profiles it never trained on</b>, "
+        "The model's answers next to <b>963 real Argo float profiles it never trained on</b>, "
         "depth by depth.",
-        "&ldquo;<b>0.9006 &deg;C</b> average error against 962 independent floats, over 12,736 "
+        "&ldquo;<b>0.9063 &deg;C</b> average error against 963 independent floats, over 12,727 "
         "depth comparisons. It beats the seasonal average at <b>14 of 15 depths</b>.&rdquo;",
-        "At 1000 m the seasonal average wins by 0.055 &deg;C. Volunteer it -- the chart labels it "
+        "At 1000 m the seasonal average wins by 0.024 &deg;C. Volunteer it -- the chart labels it "
         "anyway, and a jury that finds it themselves stops believing the other fourteen."))
 
     s.append(_card(
@@ -130,7 +130,7 @@ def build_note(out_path: str) -> str:
         "&ldquo;We hid 15% of the sea-surface temperature and the score did not fall -- "
         "<b>0.8950 against 0.9078</b>. The model leans on sea-surface height and salinity too, so "
         "cloud does not blind it.&rdquo;",
-        "Those two figures are from an older scoring protocol than the 0.9006 headline. Compare "
+        "Those two figures are from an older scoring protocol than the 0.9063 headline. Compare "
         "them with each other, never with the headline."))
 
     s.append(_card(
@@ -198,7 +198,7 @@ def build_note(out_path: str) -> str:
     s += (E.recap(
         "If you remember nothing else: one command, three bands, eight clicks.",
         [("8500", "the only port"),
-         ("0.9006 &deg;C", "against 962 floats it never saw"),
+         ("0.9063 &deg;C", "against 963 floats it never saw"),
          ("14 of 15", "depths beaten")],
         tail="Detail for any single feature lives in its own note, 02 to 18. The limitations and "
              "the viva answers are in note 19."))

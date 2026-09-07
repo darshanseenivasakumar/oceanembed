@@ -44,11 +44,12 @@ from phase2.tscast_nio import dataset as D
 
 MAX_DAYS = 5
 
-#: Which comparisons the scorer declines to make. Stamped into every artifact beside the score.
-SCORING_PROTOCOL = "seafloor_masked_v1"
-#: What every artifact before 2026-09-07 was scored under: the model's raw output compared against
-#: Argo at every depth the float sampled, including depths the product itself refuses to serve.
-UNMASKED_PROTOCOL = "unmasked_v1"
+#: Protocol names and the truth-table fingerprint live in `protocols` (torch-free) so the
+#: freeze script and the tests can read them without loading the model stack. Re-exported
+#: here because every scorer already reaches them as EA.<name>.
+from phase2.tscast_nio.protocols import (  # noqa: E402,F401
+    SCORING_PROTOCOL, SEAFLOOR_MASKED_V1, UNMASKED_PROTOCOL, TRUTH_AXIS, LEGACY_TRUTH_AXIS,
+    PROTOCOL_HISTORY, argo_table_provenance)
 
 
 def seafloor_mask(la, lo, valid_mask, land_mask) -> np.ndarray:
@@ -81,6 +82,7 @@ def apply_seafloor_mask(truth, la, lo, valid_mask, land_mask):
     on_land = np.asarray(land_mask, dtype=bool)[np.asarray(la, int), np.asarray(lo, int)]
     return masked, {
         "scoring_protocol": SCORING_PROTOCOL,
+        "truth_axis": TRUTH_AXIS,
         "n_refused_below_seafloor": int(refused.sum()),
         "n_profiles_on_land": int(on_land.sum()),
         "per_depth_refused": refused.sum(axis=0).astype(int).tolist(),

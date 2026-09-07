@@ -546,6 +546,7 @@ def main():
         "train_years": list(base.TRAIN_YEARS), "test_years": list(base.TEST_YEARS),
         "argo_profiles": int(keep.sum()), "max_days_offset": MAX_DAYS,
         "scoring_protocol": EA.SCORING_PROTOCOL, "refusals": refusals,
+        "argo_table": (EA.argo_table_provenance(argo_path) if a.data == "daily" else None),
         "metrics": m,
         "calibration": cal,
         "coverage_targets": {"1sigma": 0.683, "2sigma": 0.954,

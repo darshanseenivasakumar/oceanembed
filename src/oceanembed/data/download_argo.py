@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from oceanembed import config
 from oceanembed.utils import io
+from phase2.data.argo_depth import depth_from_pressure
 
 
 def _fix_ssl() -> None:
@@ -69,7 +70,13 @@ def _profiles_to_rows(ds, with_salinity: bool = False) -> list[tuple]:
     max_d = float(max(config.DEPTHS))
     for _, prof in groups:
         prof = prof.sort_values("pres")
-        p, t = prof["pres"].to_numpy(float), prof["temp"].to_numpy(float)
+        lat, lon = float(prof["lat"].iloc[0]), float(prof["lon"].iloc[0])
+        # Argo reports PRESSURE in dbar. config.DEPTHS is METRES. Until 2026-09-07 the two were
+        # interpolated against each other directly, which sampled every float ~1% too shallow --
+        # 0.6 m at 100 m, 8 m at 1000 m -- and in a thermocline that is a tenth of a degree
+        # charged to the model. Convert first (UNESCO 1983; see phase2.data.argo_depth).
+        p = depth_from_pressure(prof["pres"].to_numpy(float), lat)
+        t = prof["temp"].to_numpy(float)
         if len(p) < 3 or p.min() > 20.0:      # need a real profile that reaches near-surface
             continue
         # only interpolate within the profile's own sampled range (no extrapolation)
@@ -77,7 +84,6 @@ def _profiles_to_rows(ds, with_salinity: bool = False) -> list[tuple]:
         temps[np.asarray(config.DEPTHS, float) > p.max()] = np.nan
         if np.isnan(temps).all():
             continue
-        lat, lon = float(prof["lat"].iloc[0]), float(prof["lon"].iloc[0])
         date = pd.to_datetime(prof["date"].iloc[0])
 
         if not with_salinity:

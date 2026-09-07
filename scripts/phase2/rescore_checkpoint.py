@@ -242,6 +242,7 @@ def write_rescore(tag: str, daily_dir: str, got: dict) -> str:
         "max_days_offset": MAX_DAYS,
         "scoring_protocol": protocol,
         "refusals": got["refusals"],
+        "argo_table": EA.argo_table_provenance(base.art("argo_daily_period.parquet")),
         "tag": tag,
         "daily_dir": daily_dir,
         "checkpoint": os.path.basename(got["ckpt_path"]),

@@ -131,8 +131,8 @@ def build_note(path):
          "architectures in a controlled bake-off where the prediction head was held identical so "
          "the encoder was the only variable."],
         ["RMSE, correlation, bias",
-         "<b>All three at all 15 depths</b>, against <b>962 independent Argo profiles</b> and "
-         "12,736 depth comparisons."],
+         "<b>All three at all 15 depths</b>, against <b>963 independent Argo profiles</b> and "
+         "12,727 depth comparisons."],
         ["Both basins",
          "Scored separately per basin across three random seeds, with an Arabian Sea penalty "
          "reported as unexplained rather than smoothed over."],
@@ -141,7 +141,7 @@ def build_note(path):
     s.append(_p("<b>The headline result, on floats the model has never seen</b> [VERIFIED]:"))
     s.append(table([
         ["RMSE", "Correlation", "Bias", "Skill over climatology", "Independent profiles"],
-        ["<b>0.9006 degC</b>", "<b>0.8809</b>", "+0.1066 degC", "<b>+0.2400</b>", "962 (n = 12,736)"],
+        ["<b>0.9063 degC</b>", "<b>0.8804</b>", "+0.1400 degC", "<b>+0.2379</b>", "963 (n = 12,727)"],
     ], widths=[0.19, 0.18, 0.17, 0.24, 0.22],
         align=["CENTER"] * 5))
 
@@ -151,7 +151,7 @@ def build_note(path):
         "<b>16 requirements PASS, 0 FAIL, 1 BLOCKED</b>. The blocked one is independent validation "
         "against the INCOIS gridded Argo product specifically - their catalogue is reachable and "
         "carries exactly the right dataset, but their data-serving backend returns errors and empty "
-        "responses. We validated against 962 independent float profiles from another source instead, "
+        "responses. We validated against 963 independent float profiles from another source instead, "
         "documented the deviation, and call it BLOCKED rather than quietly counting it either way."))
 
     s.append(callout(
@@ -168,9 +168,9 @@ def build_note(path):
         "loud early in any presentation."))
     s.append(table([
         ["Configuration", "RMSE vs Argo", "Input source", "Status"],
-        ["Stage 1, satellite inputs", "<b>0.9006 degC</b>", "OSTIA / DUACS / salinity blend / "
+        ["Stage 1, satellite inputs", "<b>0.9063 degC</b>", "OSTIA / DUACS / salinity blend / "
          "GLOBCURRENT / wind", "<b>SHIPPED - the deliverable</b>"],
-        ["Stage 1, reanalysis inputs", "0.8743 degC", "reanalysis", "comparator only"],
+        ["Stage 1, reanalysis inputs", "0.8826 degC", "reanalysis", "comparator only"],
         ["Stage 2, reanalysis inputs", "<b>0.8548 degC</b> (unmasked_v1 protocol, n 12,829 - "
          "not directly comparable)", "reanalysis",
          "comparator only - <b>the best number in the project, and NOT our result</b>"],
@@ -185,10 +185,10 @@ def build_note(path):
         "artifact's input source reads <i>satellite</i>, so this cannot silently regress even if "
         "somebody wanted it to."))
     s.append(quote(
-        "Against a reanalysis-fed comparator, real satellite observations read +0.026, +0.027 and "
-        "-0.003 degC across three seeds on identical points - a mean of +0.017 whose sign does not "
+        "Against a reanalysis-fed comparator, real satellite observations read +0.0237, +0.0231 and "
+        "-0.0040 degC across three seeds on identical points - a mean of +0.0143 whose sign does not "
         "hold. By our own three-seed rule that is not an established cost: the two inputs are within "
-        "seed noise, and the satellite model retains about 94% of the comparator's skill.",
+        "seed noise, and the satellite model retains about 95% of the comparator's skill.",
         "The framing to use in front of a jury."))
 
     # 5 --------------------------------------------------------------
@@ -306,11 +306,11 @@ def build_note(path):
     s += recap(
         "SIH26066 asks whether the surface picture satellites already give us can be turned into "
         "the depth-resolved picture only sparse floats can currently provide. OceanEmbed answers "
-        "yes, at 0.9006 degC against 962 independent floats - and refuses to quote the more "
+        "yes, at 0.9063 degC against 963 independent floats - and refuses to quote the more "
         "flattering number that came from the wrong inputs.",
         [("16 / 0 / 1", "PS requirements: pass / fail / blocked"),
          ("24,000 x 15", "cells x depths, every day"),
-         ("962", "independent profiles behind the headline")],
+         ("963", "independent profiles behind the headline")],
         "Note 1 of 19.  Next: Feature 1 - the Phase-1 App.")
 
     build(path, BRAND, s, doc_title="OceanEmbed - The Problem and What We Built (SIH26066)")

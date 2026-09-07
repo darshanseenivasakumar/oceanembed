@@ -33,7 +33,7 @@ def build_note(path):
     )
 
     s.append(kvstrip([
-        ("Shipped RMSE", "0.9006 degC"),
+        ("Shipped RMSE", "0.9063 degC"),
         ("PS audit", "16 pass / 0 fail / 1 blocked"),
         ("Tests", "925 passing, 9 skipped"),
         ("Working surfaces", "17, one port each"),
@@ -58,12 +58,12 @@ def build_note(path):
     s.append(table([
         ["What was delivered", "Evidence"],
         ["A working satellite-input reconstruction",
-         "RMSE <b>0.9006 degC</b>, correlation <b>0.8809</b>, bias +0.1066 degC, skill "
-         "<b>+0.2400</b> over climatology (<b>+0.1494</b> where a real per-cell climatology exists), "
-         "on <b>962 independent Argo profiles</b> and 12,736 depth comparisons under the "
-         "seafloor_masked_v1 protocol. Beats climatology at <b>14 of 15</b> depths."],
+         "RMSE <b>0.9063 degC</b>, correlation <b>0.8804</b>, bias +0.1400 degC, skill "
+         "<b>+0.2379</b> over climatology (<b>+0.1480</b> where a real per-cell climatology exists), "
+         "on <b>963 independent Argo profiles</b> and 12,727 depth comparisons under the "
+         "seafloor_masked_v2 protocol. Beats climatology at <b>14 of 15</b> depths."],
         ["Uncertainty on every value",
-         "A plus-or-minus 2 sigma band whose coverage is reported as a <b>range</b> (80.1% to 96.0% "
+         "A plus-or-minus 2 sigma band whose coverage is reported as a <b>range</b> (79.7% to 96.2% "
          "by depth) because the mean would hide an 80% depth at 50 m."],
         ["A complete system, not a model",
          "<b>17 working surfaces</b> - validation, physics, events, 3-D cube, transect, acoustics, "
@@ -86,7 +86,7 @@ def build_note(path):
                 "[all VERIFIED]:"))
     s.append(table([
         ["#", "The flaw", "Magnitude", "Ours or inherited?"],
-        ["1", "<b>The model runs warm</b>", "bias +0.1066 degC overall, peaking at <b>+0.657 degC "
+        ["1", "<b>The model runs warm</b>", "bias +0.1400 degC overall, peaking at <b>+0.676 degC "
          "at 50 m</b>", "<b>Mostly inherited.</b> The GLORYS target is +0.1078 degC warm against "
          "the same floats and the model is -0.007 against its own target, so the average is the "
          "target's. The <b>+0.447 degC</b> the model adds at 50 m is ours."],
@@ -98,18 +98,18 @@ def build_note(path):
         ["3", "The mixed layer (20-50 m) is worse than the reanalysis", "by +0.23 to +0.38 degC",
          "<b>Ours</b> - and the one place effort would clearly pay."],
         ["3a", "<b>The shipped epoch was chosen on the days the model is scored on</b>",
-         "<b>+0.0824 degC</b>, 3 seeds, sign holds 3/3",
+         "<b>+0.0725 degC</b>, 3 seeds, sign holds 3/3",
          "<b>ours</b>. Early stopping read the 2026-04-01..06-23 test block, the same days the "
          "Argo headline is scored on, so the epoch chosen was not independent of the number "
          "reported. Fixed in the code; this checkpoint predates the fix and ships knowingly, "
-         "because every leak-free protocol we tried scores about 0.98 instead of 0.90. The cost "
+         "because every leak-free protocol we tried scores about 0.98 instead of 0.91. The cost "
          "also bundles 46 fewer training days, which we did not separate."],
-        ["4", "Climatology beats the model at 1000 m", "by 0.055 degC",
+        ["4", "Climatology beats the model at 1000 m", "by 0.024 degC",
          "Ours, small, and labelled on the chart. 14 of 15 depths, not 15."],
         ["5", "An Arabian Sea satellite penalty", "+0.0341 degC, sign holds across 3 of 3 seeds",
          "<b>Cause UNKNOWN after four tested hypotheses.</b> Reported as unexplained."],
         ["6", "Uncertainty is improved, not calibrated",
-         "plus-or-minus 2 sigma covers <b>80.1% at 50 m</b> against a 95.4% nominal",
+         "plus-or-minus 2 sigma covers <b>79.7% at 50 m</b> against a 95.4% nominal",
          "Ours - mildly overconfident everywhere."],
         ["7", "<b>The encoder has no missing-data channel</b>",
          "a gap and average water arrive at the network as the same number",
@@ -175,12 +175,12 @@ def build_note(path):
         "2025-06 to 2026-06, which is the <b>training</b> period, and moored profiles feed the "
         "reanalysis the model is trained against. It shows the model tracks change at a fixed "
         "point; it is <b>not</b> independent validation and must not be quoted beside the "
-        "962-profile headline.",
+        "963-profile headline.",
     ]))
     s.append(callout(
         "A discrepancy that WAS open, now traced (2026-09-07)",
         "The Validation Lab headline (0.9638 degC over 879 profiles) and the freeze manifest "
-        "(0.9006 degC over 962 profiles) are two different models on two different records: "
+        "(0.9063 degC over 963 profiles) are two different models on two different records: "
         "<b>src/phase2/validation/lab.py reads artifacts/argo_error_by_depth.json</b>, the Phase-1 "
         "satellite-driven model scored against 2022 floats on the monthly grid, while the manifest "
         "records the v2 daily model against 2025-26 floats. Confirmed by reading the code, not "
@@ -338,10 +338,10 @@ def build_note(path):
 
     s += _qa("A.  The headline result", [
         ("What exactly is your result, and against what?",
-         "RMSE 0.9006 degC, correlation 0.8809, bias +0.1066 degC, and +0.2400 skill against "
-         "climatology - measured on 962 independent Argo profiles and 12,736 depth comparisons, "
+         "RMSE 0.9063 degC, correlation 0.8804, bias +0.1400 degC, and +0.2379 skill against "
+         "climatology - measured on 963 independent Argo profiles and 12,727 depth comparisons, "
          "using satellite inputs only. The profiles were never used in training. Where the cell has "
-         "a real per-cell climatology - 895 of the 962 - the skill is +0.1494; the other 67 sit on a "
+         "a real per-cell climatology - 896 of the 963 - the skill is +0.1480; the other 67 sit on a "
          "basin-mean fill that flatters any model."),
         ("Is 0.9 degrees of error good?",
          "It is meaningful in context and we can give you three. First, it is 24% better than "
@@ -357,8 +357,8 @@ def build_note(path):
          "satellite observations, so quoting it would present a reanalysis-fed model as satisfying a "
          "satellite requirement. The freeze script asserts the shipped artifact's input source reads "
          "'satellite'. Against the reanalysis-fed stage-1 comparator the satellite model reads "
-         "+0.026, +0.027 and -0.003 degC across three seeds - a mean cost of +0.017 whose sign does "
-         "not hold, so by our own rule we do not claim a cost; it retains about 94% of the skill, "
+         "+0.0237, +0.0231 and -0.0040 degC across three seeds - a mean cost of +0.0143 whose sign does "
+         "not hold, so by our own rule we do not claim a cost; it retains about 95% of the skill, "
          "and the two inputs are within seed noise."),
         ("Where is the model worst?",
          "At 100 metres - the thermocline - where RMSE reaches 1.22 degC and correlation falls to "
@@ -426,8 +426,8 @@ def build_note(path):
     s += _qa("D.  Uncertainty", [
         ("Is your uncertainty calibrated?",
          "It is <i>improved</i>, not <i>calibrated</i>, and we use exactly those words. Our "
-         "plus-or-minus 2 sigma band covers 91.2% of held-out observations against a nominal 95.4%. "
-         "We report coverage as a range across depths - 80.1% to 95.5% - because the mean hides an "
+         "plus-or-minus 2 sigma band covers 91.4% of held-out observations against a nominal 95.4%. "
+         "We report coverage as a range across depths - 79.7% to 96.2% - because the mean hides an "
          "80% depth at 50 metres. We never label the band '95%', and the freeze check verifies that "
          "wording has not drifted."),
         ("How do you know the calibration is not fitted on the data it is scored on?",
@@ -584,7 +584,7 @@ def build_note(path):
 
     s += recap(
         "OceanEmbed reconstructs the North Indian Ocean's subsurface temperature daily from "
-        "satellites at 0.9006 degC against independent floats - and its most valuable output is an "
+        "satellites at 0.9063 degC against independent floats - and its most valuable output is an "
         "honest account of exactly where it is wrong.",
         [("16 / 0 / 1", "PS requirements: pass / fail / blocked"),
          ("10", "scientific flaws, published by us first"),

@@ -936,3 +936,88 @@ now). QA was done by rasterising all four pages with pymupdf and looking at them
 footer printing `&middot;` literally and an orphaned closing block; both fixed. Rebuilding
 regenerates all nineteen other PDFs byte-differently even where the text is unchanged — that is the
 pipeline, not a content change.
+
+---
+
+## 2026-09-07 — Audit #8: Argo pressure was being read as depth; the truth table is regenerated
+
+**The bug.** `oceanembed.data.download_argo._profiles_to_rows` interpolated each float's
+temperature onto `config.DEPTHS` with `np.interp(config.DEPTHS, p, t)` where `p` was PRES in
+**decibars** and `config.DEPTHS` is **metres**. Reading pressure as depth samples every float about
+1% too shallow — at 15 N: 0.6 m at 100 m, 1.3 m at 200 m, 3.5 m at 500 m, 8.2 m at 1000 m. In a
+thermocline with dT/dz ≈ 0.1 °C/m that is a tenth of a degree charged to the model. Every Argo
+table this project scored against was built that way: `argo_test.parquet` (2022, Phase 1),
+`argo_daily_period.parquet` (2025-26, every v2 number) and its salinity twin. **[VERIFIED]** by
+reading the code, by a synthetic-thermocline test, and by the measured delta below.
+
+**The fix.** `src/phase2/data/argo_depth.py` — `depth_from_pressure(p_dbar, lat)`, the UNESCO 1983
+formula (Fofonoff & Millard, Tech. Paper 44, eq. 25), pinned to the paper's check value
+(10000 dbar at 30 N → 9712.653 m). `download_argo._profiles_to_rows` converts before both
+interpolations. **This is a cross-unit edit** — `download_argo.py` is Unit B's file; the change is
+five lines and is the smallest that fixes the axis. Phase 1's `argo_test.parquet` was NOT
+regenerated (it underwrites the published Phase-1 numbers and the fetch script guards it).
+
+**Regeneration, and what it changed.** Both daily-period tables were re-fetched through the
+project's own scripts (`fetch_argo_daily_period.py`, `fetch_argo_ts_daily_period.py`). The
+pre-fix tables are kept as `*_pres_as_depth_v1.parquet`. `scripts/phase2/argo_axis_fix_delta.py`
+separates the axis fix from upstream drift: on the 4,330 profiles both tables share, the 0/5/10 m
+levels — where the axis error is ≤ 0.06 m — agree to **0.005 °C RMS**, so the re-fetch itself
+changed nothing and every deeper difference is the axis alone. The truth moved **colder** below
+the mixed layer, peaking at 100–150 m (mean −0.054 to −0.064 °C; 13–18% of comparisons moved by
+more than 0.1 °C), and **89 comparisons at 1000 m existed only because a float reaching 1000 dbar
+had been read as reaching 1000 m**. Artifact: `artifacts/argo_axis_fix_delta.json`.
+
+**Protocol.** `seafloor_masked_v2` = the v1 mask against the depth-axis table. Names now live in
+`src/phase2/tscast_nio/protocols.py` (torch-free; `eval_argo` re-exports them) with
+`PROTOCOL_HISTORY`, and every new score records `argo_table` — file, sha256, rows, profiles,
+`truth_axis` — via `protocols.argo_table_provenance`. The v1 re-scores stay on disk under their
+own names. `freeze_headline.py` reads the names from `protocols` instead of retyping them.
+
+**The deliverable, re-scored under v2** (`sat_7ch_s42`, same bytes, sha 53848bb5…):
+
+| | seafloor_masked_v1 | **seafloor_masked_v2** |
+|---|---|---|
+| RMSE | 0.9006 | **0.9063** |
+| bias | +0.1066 | **+0.1400** |
+| correlation | 0.8809 | 0.8804 |
+| skill / real-baseline skill | +0.2400 / +0.1494 | **+0.2379 / +0.1480** |
+| n / profiles / refused | 12,736 / 962 / 93 | 12,727 / 963 / 92 |
+| depths beating climatology | 14 of 15 | 14 of 15 (1000 m by 0.024, was 0.055) |
+| ±2σ coverage range | 80.1–96.0% | 79.7–96.2% |
+
+Per depth the RMSE rises 0.005–0.023 °C from 20 to 125 m and falls 0.007–0.018 °C below 300 m.
+**A third of the model's warm bias had been hidden by the truth being read too shallow.** The
+strict-window figure (909 profiles inside 2026-04-01..06-23, masked) is 0.9037 on n 12,011.
+
+**Comparators and the two three-seed sentences, all re-scored under v2.** Satellite minus
+reanalysis-fed (abl_full − canon_7ch): +0.0237 / +0.0231 / −0.0040, mean +0.0143, sign does not
+hold, ~95% of the comparator's skill retained (three-seed mean skill 0.240 vs 0.252). The
+selection-leak cost (sel_7ch − abl_full): +0.0907 / +0.0736 / +0.0531, mean **+0.0725**, spread
+0.0376, sign holds 3/3 (was +0.0824 on the old table). Four-layout sweep: 0.9063 / 0.9970 /
+0.9994 / 1.0869. Embargoed GLORYS comparator (withUV) 0.8652; stage-1 GLORYS canon 0.8826.
+
+**Promoted and re-frozen.** `promote_run.py --tag sat_7ch_s42 --rescore seafloor_masked_v2`;
+`calibrate_uncertainty.py` re-run (old artifact kept as `uncertainty_calibration_seafloor_masked_v1.json`);
+`frozen_manifest.json` re-frozen with `argo_table` on every claim and `protocol_history`.
+
+**Every surface moved to 0.9063**: the deck (slides 7, 8, 12 and the slide-7 notes), the 20 jury
+PDFs (notes 00, 01, 02, 08, 14, 19 via their sources), `PHASE2_STATUS.md` (header table, framing,
+a TRUTH-TABLE CHANGE paragraph, row 16), `PROJECT_RECORD.md` (§1.2, §7, §8 banner, §8.1, §8.x
+1000 m, §12 acoustics, §13 PS audit rows, §16.1 flaws 4 and 6, §16.6 all tables, the closing
+quote), the app (`words.py`, `buoy.py`, `acoustics_page.T_RMSE_DELIVERABLE`, `clickmap_page`,
+`tscast_page`), and the manifest's `selection_leak` block. `test_presentation_claims` now treats
+0.9006 / +0.2400 / 12,736 as superseded unless labelled, the same way it treats 0.9078.
+
+**Tests.** `tests/phase2/test_argo_depth.py` (9): the UNESCO check value, monotonicity, the error
+table on the shipped grid, a synthetic thermocline showing the misread is 0.06 °C at 100 m, the
+real `_profiles_to_rows` sampling at the depth it labels, a float stopping at 1002 dbar no longer
+getting a 1000 m value, salinity on the same axis, and a control proving the pre-fix path differs.
+The seafloor real-data pin is re-measured (963 / 92 / 12,727 / 896).
+
+**Not touched, and why.** Phase 1's `argo_test.parquet` and every Phase-1 number rest on the
+pressure-as-depth axis — a stated limitation, not regenerated here. The stage-2 comparators are
+carried forward under `unmasked_v1` and labelled. The other session's novelty artifacts
+(`stability_projection`, `observability`, `latent_assimilation`) were computed against the v1
+table; their `control_rmse` will now report no same-protocol record until re-run — that is the
+harness doing its job, and it is theirs to re-run. The cloud-dropout sweep is quoted as
+unmasked_v1 and labelled.

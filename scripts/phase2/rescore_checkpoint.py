@@ -94,19 +94,23 @@ def rescore(tag: str, daily_dir: str, t_seq: int, test_samples: int,
           f"{[str(c) for c in d['channels']]}, T_SEQ={t_seq}")
 
     clim = np.load(base.art("climatology.npy"))
+    ck = torch.load(ckpt_path, map_location=dev, weights_only=False)
+    # Whether the checkpoint was trained with a presence mask per channel (audit #13). The sampler
+    # and the network must agree with the CHECKPOINT, not with each other by accident.
+    mask = bool(ck.get("mask_channels", False))
     # ds_tr is rebuilt ONLY to recover the exact normalization the checkpoint was trained under.
     ds_tr = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              tr_t, t_seq=t_seq, max_samples=train_samples, seed=base.SEED,
-                             clim=clim, return_clim=True)
+                             clim=clim, return_clim=True, mask_channels=mask)
     ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              te_t, norm=ds_tr.norm, t_seq=t_seq, max_samples=test_samples,
-                             seed=base.SEED + 1, clim=clim, return_clim=True)
+                             seed=base.SEED + 1, clim=clim, return_clim=True, mask_channels=mask)
 
-    ck = torch.load(ckpt_path, map_location=dev, weights_only=False)
     enc = ck.get("encoder", "cnn3d")
     # built_t_seq, never T_SEQ: the encoder is CONSTRUCTED at 1 while T_SEQ is the data window,
     # and the wrong construction loads the same state_dict and predicts differently (harness.py).
-    model = TSCastNIO(enc, len(d["channels"]), t_seq=int(ck.get("built_t_seq", 1)), p=config.P,
+    model = TSCastNIO(enc, D.input_channels(d["channels"], mask),
+                      t_seq=int(ck.get("built_t_seq", 1)), p=config.P,
                       latent=int(ck.get("latent", config.LATENT_DIM)),
                       residual=bool(ck.get("residual", True)),
                       unet_channels=tuple(ck.get("unet_channels") or config.UNET_CHANNELS),

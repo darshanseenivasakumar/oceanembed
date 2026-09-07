@@ -151,6 +151,10 @@ def main():
                          "this bundle's train block opens in June, the same season as the back "
                          "half of the scored window -- at the cost of purging the training set on "
                          "both sides of every block.")
+    ap.add_argument("--mask-channels", action="store_true",
+                    help="append a per-channel presence mask to the input (audit #13), so the "
+                         "encoder can tell a product gap or land from average water. Doubles the "
+                         "input width; recorded in the checkpoint and enforced on load.")
     ap.add_argument("--drop-channels", nargs="+", default=None,
                     help="channel names to remove before training, e.g. --drop-channels u v for "
                          "the currents ablation. Refuses on a name the bundle does not have, so a "
@@ -288,11 +292,15 @@ def main():
     ds_tr = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              tr_t, t_seq=t_seq,
                              max_samples=a.train_samples, seed=seed,
-                             clim=clim, return_clim=True)
+                             clim=clim, return_clim=True, mask_channels=a.mask_channels)
     ds_va = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              va_t, norm=ds_tr.norm, t_seq=t_seq,
                              max_samples=a.val_samples,
-                             seed=seed + 1, clim=clim, return_clim=True)
+                             seed=seed + 1, clim=clim, return_clim=True,
+                             mask_channels=a.mask_channels)
+    if a.mask_channels:
+        print(f"mask   : presence mask ON -- {ds_tr.C} value channels + {ds_tr.C} masks = "
+              f"{ds_tr.C_in} input channels (audit #13)")
     print(f"train {len(ds_tr):,} samples  |  validation {len(ds_va):,}")
 
     torch.manual_seed(seed)
@@ -305,7 +313,8 @@ def main():
         print(f"gradient loss ON, weight {a.w_grad} -- vertical dT/dz error in degC/m, on top of "
               f"the {'MSE' if a.loss == 'mse' else 'beta-NLL'} objective")
 
-    model = TSCastNIO(enc, len(d["channels"]), t_seq=1, p=config.P, latent=latent,
+    model = TSCastNIO(enc, D.input_channels(d["channels"], a.mask_channels), t_seq=1,
+                      p=config.P, latent=latent,
                       residual=not a.no_residual, unet_channels=widths,
                       decoder=a.decoder).to(dev)
     n_enc = sum(q.numel() for q in model.encoder.parameters())
@@ -379,7 +388,8 @@ def main():
     # with the collocated (time, lat, lon) triples, so nothing here bounds what gets scored.
     ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              te_t, norm=ds_tr.norm, t_seq=t_seq,
-                             seed=seed + 1, clim=clim, return_clim=True)
+                             seed=seed + 1, clim=clim, return_clim=True,
+                             mask_channels=a.mask_channels)
     # The Argo set MUST cover the same period as the data. artifacts/argo_test.parquet is 2022;
     # against a 2026 test window the +/-5 day filter matches nothing, and the run then died on
     # "need at least one array to concatenate" AFTER a full training run had completed.
@@ -467,6 +477,9 @@ def main():
     ck = base.art(f"tscast_stage1{suffix}.pt")
     torch.save({"state_dict": {k: v.cpu() for k, v in model.state_dict().items()}, "encoder": enc, "seed": seed,
                 "residual": not a.no_residual, "channels": d["channels"],
+                # Whether the input carried a presence mask per channel (audit #13). Enforced by
+                # assert_architecture_matches on every load: a 2C network cannot be rebuilt as C.
+                "mask_channels": bool(a.mask_channels),
                 "P": config.P, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
                 # Without these the predictor cannot rebuild the network it is loading: it guessed
                 # `film` and died with "Missing key(s) decoder.*" on every simple-decoder run.
@@ -515,6 +528,7 @@ def main():
         # defaulted away.
         "input_source": d.get("input_source", "unknown"),
         "channels": d["channels"],
+        "mask_channels": bool(a.mask_channels),
         "channels_note": (f"{len(d['channels'])} of the contract's 7 channels"
                           + ("" if len(d["channels"]) == 7 else "; wind (wu, wv) is ABSENT -- every "
                              "number from this run must be quoted with that stated")),
@@ -575,7 +589,8 @@ def main():
     # SELF-CHECK: reload what we just wrote and re-run the first scored sample through a FRESH
     # model. If this disagrees, the checkpoint does not reproduce its own metrics, and every number
     # in this file is unverifiable from the artifact it names.
-    _fresh = TSCastNIO(enc, c_in=len(d["channels"]), t_seq=1, p=config.P, latent=latent,
+    _fresh = TSCastNIO(enc, c_in=D.input_channels(d["channels"], a.mask_channels), t_seq=1,
+                       p=config.P, latent=latent,
                        residual=not a.no_residual, unet_channels=tuple(widths),
                        decoder=a.decoder, stage=1)
     _fresh.load_state_dict(torch.load(ck, map_location="cpu", weights_only=False)["state_dict"])

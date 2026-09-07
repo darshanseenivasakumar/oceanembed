@@ -10,8 +10,14 @@ Design notes that are not cosmetic:
     Sumatra.
   * Normalisation statistics come from the TRAIN split only. Using all-data statistics leaks the
     test distribution into training and inflates every score that follows.
-  * NaN (land, or off-grid) becomes 0.0 AFTER z-scoring, i.e. the channel mean, and a companion
-    `finite` mask records where that happened so a model can learn to distrust those cells.
+  * NaN (land, off-grid, or a channel the product does not serve at that cell) becomes 0.0
+    AFTER z-scoring, i.e. the channel mean. With `mask_channels=True` a companion per-channel
+    presence mask is APPENDED to the input -- C extra channels, 1 where the value was observed,
+    0 where it was filled -- so the encoder can tell a gap from average water. It is OFF by
+    default: the shipped checkpoint was trained without it. Until 2026-09-07 (audit #13) the mask
+    was computed here and thrown away while this docstring claimed it was recorded; on the shipped
+    satellite bundle 5.5% of ocean cells are missing at least one channel on every day, and an
+    ocean-centred 17x17 patch is 15% land on average, all of it fed in as the channel mean.
 """
 from __future__ import annotations
 
@@ -24,6 +30,13 @@ from torch.utils.data import Dataset
 from oceanembed import config as base
 from oceanembed.utils import grids
 from phase2.tscast_nio import config
+
+
+def input_channels(channels, mask_channels: bool) -> int:
+    """How many channels the encoder receives: the values, plus a presence mask per value when
+    `mask_channels` is on. Every place that builds a TSCastNIO from a checkpoint must use this
+    with the checkpoint's own `mask_channels`, never `len(channels)` alone."""
+    return len(list(channels)) * (2 if mask_channels else 1)
 
 
 def cell_index(lat, lon):
@@ -54,8 +67,13 @@ class GriddedPatches(Dataset):
 
     def __init__(self, surface, temp, times, land_mask, channels,
                  t_indices, norm=None, t_seq=None, p=None, max_samples=None, seed=None,
-                 stride=1, clim=None, return_clim=False, salinity=None, return_salinity=False):
+                 stride=1, clim=None, return_clim=False, salinity=None, return_salinity=False,
+                 mask_channels=False):
         self.C = surface.shape[-1]
+        #: Append a per-channel presence mask to `x` (audit #13). Off by default; see the module
+        #: docstring. `C_in` is what the encoder must be built for.
+        self.mask_channels = bool(mask_channels)
+        self.C_in = self.C * (2 if self.mask_channels else 1)
         self.T_SEQ = int(config.T_SEQ if t_seq is None else t_seq)
         if self.T_SEQ < 1 or self.T_SEQ % 2 == 0:
             # `_window` takes T_SEQ // 2 steps each side of the target, so an even value builds a
@@ -164,6 +182,11 @@ class GriddedPatches(Dataset):
         finite = np.isfinite(patch)
         patch = np.where(finite, patch, 0.0)
         x = np.transpose(patch, (3, 0, 1, 2)).astype("float32")      # (C, T, P, P)
+        if self.mask_channels:
+            # 1 where the value above was observed, 0 where it is the fill. Appended, not
+            # interleaved, so channel c's mask is channel C + c and the value block is unchanged.
+            m = np.transpose(finite, (3, 0, 1, 2)).astype("float32")
+            x = np.concatenate([x, m], axis=0)                            # (2C, T, P, P)
 
         lat = base.LAT[i]
         lon = base.LON[j]

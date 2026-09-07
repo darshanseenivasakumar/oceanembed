@@ -1021,3 +1021,57 @@ carried forward under `unmasked_v1` and labelled. The other session's novelty ar
 table; their `control_rmse` will now report no same-protocol record until re-run — that is the
 harness doing its job, and it is theirs to re-run. The cloud-dropout sweep is quoted as
 unmasked_v1 and labelled.
+
+---
+
+## 2026-09-07 — Audit #13: the encoder can now tell a data gap from average water
+
+**The bug.** `GriddedPatches.__getitem__` zero-fills NaN after z-scoring, so a missing value and
+an observation at the channel mean are both 0.0 to the network. It computed a `finite` mask, used
+it only for the fill, and discarded it — while the module docstring said the mask was recorded so
+the model could learn to distrust those cells. **[VERIFIED]** by reading the code.
+
+**How much of it there is.** Measured on the shipped satellite bundle: **5.5% of ocean cells are
+missing at least one channel on every day** — SST 285 cells, SSS 534, SSH 245, currents ~625
+(the currents also vary by ~60–140 cells day to day; the rest is a fixed product coastline). 798
+of those cells have GLORYS water, i.e. the product serves a prediction there. Independently, an
+ocean-centred 17×17 patch is **15% land on average**, more than half land for 6% of cells. All of
+it reached the encoder as the channel mean. Pinned in `tests/phase2/test_mask_channels.py`.
+
+**The fix.** `GriddedPatches(mask_channels=True)` appends a per-channel presence mask to `x` —
+C extra channels, 1 where observed, 0 where filled — so channel c's mask is channel C + c and the
+value block is unchanged. **Off by default; the shipped checkpoint's path is byte-identical** (a
+test asserts it). `dataset.input_channels(channels, mask_channels)` is the one place the input
+width is computed. A checkpoint records `mask_channels`; `assert_architecture_matches` refuses a
+model built for the wrong width and names the cause before load; `train_stage1 --mask-channels`,
+`rescore_checkpoint`, `harness.load` and `inference.TSCastPredictor` all read the flag from the
+checkpoint rather than assuming `len(channels)`. `train_stage2.py` is not wired (it does not need
+to be for the default, and it carries another session's uncommitted work).
+
+**Does it help? Three seeds, one difference.** Control `sel_7ch_s{42,43,44}` (leak-free
+selection, no mask, re-scored under `seafloor_masked_v2`) against `mask_7ch_s{42,43,44}`
+(identical plus the mask, scored natively under v2). Same 963 profiles, same n 12,727:
+
+| seed | no mask | epoch | mask | epoch | delta |
+|---|---|---|---|---|---|
+| 42 | 0.9970 | 1 | 0.9779 | 5 | −0.0190 |
+| 43 | 0.9757 | 1 | 0.9686 | 2 | −0.0072 |
+| 44 | 0.9567 | 4 | 0.9470 | 3 | −0.0096 |
+
+**Mean −0.0119 °C, spread 0.0119, sign holds 3/3** — an established effect by the three-seed
+rule, and a small one: about a seventh of the selection-leak cost. Real-baseline skill moves
++0.077/+0.089/+0.102 → +0.075/+0.092/+0.112, so the gain is not from the 67 shelf profiles. The
+per-depth profile is NOT uniform (helps 0–30 m and 125–200 m, hurts 50–75 m and 500–700 m); three
+seeds license the sign of the overall and nothing about that shape. The mask runs chose epochs
+5/2/3 where the controls chose 1/1/4 — suggestive about the selection signal, not established.
+Bias moved erratically across seeds and is not a mask effect either way.
+
+**Decision (2026-09-07): committed as is, the shipped checkpoint unchanged.** A mask-aware,
+leak-free model (mean 0.9645) is the honest configuration; it is also a new checkpoint with a
+new sha, and promoting it would reopen the decision to ship the test-selected 0.9063. The six
+run artifacts (`tscast_stage1_mask_7ch_s4{2,3,4}.pt` + metrics) are on disk, not promoted.
+
+**Tests.** 8 in `test_mask_channels.py`: the default path byte-identical; a gap and an observation
+at the mean both z-score to 0.0 and only the mask separates them; land and off-grid marked
+absent; appended not interleaved; the helper; the guard in both directions; a legacy checkpoint
+without the field still loads; and the real-data pin of the 5.5% and the 798.

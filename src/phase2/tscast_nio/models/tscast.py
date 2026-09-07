@@ -214,6 +214,8 @@ class TSCastNIO(nn.Module):
         latent = int(config.LATENT_DIM if latent is None else latent)
 
         self.encoder = E.ENCODERS[encoder_name](c_in, t_seq, p, latent=latent)
+        #: The input width this network was BUILT for, so a checkpoint can be checked against it.
+        self.c_in = int(c_in)
         self.encoder_name = encoder_name
         self.decoder_name = decoder
         if decoder == "film":
@@ -419,6 +421,21 @@ def assert_architecture_matches(model: nn.Module, ck: dict, where: str = "") -> 
                 f"t_seq={model.built_t_seq}, the checkpoint was trained at built_t_seq={built}. "
                 f"load_state_dict would ACCEPT this silently. Note T_SEQ={ck.get('T_SEQ')} is the "
                 f"DATA window and is NOT the construction value.")
+
+    # Input width. A checkpoint trained with presence masks (audit #13) takes 2C channels;
+    # building for C loads NOTHING silently -- load_state_dict rejects the first conv -- but the
+    # error it raises names a tensor shape, not the cause. Say the cause.
+    chans = ck.get("channels")
+    if chans is not None and getattr(model, "c_in", None) is not None:
+        want_c = len(chans) * (2 if ck.get("mask_channels") else 1)
+        if int(model.c_in) != want_c:
+            raise ValueError(
+                f"architecture mismatch{' in ' + where if where else ''}: this model takes "
+                f"{model.c_in} input channels, the checkpoint was trained on {len(chans)} value "
+                f"channel(s){' plus a presence mask for each' if ck.get('mask_channels') else ''} "
+                f"= {want_c}. Build with c_in=dataset.input_channels(ck['channels'], "
+                f"ck.get('mask_channels', False)) and a GriddedPatches with the same "
+                f"mask_channels.")
 
     want = ck.get("pool_signature")
     if want is None:

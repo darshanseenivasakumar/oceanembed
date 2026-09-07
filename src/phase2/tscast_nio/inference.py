@@ -149,7 +149,9 @@ class TSCastPredictor:
         built_t = int(ck.get("built_t_seq", ck["T_SEQ"]))
         # Stage 1 checkpoints predate the field; they are stage 1 by definition.
         self.stage = int(ck.get("stage", 1))
-        self.model = TSCastNIO(ck["encoder"], len(ck["channels"]), t_seq=built_t,
+        self.model = TSCastNIO(ck["encoder"],
+                               D.input_channels(ck["channels"], ck.get("mask_channels", False)),
+                               t_seq=built_t,
                                p=ck["P"], latent=ck["latent"], residual=ck["residual"],
                                unet_channels=(tuple(ck["unet_channels"]) if ck.get("unet_channels") else None),
                                decoder=self.decoder_name, stage=self.stage)
@@ -192,7 +194,8 @@ class TSCastPredictor:
             self.data["surface"], self.data["temp"], self.data["times"],
             self.data["land_mask"], self.data["channels"],
             np.arange(len(self.data["times"])), norm=norm, t_seq=ck["T_SEQ"], p=ck["P"],
-            max_samples=1, clim=self.clim, return_clim=True)
+            max_samples=1, clim=self.clim, return_clim=True,
+            mask_channels=bool(ck.get("mask_channels", False)))
         self.y_mean, self.y_std = norm[2], norm[3]
         # None is a valid state: an uncalibrated sigma is still the model's honest output. What
         # must not happen is applying someone else's scales without saying so.

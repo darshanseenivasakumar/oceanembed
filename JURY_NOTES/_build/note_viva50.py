@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 
+import facts
 from engine import Spacer, _p, build, callout, cover, heading, kvstrip, table
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -317,8 +318,12 @@ def build_note(path):
          "ingest path, caching, monitoring and someone accountable for the output."),
         ("What would you do with three more months?",
          "Fix the mixed layer, because our own diagnostics say it is the one error genuinely "
-         "available to us to improve. Give the encoder a missing-data channel. And get validation "
-         "through time from moored buoys."),
+         "available to us to improve. Give the encoder a missing-data channel. And bring the "
+         "moored-buoy time-axis panel back into the build."),
+        ("Does it track one place through time, or only compare different places?",
+         "Our headline is a comparison across <i>places</i> - 963 float profiles in 963 different "
+         "spots - and a drifting float cannot test tracking at a fixed point. " +
+         facts.buoy_sentence()),
     ])
 
     # ------------------------------------------------------------------ I
@@ -389,4 +394,4 @@ def build_note(path):
 
 
 if __name__ == "__main__":
-    print(build_note(os.path.join(ROOT, "JURY_NOTES", "OceanEmbed_Viva57.pdf")))
+    print(build_note(os.path.join(ROOT, "JURY_NOTES", "OceanEmbed_Viva58.pdf")))

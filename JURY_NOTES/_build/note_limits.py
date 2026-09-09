@@ -13,6 +13,7 @@ from reportlab.platypus import Spacer as RLSpacer
 from reportlab.platypus import Table, TableStyle
 
 import engine as E
+import facts
 from engine import (
     Spacer, _p, build, bullets, callout, cover, heading, kvstrip, table,
 )
@@ -176,9 +177,8 @@ def build_note(path):
         "These are not weaknesses in the model - they are gaps in what we have been able to "
         "<i>test</i>. Say them before a judge finds them."))
     s.append(bullets([
-        "<b>Does it track one place through time?</b> Every number we have compares different "
-        "<i>places</i>. Argo floats drift, so they cannot answer this. The moored-buoy data that "
-        "could is unreachable from our network.",
+        "<b>Does it track one place through time?</b> Our headline compares different "
+        "<i>places</i> - Argo floats drift, so they cannot answer this. " + facts.buoy_sentence(),
         "<b>Is the same physical float in both training and test?</b> Our float table has no "
         "instrument identifier, so our independence is in time only. We cannot rule it out.",
         "<b>How do you compare to other published methods?</b> We do not know. Our anchors are "
@@ -207,9 +207,9 @@ def build_note(path):
          "Turns 'independent in time' into 'independent by instrument' - closing our weakest "
          "validation claim."],
         ["<b>Then</b>",
-         "Validation <b>through time</b> from moored buoys.",
-         "Tests whether the model tracks change, not just place - the one validation axis we have "
-         "no answer on."],
+         "Bring the moored-buoy <b>time-axis</b> panel back into the build.",
+         "The measurement is done; the panel is not in this release. Restoring it makes the one "
+         "validation axis Argo cannot supply demonstrable on screen."],
         ["<b>Then</b>",
          "Run a published method over this basin as a baseline.",
          "An external anchor for our accuracy, instead of only climatology and our own teacher."],

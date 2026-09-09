@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 
+import facts
 from engine import (
     Spacer, _p, build, bullets, callout, cmd, cover, heading, kvstrip, quote,
     recap, steps, table,
@@ -241,10 +242,9 @@ def build_note(path):
          "The shipped model gives temperature only. So some products - mixed layer by density, "
          "the barrier layer - are <b>refused rather than approximated</b>, even though a "
          "plausible-looking number was easy to produce."],
-        ["<b>No validation through time</b>",
-         "Every number we have compares different <i>places</i>. Argo floats drift, so they cannot "
-         "tell us whether the model tracks one spot as it changes. The moored-buoy data that would "
-         "answer this is unreachable from our network."],
+        ["<b>Time-axis validation is not in this build</b>",
+         "Our headline compares different <i>places</i>, and a drifting Argo float cannot test "
+         "tracking at a fixed point. " + facts.buoy_sentence()],
         ["<b>One region penalty we cannot explain</b>",
          "The Arabian Sea is slightly worse than the Bay of Bengal, consistently across three "
          "training runs. Four hypotheses tested, cause still unknown. We report it as unexplained "
@@ -269,7 +269,7 @@ def build_note(path):
         "<b>Marine heatwaves and eddy tracking.</b> Both need a time axis, which our event tools do "
         "not have yet. These were once impossible on monthly data; with 388 consecutive days they "
         "are now simply unbuilt.",
-        "<b>Validation through time.</b> Moored buoys sit still and sample every few hours, which "
+        "<b>Bring the time-axis panel back.</b> Moored buoys sit still and sample every few hours, "
         "would test whether the model tracks change and not just place. The data exists; our "
         "network cannot reach it.",
         "<b>Live operation.</b> Extend the pipeline to run without a reanalysis target for every "

@@ -581,6 +581,52 @@ Ports unchanged. app/phase2/, src/, app/streamlit_app.py and app/panels/ are unt
 
 ---
 
+## 2026-09-06 — Unit A — three novelty features on the frozen model
+
+Full write-up in `docs/phase2/f_novelty.md`; cross-machine notes in `docs/phase2/AGENT_SYNC.md` A30.
+
+New: `src/phase2/physics/stability.py`, `src/phase2/reliability/{harness,observability,
+assimilation}.py`, three scripts under `scripts/phase2/`, three panels under `app/ui/features/`,
+four test files (**59 tests**, all offline). `train_stage2.py` gained `--w-stab` (default 0.0, so
+every existing stage-2 objective is byte-identical) with the same overwrite guard `--w-grad` has.
+
+**The shared loader caught a silent architecture bug before any experiment ran.** `built_t_seq` (the
+value CNN3D's temporal pooling is built from) is not `T_SEQ` (the input window). The shipped
+checkpoint is `T_SEQ=11, built_t_seq=1`, and both constructions load the same state_dict without
+complaint because AdaptiveAvgPool3d equalises every parameter shape. Building at t_seq=11 scored
+0.9297 against a recorded 0.9078 with no error raised. Fixed by reading `built_t_seq` and calling
+the repo's own `assert_architecture_matches`.
+
+Measured, all with the control reproducing the checkpoint's recorded RMSE exactly:
+
+* **Stability.** 805 of 13,468 adjacent pairs (5.98%) in 597 of 962 Argo columns are statically
+  unstable; 12,153 of 165,648 (7.34%) in 8,298 of 11,832 cells across the basin. After projection:
+  **0**, re-verified from the projected temperature. Cost **+0.0002 degC** RMSE, 2.2 ms/profile.
+  Stage 2 only — density needs salinity, and `project_profile` raises on stage 1 rather than
+  enforcing a monotone temperature that would delete BoB barrier-layer inversions.
+  **Soft vs hard, now trained and measured:** a `--w-stab 1000.0` model cuts violations ~400-fold
+  (805 -> 2) and still does **not** reach zero, at a cost of **+0.0220 degC** RMSE and a doubled
+  warm bias (+0.0831 -> +0.1782). The projection reaches zero for **+0.0002 degC** — about 100x
+  cheaper in accuracy — and works on a model never trained for it.
+* **Observability.** The Jacobian shows the model reading **SST for the mixed layer and SSH for the
+  thermocline** (48% of the response at 100-125 m), untaught. Relative leverage falls 3.3x from
+  125 m to 1000 m. The hypothesis that our errors sit below the information floor is **REFUTED** —
+  depth-controlled ratios 0.38 / 0.78 / 0.65 / 0.74 at 300/500/700/1000 m. Low sensitivity marks
+  quiescent water that is easy to predict.
+* **Latent assimilation.** At lambda=0.03, MAE 0.5441 -> 0.5291 at latent-similar cells
+  (**+0.0150 degC**) while random recipients get 0.0241 worse and the least-similar decile 0.0745
+  worse. Still +0.0065 degC at recipients >= 500 km away, so the correction follows the water mass
+  — though most of the benefit is local (+0.0422 under 200 km).
+
+**For Unit C:** `docs/EXPERIMENT_LOG.md` is yours and I have not written to it. Three runs want
+logging: stability projection, observability, and the assimilation lambda sweep. Each artifact
+carries its seed, config and control.
+
+**For Unit B:** nothing you own was edited. `app/streamlit_app.py`, `app/panels/`, `config.py`,
+`data/`, `features/` and `inference/predict.py` are untouched.
+
+---
+
 ## 2026-09-07 — audit session — four mechanical fixes from the 2026-09-06 audit, with tests
 
 Scope: the four items the audit called mechanical (#11, #12, #20, #21 in the audit report). No
@@ -1021,6 +1067,106 @@ carried forward under `unmasked_v1` and labelled. The other session's novelty ar
 table; their `control_rmse` will now report no same-protocol record until re-run — that is the
 harness doing its job, and it is theirs to re-run. The cloud-dropout sweep is quoted as
 unmasked_v1 and labelled.
+
+
+---
+
+## 2026-09-07 — SIH idea-submission deck built (Arjhun)
+
+**What.** `OceanEmbed_SIH26066_IDEA.pptx` — the five official SIH idea-format slides (Proposed
+Solution / Technical Approach / Feasibility and Viability / Impact and Benefits / Research and
+References), in the structure and visual language of a winning SIH deck the user supplied as
+reference screenshots. **`OceanEmbed_SIH26066.pptx` is untouched** — the two decks serve different
+stages: submission format vs. live pitch.
+
+| file | what |
+|---|---|
+| `scripts/deck/build_idea_slides.py` | the deck. No arguments, idempotent, ~20 s (it collects the test suite) |
+| `scripts/deck/diagrams.py` | five matplotlib PNGs -> `artifacts/deck/` |
+| `tests/phase2/test_idea_deck_claims.py` | 6 tests, additive; `test_presentation_claims.py` untouched |
+| `docs/superpowers/specs/2026-09-07-sih-idea-deck-design.md` | design + number ledger |
+
+**No number is typed into the deck.** Every figure is derived at build time from
+`artifacts/frozen_manifest.json` and the metrics artifact it names — RMSE, skill, bias,
+correlation, n, profiles, depths, T_SEQ, channels, the selection-leak cost, the depth-win count,
+the thermocline peak, the parameter count (encoder+decoder), training minutes and device. The test
+count is read by actually collecting the suite. `_guard()` refuses to save a deck that quotes a
+retracted leg (0.9267 / 0.8529 / 0.9096) or the GLORYS comparator (0.8873 / 0.8548), that omits the
+frozen headline, or that claims climatology is beaten at every depth.
+
+**This was load-bearing within the hour.** The build was first run against the `seafloor_masked_v1`
+manifest and picked up `seafloor_masked_v2` on the next run without an edit: 0.9006 -> **0.9063**,
+962 -> **963** profiles, 12,736 -> **12,727**, bias +0.11 -> **+0.14**. Re-derived rather than
+assumed: climatology is still beaten at **14 of 15** depths (it wins only at 1000 m), and the
+thermocline band re-reads **1.06–1.24 °C through 50–150 m, peaking at 100 m** — the old deck's
+"1.1–1.2 °C" understated the peak. Two claims inherited from the 12-slide deck were stale and are
+now derived: "530 tests" (the suite collects **1,032**) and "549k parameters" (507,848 + 40,734 =
+548,582, so 549k holds).
+
+**Verification.** `test_idea_deck_claims` 6 passed; `test_presentation_claims` 14 passed against
+the same tree. Geometry and text-overflow checked programmatically (no Office renderer here): all
+5 slides inside the border, every text box <= 89% estimated fill, no image outside the frame. The
+five PNGs were inspected as images.
+
+**Two placeholders, deliberately not filled.** (1) The **SIH logo** — a copyrighted mark, no
+licensed asset in the repo, and I will not redraw a lookalike; every slide carries a dashed grey
+box. Note the reference deck says 2025 and SIH26066 is the 2026 cycle. (2) The **team name** —
+nothing in this repo records one; `TEAM_NAME` at the top of the build script.
+
+**Not verified, flagged to the user.** Two sentences on the Impact slide are general-knowledge
+context rather than repo measurements: "the most densely populated cyclone basin" and "ocean holds
+the dominant share of excess planetary heat". Both need a citation attached if the jury is strict.
+
+**Nothing owned by another unit was edited.** No app file, no existing deck, no existing test, and
+`docs/EXPERIMENT_LOG.md` untouched. This HANDOFF entry is appended without committing the file,
+because it also carries another session's pending 46-line block.
+
+
+---
+
+## 2026-09-07 — the idea deck now fills the OFFICIAL SIH template (Arjhun)
+
+Supersedes the entry above. That build generated its own chrome with a placeholder where the SIH
+logo goes. The user then supplied the real portal template, so the deck is now built by **opening
+`SIH2026-IDEA-Presentation-Format.pptx` and filling it**. The template is copied unmodified into
+`scripts/deck/template/` so the build is reproducible.
+
+**Its chrome is the portal's and is untouched** — SIH logo, the "SMART INDIA HACKATHON 2026" title
+page, footer bar, slide numbers, team oval, Title placeholders. Verified shape-by-shape against the
+original: all six slides keep all six template shapes, nothing missing.
+
+**Six slides, not seven.** The template's own instruction slide states a maximum of six including
+the title page, and says to delete itself before uploading. Both done. Its prompt text
+("Detailed explanation of the proposed solution", …) sat in a `TextBox 8` per slide; those are
+deleted and replaced with our content, which is what the reference winning deck does.
+
+**Title page** carries PS ID `SIH26066`, theme **Disaster Management**, category **Software**,
+organisation **MoES (INCOIS)** — `[VERIFIED]` from the PS transcription confirmed at
+`docs/ARJHUN_EXECUTION_PLAN.md:30`. `README.md:6` says "Software / Space Technology"; that is an
+older informal note and was NOT used. **Three fields carry a visible `‹fill from portal›` marker**
+because this repo records them nowhere: the verbatim PS title, the team ID and the team name (the
+last also on the oval of all five content slides).
+
+**Numbers still come from the freeze, not from prose.** Same derivation as before. Two live proofs
+this session: the manifest moved v1→v2 mid-build and the deck followed with no edit, and the test
+count re-read **1,032 → 1,040** between two builds as the other session added tests.
+
+**Geometry re-fitted** to the template's tighter band (y 1.26–6.88, logo keep-out above y 1.16 for
+x > 10.70). `flow.png` re-rendered 1.02 -> 0.75 in tall and `facts.png` 2.45 -> 2.10 to clear the
+footer bar. QA: no shape collides with the logo, footer or title band; every text box <= 87% of its
+estimated fill.
+
+**Tests.** `test_idea_deck_claims.py` now 8 (six-slide maximum, prompt-text removal, template
+chrome survival, plus the five claim guards). 7 passed, **1 skipped**: the chrome test needs
+python-pptx, which the venv does not have — it was therefore verified by hand and reported as such,
+not assumed. `test_presentation_claims.py` untouched, still 14.
+
+**For Unit B:** `requirements.txt` does not list `python-pptx`, which `scripts/deck/` now needs.
+The system Python has it; the venv does not, which is why one test skips and why the deck cannot
+be built with the venv interpreter. Adding it is yours to make — I did not edit the file.
+
+**Upload is a PDF, not a PPTX** (the template requires it). No Office renderer on this machine, so
+that export is a manual step in PowerPoint.
 
 ---
 

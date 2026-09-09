@@ -342,6 +342,7 @@
     },
     {
       "name": "oceanembed",
+      "autoPort": false,
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [
         "-m",

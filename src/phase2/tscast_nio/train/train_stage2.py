@@ -46,8 +46,9 @@ from torch.utils.data import DataLoader
 
 from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
-from phase2.tscast_nio import config, dataset as D, metrics
-from phase2.tscast_nio.models.tscast import TSCastNIO, density_nll, gaussian_nll
+from phase2.tscast_nio import config, dataset as D, eval_argo as EA, metrics
+from phase2.tscast_nio.models.tscast import (TSCastNIO, density_nll, gaussian_nll,
+                                             stability_penalty)
 from phase2.physics import seawater
 
 # The stage-1 module IS the reference implementation of these. Importing rather than re-deriving
@@ -142,7 +143,20 @@ def main() -> None:
                          "and density numbers are new, unreplicated claims that need one.")
     ap.add_argument("--epochs", type=int, default=25)
     ap.add_argument("--train-samples", type=int, default=60000)
-    ap.add_argument("--test-samples", type=int, default=12000)
+    ap.add_argument("--val-samples", "--test-samples", dest="val_samples", type=int,
+                    default=12000,
+                    help="samples drawn from the VALIDATION block for early stopping. "
+                         "--test-samples is kept as an alias so older command lines still run.")
+    ap.add_argument("--val-days", type=int, default=None,
+                    help="trailing TRAIN steps reserved for model selection. Default: "
+                         f"{int(D.VAL_FRACTION * 100)}%% of the train block. The test period is "
+                         "never used for selection -- see dataset.selection_split.")
+    ap.add_argument("--val-blocks", type=int, default=1,
+                    help="spread --val-days over this many evenly spaced blocks instead of one "
+                         "trailing block. Above 1 buys the selection signal seasonal coverage -- "
+                         "this bundle's train block opens in June, the same season as the back "
+                         "half of the scored window -- at the cost of purging the training set on "
+                         "both sides of every block.")
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--encoder", default="cnn3d")
@@ -157,6 +171,11 @@ def main() -> None:
     ap.add_argument("--beta", type=float, default=0.5,
                     help="beta-NLL. 0 reproduces the paper's eq. 3/4/5 exactly, which we measured "
                          "collapsing the variance on this data")
+    ap.add_argument("--w-stab", type=float, default=0.0,
+                    help="weight on the SOFT static-stability penalty, mean ReLU(-drho/dz). "
+                         "0 (default) leaves the objective byte-identical to every stage-2 run "
+                         "already on disk. Non-zero is the comparator for the HARD projection in "
+                         "phase2.physics.stability -- see scripts/phase2/run_stability_projection.py")
     ap.add_argument("--w-density", type=float, default=1.0,
                     help="weight on eq. 5. The paper uses 1.0 (eq. 6 is an unweighted sum). "
                          "0 ablates the physical constraint entirely -- run it, do not assume it")
@@ -167,7 +186,19 @@ def main() -> None:
 
     dev = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
                        if a.device == "auto" else a.device)
-    print(f"device : {dev}   beta-NLL: {a.beta}   eq.5 weight: {a.w_density}")
+    # THE SAME HAZARD --w-grad HAS IN STAGE 1. --tag defaults to "s2", and the checkpoint path is
+    # art(f"tscast_stage2{suffix}.pt"), so a --w-stab run left on the default tag would overwrite
+    # artifacts/tscast_stage2_sat_s2.pt -- the checkpoint the stability experiment uses as its
+    # BASELINE. The comparison would then be a model against itself, and every number in
+    # stability_projection.json would be quietly meaningless.
+    if a.w_stab and a.tag in ("", "s2", "sat_s2"):
+        raise SystemExit(
+            f"--w-stab is set but --tag is {a.tag!r}, so this run would overwrite "
+            f"{base.art(f'tscast_stage2_{a.tag}.pt')} -- the baseline the hard-projection "
+            "experiment compares against. Give the run its own tag, e.g. --tag sat_s2_stab.")
+
+    print(f"device : {dev}   beta-NLL: {a.beta}   eq.5 weight: {a.w_density}"
+          + (f"   stability weight: {a.w_stab}" if a.w_stab else "   stability term: OFF"))
 
     # One seed for EVERYTHING: sample draw, weight init, data order. A leg of a seed sweep that
     # differed in any of these would not be a matched comparison.
@@ -180,20 +211,31 @@ def main() -> None:
     tr_t, te_t = D.daily_split_indices(d["times"])
     t_seq = int(a.t_seq)
 
-    # Same embargo as stage 1: a training target within t_seq//2 of the first test day would read
-    # TEST surface fields as input, because _window clamps to the array and not to the split.
+    # Same selection split as stage 1: the epoch is chosen on a validation block carved from the
+    # END of train, never on the test period the Argo headline is scored on. Two embargoes, one
+    # each side -- see dataset.selection_split for why both are needed.
     n_before = len(tr_t)
-    tr_t = D.embargo_indices(tr_t, t_seq, int(te_t.min()) if len(te_t) else None)
-    n_embargoed = n_before - len(tr_t)
-    if n_embargoed:
+    tr_t, va_t, sel = D.selection_split(d["times"], tr_t, te_t, t_seq, val_days=a.val_days,
+                                          n_blocks=a.val_blocks)
+    n_embargoed = sel["n_train_dropped_embargo"]
+    _where = (f"one trailing block, {sel['val_period'][0]}..{sel['val_period'][1]}"
+              if sel["n_blocks"] == 1 else
+              f"{sel['n_blocks']} blocks, " + " + ".join(f"{a}..{b}" for a, b in sel["blocks"]))
+    print(f"selection: {sel['n_val_targets']} val steps carved out of train -- {_where}. "
+          f"Early stopping and the epoch choice read ONLY these; the test block is untouched "
+          f"until the final Argo score.")
+    if n_embargoed or sel["n_val_dropped_embargo"]:
         print(f"embargo: dropped {n_embargoed} of {n_before} training targets whose T_SEQ={t_seq} "
-              f"window would have read the test block")
+              f"window would have read the val block, and {sel['n_val_dropped_embargo']} val "
+              f"targets whose window would have read the test block")
 
     _t = np.asarray(d["times"], dtype="datetime64[D]")
     train_period = (str(_t[tr_t].min()), str(_t[tr_t].max()))
     test_period = (str(_t[te_t].min()), str(_t[te_t].max()))
+    val_period = tuple(sel["val_period"])
     trained_on = (f"daily bundle, T_SEQ={t_seq}, train {train_period[0]}..{train_period[1]}, "
-                  f"held-out GLORYS {test_period[0]}..{test_period[1]}, "
+                  f"selection on {val_period[0]}..{val_period[1]}, "
+                  f"scored on GLORYS {test_period[0]}..{test_period[1]}, "
                   f"{len(d['channels'])} channels {[str(c) for c in d['channels']]}")
     print(f"data   : daily, {len(d['times'])} steps, T_SEQ={t_seq}, "
           f"train {len(tr_t)} / test {len(te_t)}")
@@ -205,11 +247,11 @@ def main() -> None:
                              tr_t, t_seq=t_seq, max_samples=a.train_samples, seed=seed,
                              clim=clim, return_clim=True,
                              salinity=d["salinity"], return_salinity=True)
-    ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
-                             te_t, norm=ds_tr.norm, t_seq=t_seq, max_samples=a.test_samples,
+    ds_va = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
+                             va_t, norm=ds_tr.norm, t_seq=t_seq, max_samples=a.val_samples,
                              seed=seed + 1, clim=clim, return_clim=True,
                              salinity=d["salinity"], return_salinity=True)
-    print(f"train {len(ds_tr):,} samples  |  held-out GLORYS {len(ds_te):,}")
+    print(f"train {len(ds_tr):,} samples  |  validation {len(ds_va):,}")
 
     # Normalisation constants as tensors, so the density term can return z-scores to degC/psu.
     y_mean = torch.tensor(ds_tr.y_mean, device=dev)
@@ -229,7 +271,9 @@ def main() -> None:
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
 
     loader = DataLoader(ds_tr, batch_size=a.batch_size, shuffle=True, num_workers=a.num_workers)
-    te_loader = DataLoader(ds_te, batch_size=512, shuffle=False, num_workers=a.num_workers)
+    va_loader = DataLoader(ds_va, batch_size=512, shuffle=False, num_workers=a.num_workers)
+
+    _depths_t = torch.tensor(config.DEPTHS, dtype=torch.float32, device=dev)
 
     def losses(out, y, mk, ys, sk, beta):
         mu_t, lv_t, mu_s, lv_s, lv_rho = out
@@ -240,44 +284,57 @@ def main() -> None:
         both = mk & sk
         lr = density_nll(mu_t, mu_s, lv_rho, y, ys, both,
                          y_mean, y_std, s_mean, s_std, beta=beta)
-        return lt, ls, lr
+        # The SOFT static-stability term, off by default. It uses only the prediction -- static
+        # stability is a property the answer must have, not a quantity to match -- so it needs no
+        # truth mask beyond knowing which levels are real.
+        #
+        # Returned as an exact 0.0 tensor rather than folded in when the weight is zero: adding
+        # `0.0 * term` is bit-identical for finite values but `0.0 * NaN` is NaN, which would
+        # poison a run that asked for no term at all. The same reasoning as stage 1's --w-grad.
+        lst = (stability_penalty(mu_t, mu_s, both, y_mean, y_std, s_mean, s_std, _depths_t)
+               if a.w_stab else torch.zeros((), device=mu_t.device))
+        return lt, ls, lr, lst
 
     t0 = time.time()
     best = {"nll": float("inf"), "epoch": 0, "state": None}
     curve, stale = [], 0
     for ep in range(a.epochs):
         model.train()
-        acc = np.zeros(4)
+        acc = np.zeros(5)
         nb = 0
         for x, g, y, mk, _, cp, mo, ys, sk in loader:
             x, g, y, mk, cp, mo, ys, sk = (t.to(dev) for t in (x, g, y, mk, cp, mo, ys, sk))
-            lt, ls, lr = losses(model(x, g, cp, mo), y, mk, ys, sk, a.beta)
-            loss = lt + ls + a.w_density * lr
+            lt, ls, lr, lst = losses(model(x, g, cp, mo), y, mk, ys, sk, a.beta)
+            loss = lt + ls + a.w_density * lr + (a.w_stab * lst if a.w_stab else 0.0)
             opt.zero_grad()
             loss.backward()
             opt.step()
             acc += np.array([float(loss.detach()), float(lt.detach()),
-                             float(ls.detach()), float(lr.detach())])
+                             float(ls.detach()), float(lr.detach()), float(lst.detach())])
             nb += 1
 
         model.eval()
-        vacc = np.zeros(4)
+        vacc = np.zeros(5)
         vn = 0
         with torch.no_grad():
-            for x, g, y, mk, _, cp, mo, ys, sk in te_loader:
+            for x, g, y, mk, _, cp, mo, ys, sk in va_loader:
                 x, g, y, mk, cp, mo, ys, sk = (t.to(dev) for t in (x, g, y, mk, cp, mo, ys, sk))
                 # Held-out is scored at beta=0 always, so the number a run is SELECTED on never
                 # moves with --beta and two runs stay comparable.
-                lt, ls, lr = losses(model(x, g, cp, mo), y, mk, ys, sk, 0.0)
+                lt, ls, lr, lst = losses(model(x, g, cp, mo), y, mk, ys, sk, 0.0)
+                # Held-out selection deliberately EXCLUDES the stability term, so a --w-stab run
+                # and a baseline run are still selected on the same quantity and their epochs stay
+                # comparable. The term is recorded in the curve, not optimised against here.
                 vacc += np.array([float(lt + ls + a.w_density * lr),
-                                  float(lt), float(ls), float(lr)])
+                                  float(lt), float(ls), float(lr), float(lst)])
                 vn += 1
         tr_l, va_l = acc / max(nb, 1), vacc / max(vn, 1)
         curve.append({"epoch": ep + 1,
                       "train_total": round(tr_l[0], 4), "train_T": round(tr_l[1], 4),
                       "train_S": round(tr_l[2], 4), "train_rho": round(tr_l[3], 4),
-                      "heldout_total": round(va_l[0], 4), "heldout_T": round(va_l[1], 4),
-                      "heldout_S": round(va_l[2], 4), "heldout_rho": round(va_l[3], 4)})
+                      "val_total": round(va_l[0], 4), "val_T": round(va_l[1], 4),
+                      "val_S": round(va_l[2], 4), "val_rho": round(va_l[3], 4),
+                      "train_stab": round(tr_l[4], 6), "val_stab": round(va_l[4], 6)})
 
         if va_l[0] < best["nll"] - 1e-4:
             best = {"nll": va_l[0], "epoch": ep + 1, "state": copy.deepcopy(model.state_dict())}
@@ -287,20 +344,27 @@ def main() -> None:
             flag = f"  ({stale}/{a.patience} without improvement)"
         print(f"  epoch {ep + 1}/{a.epochs}  train {tr_l[0]:.4f} "
               f"(T {tr_l[1]:.3f} S {tr_l[2]:.3f} rho {tr_l[3]:.3f})   "
-              f"held-out {va_l[0]:.4f} (T {va_l[1]:.3f} S {va_l[2]:.3f} rho {va_l[3]:.3f})"
+              f"val {va_l[0]:.4f} (T {va_l[1]:.3f} S {va_l[2]:.3f} rho {va_l[3]:.3f})"
               f"{flag}", flush=True)
         if stale >= a.patience:
-            print(f"  early stop: no held-out improvement for {a.patience} epochs")
+            print(f"  early stop: no validation improvement for {a.patience} epochs")
             break
     secs = time.time() - t0
 
     if best["state"] is None:
-        raise RuntimeError("no epoch improved on the initial held-out loss; refusing to save")
+        raise RuntimeError("no epoch improved on the initial validation loss; refusing to save")
     model.load_state_dict(best["state"])
     model.eval()
     print(f"\nrestored the best epoch: {best['epoch']} (held-out {best['nll']:.4f}).")
 
     # ---- independent Argo, temperature AND salinity ------------------------------------
+    # The TEST block is instantiated HERE, after the epoch has been chosen, and nowhere earlier.
+    # `.index` is overwritten below with the collocated triples; this object is borrowed only for
+    # its normalisation and its T_SEQ window builder.
+    ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
+                             te_t, norm=ds_tr.norm, t_seq=t_seq,
+                             seed=seed + 1, clim=clim, return_clim=True,
+                             salinity=d["salinity"], return_salinity=True)
     ts_path = base.art("argo_daily_period_ts.parquet")
     t_only = base.art("argo_daily_period.parquet")
     has_argo_salinity = os.path.exists(ts_path)
@@ -339,6 +403,16 @@ def main() -> None:
     keep = offs.min(axis=1) <= MAX_DAYS
     t_idx = np.asarray(te_t)[offs.argmin(axis=1)]
     la, lo = D.cell_index(keys["lat"].values, keys["lon"].values)
+    # Decline what the product declines, for BOTH targets, and count it (eval_argo). The same
+    # water mask governs salinity: below the seafloor there is no salinity to score either.
+    truth_t = np.asarray(truth_t, dtype="float64").copy()
+    truth_t[keep], refusals = EA.apply_seafloor_mask(truth_t[keep], la[keep], lo[keep],
+                                                     d["valid_mask"], d["land_mask"])
+    if truth_s is not None:
+        _water = EA.seafloor_mask(la[keep], lo[keep], d["valid_mask"], d["land_mask"])
+        truth_s = np.asarray(truth_s, dtype="float64").copy()
+        truth_s[keep] = np.where(_water, truth_s[keep], np.nan)
+    baseline_ok = EA.baseline_exists_mask(la[keep], lo[keep], d["valid_mask"], d["land_mask"])
     if int(keep.sum()) == 0:
         raise SystemExit("no Argo profile falls in the test window; refusing to report metrics "
                          "computed on zero profiles.")
@@ -361,7 +435,8 @@ def main() -> None:
     sig_rho = np.sqrt(np.exp(np.concatenate(lr_)))                       # kg m-3, already physical
 
     clim_at = clim[pd.to_datetime(keys["date"].values).month - 1, la, lo, :]
-    m_t = metrics.per_depth(mu_t, truth_t[keep], clim=clim_at[keep], reference="argo")
+    m_t = metrics.per_depth(mu_t, truth_t[keep], clim=clim_at[keep], reference="argo",
+                            baseline_ok=baseline_ok)
     cal_t = calibration(mu_t, sig_t, truth_t[keep])
 
     print(f"\nTEMPERATURE  {'depth':>6} {'n':>5} {'RMSE':>7} {'corr':>7} {'bias':>8} {'skill':>7}")
@@ -420,8 +495,10 @@ def main() -> None:
                 "input_source": d.get("input_source", "unknown"),
                 "latent": latent, "unet_channels": None,
                 "decoder": "simple", "loss": "nll", "beta_nll": a.beta, "data": "daily",
-                "stage": 2, "w_density": a.w_density,
-                "protocol": "embargoed_v2", "n_targets_embargoed": int(n_embargoed),
+                "stage": 2, "w_density": a.w_density, "w_stab": a.w_stab,
+                "protocol": "embargoed_v3_val_carved",
+                "n_targets_embargoed": int(n_embargoed),
+                "selection_protocol": D.SELECTION_PROTOCOL,
                 "norm": [np.asarray(v).tolist() for v in ds_tr.norm],
                 "trained_on": trained_on,
                 "train_period": list(train_period), "test_period": list(test_period),
@@ -443,6 +520,12 @@ def main() -> None:
                          "collapse the variance (train NLL -1.0610 vs held-out +0.6732), so all "
                          "three terms use beta-NLL (Seitzer 2022). --beta 0 reproduces the paper."),
         "w_density": a.w_density,
+        "w_stab": a.w_stab,
+        "w_stab_note": ("weight on the SOFT static-stability penalty mean ReLU(-drho/dz). 0 means "
+                        "the objective is byte-identical to every earlier stage-2 run. A soft "
+                        "penalty makes violations rare, never absent -- the hard guarantee is "
+                        "phase2.physics.stability, measured by "
+                        "scripts/phase2/run_stability_projection.py"),
         "eos": "EOS-80 / UNESCO (1983), Fofonoff & Millard -- the same reference the paper cites",
         "trained_on": trained_on,
         "train_period": list(train_period), "test_period": list(test_period),
@@ -460,7 +543,9 @@ def main() -> None:
         "daily_dir": (a.daily_dir or ("data/processed/daily"
                                       if getattr(a, "data", None) == "daily" else None)),
         "input_source": d.get("input_source", "unknown"),
-        "protocol": "embargoed_v2",
+        "protocol": "embargoed_v3_val_carved",
+        "selection": sel,
+        "val_period": list(val_period),
         "protocol_note": ("training targets whose T_SEQ window would reach into the test block are "
                           "dropped; test indices unchanged. Runs before 2026-08-31 used "
                           "'boundary_overlap_v1' and are NOT comparable to these."),
@@ -475,6 +560,7 @@ def main() -> None:
         "training_curve": curve,
         "checkpoint_is": "the BEST held-out epoch, not the last",
         "argo_profiles": int(keep.sum()), "max_days_offset": MAX_DAYS,
+        "scoring_protocol": EA.SCORING_PROTOCOL, "refusals": refusals,
         "argo_table": os.path.basename(argo_path),
         "salinity_is_independently_validated": bool(truth_s is not None),
         "salinity_validation_note": (

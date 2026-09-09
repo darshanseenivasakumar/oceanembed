@@ -333,7 +333,7 @@ def quote(text, attrib=None):
     return KeepTogether([Spacer(1, 4), t, Spacer(1, 8)])
 
 
-def table(rows, widths=None, align=None, bold_col0=False, font_size=None):
+def table(rows, widths=None, align=None, bold_col0=False, font_size=None, keep=True):
     """rows[0] is the header. widths are fractions of the content width."""
     ncol = len(rows[0])
     if widths is None:
@@ -371,7 +371,11 @@ def table(rows, widths=None, align=None, bold_col0=False, font_size=None):
         for i, a in enumerate(align):
             style.append(("ALIGN", (i, 0), (i, -1), a))
     t.setStyle(TableStyle(style))
-    return KeepTogether([Spacer(1, 3), t, Spacer(1, 8)])
+    # keep=False lets a long table SPLIT across pages (repeatRows=1 carries the header). A
+    # KeepTogether that cannot fit pushes the whole table to the next page and leaves a dead
+    # half-page behind it -- fine for a four-row table, wrong for a sixteen-row reference card.
+    parts = [Spacer(1, 3), t, Spacer(1, 8)]
+    return KeepTogether(parts) if keep else parts
 
 
 def kvstrip(pairs):

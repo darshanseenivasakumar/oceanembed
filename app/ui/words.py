@@ -87,11 +87,6 @@ FEATURES = [
      "Does the shape survive, not just the values?",
      "RMSE scores each depth alone. This asks whether the structure between them is real.",
      "STRESS IT"),
-    ("buoy", "Time at one point",
-     "Does it track change, not just place?",
-     "Argo drifts, so it cannot answer this. A moored buoy sits still and samples every few "
-     "hours.",
-     "PROVE IT"),
     ("assimilate", "Learn from a float",
      "Does an observation improve it, with no retraining?",
      "A float surfaces; the model's internal state is corrected and the fix travels to water in "
@@ -243,23 +238,6 @@ EXPLAIN = {
         "It also shows the discipline. One seed suggested a win; three seeds showed the sign "
         "flipping. A result that does not survive a reseed is not a result."),
 
-    # ---- buoy time-axis validation
-    "buoystation": (
-        "The mooring",
-        "A buoy anchored to the sea floor, holding temperature sensors at fixed depths and "
-        "reporting every few hours. Because it does not move, its record is a clean history of "
-        "**one place through time**.\n\n"
-        "These are reported through NOAA's OSMC feed. Each entry is one station and one sensor "
-        "depth, scored separately."),
-    "timeaxis": (
-        "Why a time axis?",
-        "The headline number, 0.9063 °C, is a **space** score: 963 Argo profiles, each a "
-        "different patch of ocean. Argo floats drift, so none of them stays anywhere long enough "
-        "to say whether the model follows a place as it changes.\n\n"
-        "A moored buoy does stay. So this asks a question the headline structurally cannot: not "
-        "*is the map right*, but **does the model move with the ocean**.\n\n"
-        "It does not replace the headline. A handful of moorings is a small sample next to 962 "
-        "profiles."),
     "bandpass": (
         "The 30–90 day band",
         "Ocean temperature at a point wobbles on every timescale at once — daily heating, weather, "

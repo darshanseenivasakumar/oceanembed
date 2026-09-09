@@ -4056,3 +4056,150 @@ PYTHONPATH=src .venv/Scripts/python.exe scripts/phase2/run_cyclone_wake.py --dev
 ```
 
 That one takes 6.0 min on a CUDA machine and about 26 min on CPU.
+
+---
+
+## A30 — 2026-09-06 — ARJHUN — three novelty features, and the control that caught a silent architecture bug before any of them ran
+
+Three things this specialisation does not do, all built on the **frozen** checkpoint, none of them
+retraining anything. Full write-up: `docs/phase2/f_novelty.md`.
+
+| # | what | artifact | UI |
+|---|---|---|---|
+| 1 | **Hard** static-stability projection (isotonic on density) | `stability_projection.json` | Physical profiles, STRESS IT |
+| 2 | Observability field (Jacobian of the frozen model) | `observability.json` + `.npz` | What it can see, STRESS IT |
+| 3 | Latent-space assimilation from real Argo | `latent_assimilation.json` | Learn from a float, PROVE IT |
+
+All three load through ONE shared context, `src/phase2/reliability/harness.py`, factored from
+`rescore_checkpoint.py`'s proven path rather than written three times. 59 new tests, all offline.
+
+### THE CONTROL EARNED ITS KEEP BEFORE THE FIRST EXPERIMENT
+
+`Context.control_rmse()` re-scores with nothing applied. The first run **disagreed**: 0.9297
+against a recorded 0.9078 — on exactly the right 962 profiles and 12,829 comparisons, so the
+collocation was right and the model was not.
+
+**`built_t_seq` is not `T_SEQ`.** The first sets CNN3D's temporal pooling stride (1 -> no pooling,
+11 -> [2,2,2]); the second is the input window. The shipped checkpoint is `T_SEQ=11`,
+`built_t_seq=1`. **Both constructions load the same state_dict without complaint**, because
+AdaptiveAvgPool3d makes every parameter shape identical either way. Building at t_seq=11 gave a
+plausible wrong number with no error raised anywhere. `harness.load` reads `built_t_seq` and calls
+`assert_architecture_matches` — which this repo already had, for exactly this.
+
+[VERIFIED] after: 0.9077608087441584 against 0.9077608087441584 recorded.
+
+### 1 — STABILITY: THE NUMBER NOBODY IN THIS FIELD REPORTS
+
+A soft penalty (TS-Cast eq. 5, our `stability_penalty`) makes violations rare and cannot make them
+absent, which is why no paper reports a violation count. Ours, on stage-2 satellite:
+
+```
+                      before                       after
+962 Argo columns      805 / 13,468 pairs (5.98%)   0     verified, not asserted
+                      in 597 of 962 columns
+whole basin 06-22     12,153 / 165,648 (7.34%)     0     32.7 s, 11,832 cells
+                      in 8,298 of 11,832 cells
+RMSE vs Argo          0.8854                       0.8856    +0.0002 degC
+```
+
+2.2 ms/profile, closed form. **Two bugs found by counting, not reading.** (a) `T_TOL=1e-6` left 395
+phantom violations: PAVA pools to an EXACTLY flat pair, and a 1e-6 degC inversion error pushes half
+of those marginally negative. Now 1e-11. (b) A level whose inversion refused kept its original
+temperature, silently restoring the original violation *inside the function that promises none* —
+5 real ones. Refused levels are NaN with a reason now. A third, in the test: `tol=T_TOL` as a
+default argument is bound at import, so monkeypatching the constant did nothing and the
+"load-bearing" test asserted nothing.
+
+**The refusal is part of the feature.** Density needs salinity, so this is stage-2 only and
+`project_profile` raises on stage 1. Enforcing monotone temperature instead would delete Bay of
+Bengal barrier-layer inversions — which `physics/layers.py` measures.
+
+**DARSHAN: `train_stage2.py` gained `--w-stab`, default 0.0**, so every existing stage-2 objective
+is byte-identical. It carries the same overwrite guard `--w-grad` has: `--w-stab` with `--tag s2`
+or `sat_s2` raises rather than overwriting the baseline the experiment compares against. Weight
+measured, not guessed: the term is 2.77e-4 against a base loss of -0.5425, so w=1000 is 51% of the
+objective.
+
+### 2 — OBSERVABILITY: THE MODEL TELLS YOU WHICH CHANNEL IT READS, AND WHERE
+
+```
+depth     sst    sss    ssh   ...    L2   /variability  leads
+    0   1.460  0.353  0.299        1.602      0.90      sst 57%
+  100   0.574  1.239  2.834        3.344      1.47      ssh 48%
+  125   0.613  1.145  2.964        3.461      1.64      ssh 48%
+ 1000   0.276  0.200  0.221        0.527      0.49      sst 26%
+```
+
+degC at depth per +1 s.d. coherent shift of that channel. **The model learned the physically
+correct handover with nobody telling it to** — SST for the mixed layer, sea-surface height for the
+thermocline, which is the depth-integrated signal of thermocline displacement. It is in no loss
+term anywhere.
+
+This is only clean because the shipped decoder is `simple`: mu depends on the latent alone.
+[VERIFIED] climatology zeroed vs randomised gives bit-identical output. Under the paper's FiLM
+decoder a flat Jacobian would have meant "fell back on the average" instead.
+
+**AND IT CARRIES A CLEAN NEGATIVE.** The hypothesis was that our errors sit BELOW the information
+floor. Depth-controlled, at every testable depth, the ratio (below/above) is 0.38 / 0.78 / 0.65 /
+0.74 — **refuted, in the opposite direction**. Low sensitivity marks quiescent water close to
+climatology that is easy to predict. The pooled 0.32x is confounded by depth and is labelled so in
+the artifact. Wording is "sensitivity-derived", never "information-theoretic bound"; a test asserts
+the negation is present.
+
+### 3 — LATENT ASSIMILATION: SUPPORTED, MODESTLY
+
+Freeze the network, optimise the 128-number latent until the decoder reproduces a real float's
+profile, push the correction by cosine similarity in LATENT space. Leave-one-out always.
+
+The model runs +0.1003 degC warm, so ANY fitted correction cools and cooling helps everywhere —
+the same trap the cloud-dropout sweep nearly fell into. So the identical correction goes to three
+populations. At the selected lambda=0.03:
+
+```
+MAE 0.5441 -> similar 0.5291   (+0.0150 degC, ~2.8%)
+            dissimilar 0.7917   (-0.0745)
+             shuffled 0.6129   (-0.0241)
+   similar, >= 500 km away      (+0.0065 over 136,250 comparisons)
+   similar, <  200 km away      (+0.0422)
+```
+
+If this were the warm bias being cancelled all three would improve together. They do not. The
+correction **does** reach water 500 km away in a similar state — and most of the benefit is
+nonetheless local, which is on the panel.
+
+**The selection rule had to be fixed and that is worth reading.** The first headline picked lambda
+by the largest MARGIN over the controls, and chose lambda=0.001 — where similar states gain only
++0.0033 while the controls are driven 0.2386 WORSE. A rule that rewards wrecking its own control
+will always report success. Selection is now the largest gain at similar states among lambdas where
+NEITHER control improved.
+
+### WHAT I DID NOT TOUCH
+
+`app/streamlit_app.py`, `app/panels/`, `config.py`, `data/`, `features/`, `inference/predict.py`
+are untouched. `app/ui/features/__init__.py` and `app/ui/words.py` gained three entries each — both
+are Unit A files, and your `buoy` entry is preserved as written.
+
+**EXPERIMENT_LOG.md is Unit C's file**, so I have not written to it. Three runs need logging there:
+the stability projection, the observability field and the latent-assimilation lambda sweep — all
+three artifacts carry seed, config and control.
+
+### A30 ADDENDUM — the soft-vs-hard comparison, now trained and measured
+
+`--w-stab 1000.0`, seed 42, otherwise identical to the baseline. Control reproduces 0.907392.
+
+```
+                                    unstable pairs before        after   RMSE      bias
+baseline (eq.5 density NLL only)    805 / 13,468 (5.977%)          0     0.8854   +0.0831
+                                    in 597 of 962 profiles               ->0.8856
+soft stability penalty  w=1000        2 / 13,468 (0.015%)          0     0.9074   +0.1782
+                                    in 2 of 962 profiles
+```
+
+**The soft penalty reduces violations ~400-fold and does NOT reach zero** — which is precisely what
+a soft constraint cannot promise, and why nobody in this field reports the count. It also costs
+**+0.0220 degC** of RMSE and more than doubles the warm bias.
+
+The projection reaches zero for **+0.0002 degC** — about **100x cheaper in accuracy** — and applies
+to a model never trained for it. They are not alternatives: the penalty moves weights, the
+projection is post-hoc, and the soft-trained model still emits 2 violations that the projection
+then removes.

@@ -31,6 +31,9 @@ MODULES = {
     "wake": "wake",
     "cloud": "cloud",
     "shape": "shape",
+    "stability": "stability",
+    "observability": "observability",
+    "assimilate": "assimilate",
 }
 
 

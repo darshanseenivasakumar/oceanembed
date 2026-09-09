@@ -292,3 +292,66 @@ BUT the model is only ever exercised on a 1-D exponential decay, so nothing test
 Unit C's anomaly/priority panels will render an ocean where SSH does nothing. FIX (Unit B owns the file): couple
 SSH to thermocline depth and add a day-of-year cycle, per Unit B's own proposal. NOT ACTIONED by Unit A —
 `scripts/make_fixtures.py` is Unit B's file.
+
+## D-012 — Static stability is enforced by PROJECTION, not by a loss term, and only where density exists
+DATE 2026-09-06. RAISED BY Unit A. REASON: `stability_penalty` (TS-Cast eq. 5) is a soft constraint —
+it makes violations rare and cannot make them absent, which is why no paper in this specialisation
+reports a violation count. IMPLEMENTATION: `phase2.physics.stability` projects each predicted
+profile onto the nearest statically stable one — isotonic regression (PAVA) on EOS-80 density,
+inverted back to temperature at FIXED salinity by bisection, then RE-VERIFIED by recomputing density
+from the projected temperature and counting again. Isotonic and not a sort (which permutes levels)
+or a running maximum (which only pushes values up); PAVA is the unique nearest non-decreasing
+sequence and is exactly the identity on an already-stable column, which is what makes it safe to
+apply unconditionally. CONSEQUENCES: the guarantee is arithmetic, not a hope. MEASURED on stage-2
+satellite: 805 of 13,468 adjacent pairs (5.98%) unstable in 597 of 962 Argo columns, and 12,153 of
+165,648 (7.34%) in 8,298 of 11,832 basin cells -> 0 after, for +0.0002 degC of RMSE at 2.2 ms per
+profile. MEASURED against a soft-penalty model trained for this comparison
+(`--w-stab 1000.0`, seed 42, otherwise identical): the soft term cuts violations ~400-fold, 805 ->
+2, and STILL DOES NOT REACH ZERO — which is exactly what a soft constraint cannot promise — at a
+cost of +0.0220 degC RMSE and a doubled warm bias (+0.0831 -> +0.1782). The projection reaches zero
+for +0.0002 degC, roughly 100x cheaper in accuracy, on a model never trained for it. They are not
+alternatives: the penalty moves weights, the projection is post-hoc, and the soft-trained model
+still emits 2 violations that the projection then removes. **STAGE 2 ONLY**: density needs salinity at depth, so `project_profile` RAISES on a None
+salinity rather than substituting. The tempting alternative — enforce dT/dz <= 0 — would be wrong in
+THIS basin, because Bay of Bengal barrier-layer temperature inversions are real and
+`physics/layers.py` already measures them; a guarantee bought by deleting a physical signal is worse
+than none. Two bugs found by counting rather than reading: `T_TOL=1e-6` left 395 phantom violations
+(PAVA pools to an exactly flat pair and a 1e-6 degC inversion error pushes half of them marginally
+negative — now 1e-11), and a level whose inversion refused kept its original temperature, silently
+restoring the original violation inside the function that promises none (refused levels are NaN with
+a reason now).
+
+## D-013 — The observability field is SENSITIVITY-DERIVED and is never called an information bound
+DATE 2026-09-06. RAISED BY Unit A. REASON: every paper in this field reports where its model is
+inaccurate, which conflates "the model is weak here" with "the surface carries no signal about this
+depth" — the first is ours to fix, the second is a ceiling on the whole approach. IMPLEMENTATION:
+`phase2.reliability.observability` differentiates the frozen model, reporting degC at each depth per
++1 s.d. coherent shift of each satellite channel — per 1 s.d. of ITSELF, because seven channels in
+degC, psu, m and m/s cannot otherwise be compared. CONSEQUENCES: the analysis is clean only because
+the shipped decoder is `simple` and mu depends on the latent alone ([VERIFIED] output is
+bit-identical with climatology zeroed or randomised); under the paper's FiLM decoder a flat Jacobian
+would have meant "fell back on the climatology" instead. MEASURED: the model reads SST for the mixed
+layer and sea-surface height for the thermocline (48% of the response at 100-125 m) with nothing in
+the loss telling it to. **The wording is a decision.** This is NOT an information-theoretic bound —
+no noise model, no likelihood, no mutual information — and a test asserts the negation appears in
+the returned definition string. The threshold tau is a stated parameter, not a hidden one, and the
+full sweep ships in the artifact because the floor moves from 1000 m at tau=0.05 to 200 m at
+tau=0.5. The hypothesis that our errors sit below the floor was **REFUTED** at every testable depth
+(ratios 0.38 / 0.78 / 0.65 / 0.74) and is reported as refuted.
+
+## D-014 — Every novelty experiment loads through ONE context, and refuses to write if its control disagrees
+DATE 2026-09-06. RAISED BY Unit A. REASON: three experiments needed the same six things — bundle,
+split with embargo, the checkpoint's own normalisation, the checkpoint, the independent-Argo
+collocation, and a way to run the model at chosen cells. `rescore_checkpoint.py` already did all six
+correctly; writing that sequence three more times is how this project produced an 8 degC dashboard
+error and a warm-surface report that was a missing variable. IMPLEMENTATION:
+`phase2.reliability.harness` holds it once, and `Context.control_rmse()` re-scores with nothing
+applied and compares against the metrics file beside the checkpoint. Every script exits non-zero
+rather than writing its artifact if the control does not agree to 1e-4. CONSEQUENCES: the control
+caught a real bug on its first run. **`built_t_seq` is not `T_SEQ`**: the first is what CNN3D's
+temporal pooling stride is built from (1 -> none, 11 -> [2,2,2]), the second is the input window,
+and the shipped checkpoint is T_SEQ=11 with built_t_seq=1. Both constructions accept the same
+state_dict without complaint because AdaptiveAvgPool3d equalises every parameter shape, so building
+at t_seq=11 produced 0.9297 against a recorded 0.9078 with NO error raised anywhere. `harness.load`
+now builds from `built_t_seq` and calls the repo's own `assert_architecture_matches`. A control that
+only ever passes is not a control.

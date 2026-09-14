@@ -1436,3 +1436,29 @@ Thadathil 2007 (10.1029/2006JC003651), de Boyer Montégut 2004 (hal.science/hal-
 [UNKNOWN] Thadathil threshold in D-020.
 
 No code yet. Next: Phase 1 (engine + tests, TDD) on the data already on this machine.
+
+## 2026-09-15 — Feature #1 Phase 1: the inversion engine, and the GLORYS winter agrees with the literature
+
+TDD, three new modules, 38 tests (all offline, no bundle):
+- `src/phase2/derived/inversion.py` — `inversion_amplitude` (scalar, D-020 cumulative-minimum scan,
+  any depth axis, NaN-safe) and `inversion_field` (vectorised; the column-by-column equality test
+  pins it to the scalar definition). `present()` thresholds; `region_labels()` splits the Bay at
+  15 N (north/south) on top of `basins.classify_points`.
+- `src/phase2/derived/inversion_skill.py` — `contingency` (reuses `mhw_field.compare_detection`),
+  `amplitude_stats` (truth-present columns only), `depth_stats`, `three_seed_summary`, and `adopt()`
+  = the E-INV-00 rule as code (refuses < 3 seeds; names every failed clause).
+- `src/phase2/tscast_nio/time_encoding.py` — `doy_encoding`, leap-safe, continuous across year end.
+
+**Vectorising `inversion_field` cut a one-day field scan from 0.48 s to 18 ms (27x); a 90-day winter
+field is now ~1.6 s.** Correctness is the equality test, not eyeballing.
+
+**Real-data smoke [VERIFIED], GLORYS `data/processed/daily`, 90 DJF days, inversion present at
+>= 0.2 degC:** north Bay **90.0 %** (mean amplitude 2.14 degC when present), south Bay 61.2 % (0.71),
+Arabian Sea 16.1 % (0.62). The north>south>west gradient and the ~80 % northern-Bay frequency match
+Thadathil et al. 2016 (RAMA, ~80 %, ~0.7 degC at 90 E). Our northern amplitude runs higher than the
+buoy 0.7 degC because the north_bob region reaches the coastal far-north where inversions are
+strongest, the amplitude here spans the whole 0-150 m rise (not a fixed level pair), and GLORYS is a
+reanalysis — noted, not a discrepancy to chase. This is the E-INV-00 truth-side sanity gate: PASSED,
+so the truth pipeline is trustworthy before any model is judged.
+
+Next: Phase 2 data (rebuild the satellite bundle here; download the held-out winter 2024-25).

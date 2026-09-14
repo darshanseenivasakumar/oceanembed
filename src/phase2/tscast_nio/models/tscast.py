@@ -199,6 +199,7 @@ class TSCastNIO(nn.Module):
     """
 
     def __init__(self, encoder_name: str, c_in: int, t_seq: int = None, p: int = None,
+                 doy_channels: bool = False,
                  latent: int = None, residual: bool = True, unet_channels=None,
                  decoder: str = "film", stage: int = 1):
         super().__init__()
@@ -213,7 +214,12 @@ class TSCastNIO(nn.Module):
         p = int(config.P if p is None else p)
         latent = int(config.LATENT_DIM if latent is None else latent)
 
-        self.encoder = E.ENCODERS[encoder_name](c_in, t_seq, p, latent=latent)
+        # Geo channels: 3 (lat/lon unit vector, paper eq. 1) plus 2 for day-of-year when
+        # the season is fed in (E-INV-00 leg L1). Routed through the geo path, not c_in,
+        # so the input-width guard and input_channels() are untouched.
+        self.doy_channels = bool(doy_channels)
+        self.n_geo = 3 + (2 if self.doy_channels else 0)
+        self.encoder = E.ENCODERS[encoder_name](c_in, t_seq, p, latent=latent, n_geo=self.n_geo)
         #: The input width this network was BUILT for, so a checkpoint can be checked against it.
         self.c_in = int(c_in)
         self.encoder_name = encoder_name
@@ -436,6 +442,19 @@ def assert_architecture_matches(model: nn.Module, ck: dict, where: str = "") -> 
                 f"= {want_c}. Build with c_in=dataset.input_channels(ck['channels'], "
                 f"ck.get('mask_channels', False)) and a GriddedPatches with the same "
                 f"mask_channels.")
+
+    # Day-of-year geo channels (E-INV-00 leg L1). A checkpoint written before this field carries
+    # no `doy_channels` key -- nothing to compare, so this passes rather than inventing a
+    # constraint, exactly as the pool_signature block above does.
+    want_doy = ck.get("doy_channels")
+    if want_doy is not None and getattr(model, "doy_channels", None) is not None:
+        if bool(model.doy_channels) != bool(want_doy):
+            raise ValueError(
+                f"architecture mismatch{' in ' + where if where else ''}: this model was built "
+                f"with doy_channels={model.doy_channels} ({model.n_geo} geo channels), the "
+                f"checkpoint was trained with doy_channels={bool(want_doy)}. The geo-channel width "
+                f"differs, so load_state_dict would reject the first conv with a shape error whose "
+                f"cause is this flag. Build the model with doy_channels=ck['doy_channels'].")
 
     want = ck.get("pool_signature")
     if want is None:

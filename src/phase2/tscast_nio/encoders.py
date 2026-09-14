@@ -45,10 +45,10 @@ class _Res3D(nn.Module):
 class MLPControl(nn.Module):
     """Centre cell only. No neighbours, no spatial structure -- the incumbent's information."""
 
-    def __init__(self, c_in: int, t_seq: int, p: int, latent: int = 128):
+    def __init__(self, c_in: int, t_seq: int, p: int, latent: int = 128, n_geo: int = 3):
         super().__init__()
         self.c = p // 2
-        d = (c_in + 3) * t_seq
+        d = (c_in + n_geo) * t_seq
         # Deliberately WIDE. The control must lose on INFORMATION (no neighbours), never on
         # capacity -- otherwise "spatial context helps" is indistinguishable from "bigger helps".
         self.net = nn.Sequential(nn.Linear(d, 512), nn.Mish(),
@@ -64,9 +64,9 @@ class CNN3D(nn.Module):
     """The paper's satellite feature encoder, at bake-off scale."""
 
     def __init__(self, c_in: int, t_seq: int, p: int, latent: int = 128,
-                 widths=(24, 48, 96)):
+                 widths=(24, 48, 96), n_geo: int = 3):
         super().__init__()
-        blocks, c, t, s = [], c_in + 3, t_seq, p
+        blocks, c, t, s = [], c_in + n_geo, t_seq, p
         for w in widths:
             blocks.append(_Res3D(c, w))
             pt = 2 if t >= 2 else 1
@@ -86,9 +86,9 @@ class CNNAttention(nn.Module):
     """CNN stem, then self-attention over the remaining spatial tokens."""
 
     def __init__(self, c_in: int, t_seq: int, p: int, latent: int = 128,
-                 widths=(32, 96), heads: int = 4):
+                 widths=(32, 96), heads: int = 4, n_geo: int = 3):
         super().__init__()
-        blocks, c, t, s = [], c_in + 3, t_seq, p
+        blocks, c, t, s = [], c_in + n_geo, t_seq, p
         for w in widths:
             blocks.append(_Res3D(c, w))
             pt = 2 if t >= 2 else 1
@@ -113,9 +113,9 @@ class ViT(nn.Module):
     """Patchify -> tokens -> transformer encoder. Global attention from layer one."""
 
     def __init__(self, c_in: int, t_seq: int, p: int, latent: int = 128,
-                 dim: int = 96, depth: int = 3, heads: int = 4, patch: int = 4):
+                 dim: int = 96, depth: int = 3, heads: int = 4, patch: int = 4, n_geo: int = 3):
         super().__init__()
-        self.stem = nn.Conv3d(c_in + 3, dim, kernel_size=(t_seq, patch, patch),
+        self.stem = nn.Conv3d(c_in + n_geo, dim, kernel_size=(t_seq, patch, patch),
                               stride=(1, patch, patch))
         n_tok = (p // patch) ** 2
         self.cls = nn.Parameter(torch.zeros(1, 1, dim))

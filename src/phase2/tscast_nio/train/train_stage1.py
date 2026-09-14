@@ -128,6 +128,12 @@ def main():
                          "Ablatable exactly like --w-density, because this project has already "
                          "MEASURED a physics term costing accuracy (eq. 5 density: 0.8593 vs "
                          "0.8548) and no such term is assumed to help.")
+    ap.add_argument("--doy", action="store_true",
+                    help="feed day-of-year (sin, cos) to the encoder as two extra geo channels "
+                         "(E-INV-00 leg L1). The shipped simple decoder gets no season signal at "
+                         "all; this is the cheapest way to let it know it is winter. Changes the "
+                         "geo-channel width, so a --doy checkpoint and a plain one are not "
+                         "interchangeable -- assert_architecture_matches enforces it.")
     ap.add_argument("--w-grad-shallow", type=float, default=0.0,
                     help="weight on the vertical-gradient loss RESTRICTED to level pairs above "
                          "--grad-max-depth (E-INV-00 leg L2). A27 measured the near-surface "
@@ -192,9 +198,9 @@ def main():
     # TAGGED copy and would still pass, while the dashboard, output.ERROR_SOURCES and
     # train_stage2._stage1_comparison() all read the untagged name and would start serving the
     # experiment's numbers as the shipped baseline.
-    if (a.w_grad or a.w_grad_shallow or a.w_sign) and not a.tag:
+    if (a.w_grad or a.w_grad_shallow or a.w_sign or a.doy) and not a.tag:
         raise SystemExit(
-            "an experimental loss term (--w-grad / --w-grad-shallow / --w-sign) is set but --tag "
+            "an experimental option (--w-grad / --w-grad-shallow / --w-sign / --doy) is set but --tag "
             f"is empty, so this run would overwrite {base.art('tscast_stage1.pt')} -- the promoted "
             "copy of the frozen deliverable. Give the run its own tag, e.g. --tag inv_sign_s42.")
 
@@ -313,12 +319,12 @@ def main():
     ds_tr = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              tr_t, t_seq=t_seq,
                              max_samples=a.train_samples, seed=seed,
-                             clim=clim, return_clim=True, mask_channels=a.mask_channels)
+                             clim=clim, return_clim=True, mask_channels=a.mask_channels, doy_channels=a.doy)
     ds_va = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              va_t, norm=ds_tr.norm, t_seq=t_seq,
                              max_samples=a.val_samples,
                              seed=seed + 1, clim=clim, return_clim=True,
-                             mask_channels=a.mask_channels)
+                             mask_channels=a.mask_channels, doy_channels=a.doy)
     if a.mask_channels:
         print(f"mask   : presence mask ON -- {ds_tr.C} value channels + {ds_tr.C} masks = "
               f"{ds_tr.C_in} input channels (audit #13)")
@@ -341,7 +347,7 @@ def main():
     model = TSCastNIO(enc, D.input_channels(d["channels"], a.mask_channels), t_seq=1,
                       p=config.P, latent=latent,
                       residual=not a.no_residual, unet_channels=widths,
-                      decoder=a.decoder).to(dev)
+                      decoder=a.decoder, doy_channels=a.doy).to(dev)
     n_enc = sum(q.numel() for q in model.encoder.parameters())
     n_dec = sum(q.numel() for q in model.parameters()) - n_enc
     print(f"params : {n_enc + n_dec:,} total  ({n_enc:,} encoder + {n_dec:,} decoder), "
@@ -414,7 +420,7 @@ def main():
     ds_te = D.GriddedPatches(d["surface"], d["temp"], d["times"], d["land_mask"], d["channels"],
                              te_t, norm=ds_tr.norm, t_seq=t_seq,
                              seed=seed + 1, clim=clim, return_clim=True,
-                             mask_channels=a.mask_channels)
+                             mask_channels=a.mask_channels, doy_channels=a.doy)
     # The Argo set MUST cover the same period as the data. artifacts/argo_test.parquet is 2022;
     # against a 2026 test window the +/-5 day filter matches nothing, and the run then died on
     # "need at least one array to concatenate" AFTER a full training run had completed.
@@ -510,7 +516,7 @@ def main():
                 # `film` and died with "Missing key(s) decoder.*" on every simple-decoder run.
                 "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "w_grad": a.w_grad,
                 "w_grad_shallow": a.w_grad_shallow, "grad_max_depth": a.grad_max_depth,
-                "w_sign": a.w_sign, "data": a.data,
+                "w_sign": a.w_sign, "doy_channels": bool(a.doy), "data": a.data,
                 # Which temporal protocol produced these weights. Nothing in a checkpoint used to
                 # distinguish the boundary-overlap runs from the embargoed ones, so a stale
                 # checkpoint could not be told apart from a clean one.
@@ -579,6 +585,7 @@ def main():
         "val_period": list(val_period),
         "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta, "w_grad": a.w_grad,
         "w_grad_shallow": a.w_grad_shallow, "grad_max_depth": a.grad_max_depth, "w_sign": a.w_sign,
+        "doy_channels": bool(a.doy),
         "decoder": a.decoder, "loss": a.loss,
         "beta_nll_why": ("plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0."),
         "training_curve": curve,
@@ -626,7 +633,7 @@ def main():
     _fresh = TSCastNIO(enc, c_in=D.input_channels(d["channels"], a.mask_channels), t_seq=1,
                        p=config.P, latent=latent,
                        residual=not a.no_residual, unet_channels=tuple(widths),
-                       decoder=a.decoder, stage=1)
+                       decoder=a.decoder, stage=1, doy_channels=a.doy)
     _fresh.load_state_dict(torch.load(ck, map_location="cpu", weights_only=False)["state_dict"])
     _fresh.eval()
     with torch.no_grad():

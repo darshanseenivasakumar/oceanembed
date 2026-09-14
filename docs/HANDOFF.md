@@ -1407,3 +1407,32 @@ climatology collapses and where climatology beats the model outright at 1000 m.
 **Caveats unchanged.** Detection on both legs uses the 2019–2022 monthly pilot baseline, so
 absolute counts are inflated; the contingency table is immune because model and truth share one
 threshold. The truth is GLORYS, which carries its own error.
+
+## 2026-09-14 — Feature #1 starts: the Bay's winter inversion, Phase 0 (ground truth before code)
+
+Branch `phase2-bob-inversion` from `main @ 6530570`. Plan approved by Darshan (kept as a Claude plan
+file outside the repo). Decisions taken with him: download a second winter (Nov 2024–Mar 2025) as an
+evaluation-only bundle; one branch for all of it (Unit A training files touched additively, to be
+listed in the PR); rebuild the satellite bundle on this machine.
+
+**Two facts found while planning, both [VERIFIED] in source:** (1) `dataset.DAILY_TEST` holds no
+winter, so inversion skill has never been measurable on this project; (2) the shipped `simple`
+decoder receives no season signal at all (D-013), and A27 measured the near-surface gradient at
+42–69 % of observed — exactly the depths where inversions live.
+
+**Phase 0 output:** `docs/LITERATURE_MATRIX.md` §"Barrier layer & temperature inversion" (13 rows;
+each tag says exactly how it was verified — publisher pages and even HAL / NIO-DRS returned bot walls
+to the fetcher, so abstracts came via the Crossref and Semantic Scholar APIs; two citations corrected
+on the way: Girishkumar et al. is 2011 not 2013, Sprintall & Tomczak 1992 confirmed);
+`docs/NOVELTY_MATRIX.md` new row with the search record and the exact wording allowed;
+`docs/DECISIONS.md` D-020 (inversion definition, `winter_holdout_v1`, why the two alternatives were
+rejected); `docs/EXPERIMENT_LOG.md` E-INV-00 (pre-registration: H1/H2, six legs, frozen
+hyper-parameter procedure, sample-size rule); `docs/phase2/f_inversion.md` (feature doc + status).
+
+**Human task (small, not blocking):** save the free-to-read PDFs into
+`all research papers/barrier_layer/` — Thadathil 2016 (Wiley pdfdirect 10.1002/2016JC011674),
+Thadathil 2007 (10.1029/2006JC003651), de Boyer Montégut 2004 (hal.science/hal-00266983) and 2007
+(10.1029/2006JC003953), Nagura 2015 (AMS) — then upgrade the matrix rows to `[READ]` and fill the
+[UNKNOWN] Thadathil threshold in D-020.
+
+No code yet. Next: Phase 1 (engine + tests, TDD) on the data already on this machine.

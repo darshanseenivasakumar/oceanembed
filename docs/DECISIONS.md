@@ -355,3 +355,48 @@ state_dict without complaint because AdaptiveAvgPool3d equalises every parameter
 at t_seq=11 produced 0.9297 against a recorded 0.9078 with NO error raised anywhere. `harness.load`
 now builds from `built_t_seq` and calls the repo's own `assert_architecture_matches`. A control that
 only ever passes is not a control.
+
+## D-020 — Temperature-inversion definition, and a held-out WINTER protocol that never touches training
+DATE 2026-09-14. OWNER Unit B (Darshan), on `phase2-bob-inversion`; touches Unit A training files
+(listed in the PR). REASON: the Bay of Bengal's winter inversion (cold fresh surface over warmer water
+under the barrier layer) is the one profile shape a "warm surface ⇒ warm below" model gets backwards,
+and the project has never measured whether ours does — nor could it: `dataset.DAILY_TEST` is
+2026-04-01..2026-06-23 and the only winter in the daily bundle (Dec 2025–Feb 2026) sits inside
+`DAILY_TRAIN`. Two definitions are fixed here so no later number can be tuned into existence.
+
+**1. Inversion (temperature-only, per column).** Over the levels 0–150 m (`config.DEPTHS[:10]`):
+    amp = max_z [ T(z) − min_{z' < z} T(z') ]
+i.e. the largest warming with depth relative to any shallower level (a cumulative-minimum scan; NaN
+levels skipped; works on any depth axis, so full-resolution Argo and the 15-level grid run the same
+code). **Present iff amp ≥ 0.2 °C.** Also reported: depth of the warm maximum, depth of the shallower
+minimum, their difference (thickness), and a `reason` string when unresolved. 0.2 °C is chosen to
+equal the house isothermal-layer criterion (de Boyer Montégut 2004, ILD threshold) and to sit clear of
+Argo/GLORYS noise; the threshold used by Thadathil et al. 2002/2016 is [UNKNOWN] to us (full texts not
+read), so every result is ALSO reported at 0.1 and 0.5 °C. A result that holds at only one threshold is
+not a result. Argo TEMP is in-situ, GLORYS `thetao` is potential; in the top 150 m they differ by
+< 0.02 °C — stated, not corrected.
+
+**2. ILD / MLD / BLT** are `physics/layers.py` unchanged (Unit A file, de Boyer Montégut 2004
+criteria). Model-side BLT is REFUSED (needs salinity; stage 2 has never run on satellite input —
+E-S2-SAT-03 standing recommendation). Truth-side BLT (GLORYS, Argo) is allowed and labelled as truth.
+
+**3. Protocol `winter_holdout_v1`** (`tscast_nio/protocols.py`): test targets 2024-12-01..2025-02-28;
+evaluation bundle spans 2024-11-20..2025-03-10 (≥ T_SEQ//2 + MAX_DAYS = 10 days of lead-in/out) and
+lives in ITS OWN directory (`data/processed/daily_sat/v001_winter2425/`, provenance
+`role: held-out evaluation only, never training`). Seafloor mask and depth-axis rules are those of
+`seafloor_masked_v2`; truth table `artifacts/argo_winter2425.parquet` on metres. Numbers under this
+name are never compared with `seafloor_masked_v2` headline numbers. ALTERNATIVES REJECTED: (a) carve
+part of winter 2025–26 out of training — adjacent weeks are autocorrelated and inversions persist for
+weeks, so a 5-day embargo would overstate skill, and training would lose most of its only winter;
+(b) merge the winter into `v001` — `GriddedPatches._window` walks ARRAY indices and clamps at the
+array ends, so a Mar→Jun date gap would be silently bridged inside an 11-day window.
+
+**4. Decision rules are pre-registered in `EXPERIMENT_LOG.md` E-INV-00** (H1, H2, the ≥ 30-profile
+rule, the frozen hyper-parameter procedure). A leg is adopted only on 3 seeds, only if the winter
+inversion CSI improves on every seed by more than the control's seed sd, AND the headline 3-seed mean
+RMSE worsens by ≤ 0.004 °C. Anything else is NOT A RESULT.
+
+CONSEQUENCES: the shipped checkpoint, `DAILY_TRAIN/DAILY_TEST`, the sampler index and the 0.9063 °C
+headline are byte-identical before and after this feature unless a leg passes rule 4 and is promoted
+through `promote_run.py` with its own ADR. Every new training flag defaults off and refuses to run
+without `--tag` (the A27 guard), so an experiment cannot overwrite the deliverable.

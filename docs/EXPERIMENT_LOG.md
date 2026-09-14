@@ -192,3 +192,49 @@ hidden.
 
 **Standing recommendation.** Do not use the stage-2 MLD or barrier layer for any claim. OHC from
 stage 2 is defensible. Fixing this needs a better surface-salinity head, not a UI change.
+
+## E-INV-00 — PRE-REGISTRATION: Bay of Bengal winter inversions, held-out winter 2024–25 (2026-09-14)
+
+Written BEFORE any bundle was built or any run started. Definitions and protocol: D-020.
+
+**Question.** Does the satellite-input deliverable reproduce the northern Bay of Bengal's winter
+temperature inversion, and can a cheap, physically motivated change make it do so without costing
+the headline?
+
+**Truth-side expectations (from the literature, to sanity-check our truth, not our model).**
+Thadathil et al. 2016 (RAMA 2006–14, 90 °E): ~80 % of winter days carry an inversion of ~0.7 °C in
+the northern Bay, decreasing southward. Thadathil et al. 2007: BLT peaks ~60 m in February. If our
+GLORYS/Argo truth for winter 2024–25 does not show inversions concentrating in the northern Bay in
+Dec–Feb, the truth pipeline is wrong before the model is judged.
+
+**H1 — the problem exists.** On `winter_holdout_v1`, the control (3 seeds, same recipe as
+`sat_7ch`) has inversion POD < 0.5 and/or amplitude bias ≤ −50 % of true amplitude in the northern
+Bay (≥ 15 °N inside `basins.BAY_OF_BENGAL`). If instead POD ≥ 0.8 with |amplitude bias| < 25 %, H1 is
+rejected and the feature ships as "verified + mapped" — that outcome is reported, not hidden.
+
+**H2 — a fix works.** Legs, each 3 seeds (42, 43, 44), BASE_ARGS of `run_sat_ablations.py`,
+tags `inv_<leg>_s<seed>`:
+  L1 `--doy` (day-of-year sin/cos as two constant input channels)
+  L2 `--w-grad-shallow 1000 --grad-max-depth 100` (existing gradient loss, top 100 m only)
+  L3 `--w-sign W` (hinge on wrong-signed predicted dT/dz where truth |ΔT| ≥ 0.2 °C, top 100 m)
+  L4 `--w-inv-sample α` (columns with a truth inversion weighted 1+α in the NLL)
+  L5 `--aux-inversion 1.0` (BCE on an inversion-presence logit added to the simple head)
+  L6 union of adopted legs, only if ≥ 2 adopted.
+ADOPT iff (a) 3 seeds complete; (b) winter inversion CSI — Argo, northern Bay, if ≥ 30 truth-present
+profiles, else GLORYS-dense northern Bay on the 30 sampled days — beats control on EVERY seed and the
+3-seed mean gain > control's 3-seed CSI sd; (c) `seafloor_masked_v2` 3-seed mean RMSE − control ≤
++0.004 °C. Ties keep control. < 3 seeds ⇒ NOT A RESULT.
+
+**Frozen hyper-parameters.** W (L3) and α (L4) are fixed ONCE from a 1-seed, 2-epoch dry run —
+W so the sign term is ≈ 10 % of the total loss at epoch 1; α so inversion columns carry ≈ 50 % of
+the loss mass given their prevalence in the training index — and appended to this entry BEFORE the
+3-seed runs start. They are not revisited after seeing winter scores.
+
+**Sample-size rule.** The Argo winter table's count of truth-present profiles per region is printed
+and recorded here BEFORE any checkpoint is scored on it; that count decides Argo-vs-GLORYS primacy.
+
+**Attribution.** The GLORYS-input checkpoint `artifacts/tscast_stage1_7ch.pt` is scored on a
+GLORYS-input winter bundle too: misses inversions ⇒ model limit; gets them ⇒ input (sensor) limit.
+
+**Not results.** IN-SAMPLE checks on winter 2025–26 (a training winter) are debugging signals only
+and are labelled `IN-SAMPLE`; they never appear in a headline or the UI skill card.

@@ -36,7 +36,7 @@ from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
 from phase2.tscast_nio import config, dataset as D, eval_argo as EA, metrics
 from phase2.tscast_nio.models import TSCastNIO, gaussian_nll
-from phase2.tscast_nio.models.tscast import gradient_loss
+from phase2.tscast_nio.models.tscast import gradient_loss, sign_loss
 from phase2.tscast_nio.models.tscast import temporal_pool_signature as TSCastNIO_pool_sig
 
 MAX_DAYS = 5
@@ -128,6 +128,19 @@ def main():
                          "Ablatable exactly like --w-density, because this project has already "
                          "MEASURED a physics term costing accuracy (eq. 5 density: 0.8593 vs "
                          "0.8548) and no such term is assumed to help.")
+    ap.add_argument("--w-grad-shallow", type=float, default=0.0,
+                    help="weight on the vertical-gradient loss RESTRICTED to level pairs above "
+                         "--grad-max-depth (E-INV-00 leg L2). A27 measured the near-surface "
+                         "gradient flattened to 42-69%% of observed in the top ~30 m while the "
+                         "thermocline is faithful; this protects the shallow shape without the "
+                         "deep column diluting the term. 0.0 changes nothing.")
+    ap.add_argument("--grad-max-depth", type=float, default=100.0,
+                    help="depth cap in metres for --w-grad-shallow and --w-sign (default 100).")
+    ap.add_argument("--w-sign", type=float, default=0.0,
+                    help="weight on the SIGN-of-gradient hinge (E-INV-00 leg L3, "
+                         "models.tscast.sign_loss): penalise predicting cooling where the truth "
+                         "warms downward (an inversion) in the top --grad-max-depth m. 0.0 changes "
+                         "nothing. This is the term aimed straight at the Bay of Bengal winter.")
     ap.add_argument("--tag", default="",
                     help="suffix for the checkpoint and metrics filenames, e.g. --tag 7ch writes "
                          "tscast_stage1_7ch.pt. Every leg of the T_SEQ sweep overwrote the last "
@@ -179,11 +192,11 @@ def main():
     # TAGGED copy and would still pass, while the dashboard, output.ERROR_SOURCES and
     # train_stage2._stage1_comparison() all read the untagged name and would start serving the
     # experiment's numbers as the shipped baseline.
-    if a.w_grad and not a.tag:
+    if (a.w_grad or a.w_grad_shallow or a.w_sign) and not a.tag:
         raise SystemExit(
-            "--w-grad is set but --tag is empty, so this run would overwrite "
-            f"{base.art('tscast_stage1.pt')} -- the promoted copy of the frozen deliverable. "
-            "Give the run its own tag, e.g. --tag grad0p5_s42.")
+            "an experimental loss term (--w-grad / --w-grad-shallow / --w-sign) is set but --tag "
+            f"is empty, so this run would overwrite {base.art('tscast_stage1.pt')} -- the promoted "
+            "copy of the frozen deliverable. Give the run its own tag, e.g. --tag inv_sign_s42.")
 
     seed = int(a.seed if a.seed is not None else base.SEED)
     enc, enc_why = (a.encoder, "chosen on the command line") if a.encoder else winning_encoder()
@@ -203,12 +216,20 @@ def main():
             base_loss = (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
         else:
             base_loss = gaussian_nll(mu, logvar, y, mk, beta=a.beta)
-        if not a.w_grad:
+        if not (a.w_grad or a.w_grad_shallow or a.w_sign):
             # Returned UNTOUCHED, not `base + 0.0 * term`. Adding a zero-weighted term is
             # bit-identical for finite values, but a NaN term would survive the multiply
             # (0.0 * NaN = NaN) and poison a run that asked for no term at all.
             return base_loss
-        return base_loss + a.w_grad * gradient_loss(mu, y, mk, *_z[0])
+        loss = base_loss
+        if a.w_grad:
+            loss = loss + a.w_grad * gradient_loss(mu, y, mk, *_z[0])
+        if a.w_grad_shallow:
+            loss = loss + a.w_grad_shallow * gradient_loss(mu, y, mk, *_z[0],
+                                                           max_depth_m=a.grad_max_depth)
+        if a.w_sign:
+            loss = loss + a.w_sign * sign_loss(mu, y, mk, *_z[0], max_depth_m=a.grad_max_depth)
+        return loss
 
     def selection_nll(mu, logvar, y, mk):
         """Scored ALWAYS on plain NLL when the head is probabilistic, so early stopping and
@@ -306,12 +327,16 @@ def main():
     torch.manual_seed(seed)
     latent = a.latent or config.LATENT_DIM
     widths = tuple(a.unet_width) if a.unet_width else tuple(config.UNET_CHANNELS)
-    if a.w_grad:
+    if a.w_grad or a.w_grad_shallow or a.w_sign:
         _z.append((torch.tensor(ds_tr.y_mean, dtype=torch.float32, device=dev),
                    torch.tensor(ds_tr.y_std, dtype=torch.float32, device=dev),
                    torch.tensor(config.DEPTHS, dtype=torch.float32, device=dev)))
-        print(f"gradient loss ON, weight {a.w_grad} -- vertical dT/dz error in degC/m, on top of "
-              f"the {'MSE' if a.loss == 'mse' else 'beta-NLL'} objective")
+        on = []
+        if a.w_grad: on.append(f"grad(full) w={a.w_grad}")
+        if a.w_grad_shallow: on.append(f"grad(<={a.grad_max_depth:g}m) w={a.w_grad_shallow}")
+        if a.w_sign: on.append(f"sign-hinge(<={a.grad_max_depth:g}m) w={a.w_sign}")
+        print("physics terms ON: " + ", ".join(on) + " -- degC/m, on top of the "
+              f"{'MSE' if a.loss == 'mse' else 'beta-NLL'} objective")
 
     model = TSCastNIO(enc, D.input_channels(d["channels"], a.mask_channels), t_seq=1,
                       p=config.P, latent=latent,
@@ -483,7 +508,9 @@ def main():
                 "P": config.P, "T_SEQ": t_seq, "latent": latent, "unet_channels": list(widths),
                 # Without these the predictor cannot rebuild the network it is loading: it guessed
                 # `film` and died with "Missing key(s) decoder.*" on every simple-decoder run.
-                "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "w_grad": a.w_grad, "data": a.data,
+                "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "w_grad": a.w_grad,
+                "w_grad_shallow": a.w_grad_shallow, "grad_max_depth": a.grad_max_depth,
+                "w_sign": a.w_sign, "data": a.data,
                 # Which temporal protocol produced these weights. Nothing in a checkpoint used to
                 # distinguish the boundary-overlap runs from the embargoed ones, so a stale
                 # checkpoint could not be told apart from a clean one.
@@ -551,6 +578,7 @@ def main():
         "selection": sel,
         "val_period": list(val_period),
         "patience": a.patience, "weight_decay": a.weight_decay, "beta_nll": a.beta, "w_grad": a.w_grad,
+        "w_grad_shallow": a.w_grad_shallow, "grad_max_depth": a.grad_max_depth, "w_sign": a.w_sign,
         "decoder": a.decoder, "loss": a.loss,
         "beta_nll_why": ("plain NLL (beta=0) was measured collapsing variance: train NLL -1.0610 vs held-out +0.6732, best epoch 3/20, Argo RMSE 1.1861 against 0.9891 for the same encoder under MSE. beta re-weights by a stop-gradient sigma^(2*beta) to cancel the 1/sigma^2 term. Held-out NLL is still scored at beta=0."),
         "training_curve": curve,

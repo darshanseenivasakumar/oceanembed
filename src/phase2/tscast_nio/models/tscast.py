@@ -453,7 +453,7 @@ def assert_architecture_matches(model: nn.Module, ck: dict, where: str = "") -> 
 # --------------------------------------------------------------- physics-informed terms
 
 
-def gradient_loss(mu, y, mask, y_mean, y_std, depths):
+def gradient_loss(mu, y, mask, y_mean, y_std, depths, max_depth_m=None):
     """Error in the VERTICAL GRADIENT of temperature, degC^2 per m^2. Optional, off by default.
 
     A model can hit the right temperature at every level and still be wrong about the thing an
@@ -485,8 +485,49 @@ def gradient_loss(mu, y, mask, y_mean, y_std, depths):
     g_pred = (t_pred[..., 1:] - t_pred[..., :-1]) / dz
     g_true = (t_true[..., 1:] - t_true[..., :-1]) / dz
     m = (mask[..., 1:] & mask[..., :-1]).float()
+    if max_depth_m is not None:
+        # Count a level pair only when its SHALLOWER level is at or above the cap. This is leg L2:
+        # A27 measured the flattening in the top ~30 m, so protecting the whole 0-1000 m column with
+        # one weight lets the deep thermocline (which is already faithful) dominate the term.
+        shallow = (depths[:-1] <= float(max_depth_m)).float()
+        m = m * shallow
     n = m.sum().clamp(min=1.0)
     return (((g_pred - g_true) ** 2) * m).sum() / n
+
+
+def sign_loss(mu, y, mask, y_mean, y_std, depths, max_depth_m=100.0, min_step=0.2):
+    """Penalise predicting the WRONG SIGN of the vertical temperature gradient near the surface.
+
+    This is the inversion term (E-INV-00 leg L3). RMSE and even `gradient_loss` are both symmetric:
+    they punish a gradient that is too steep exactly as much as one that points the wrong way. But
+    the Bay of Bengal's winter signature is a matter of DIRECTION -- cold water sitting on warm --
+    and a model that has learned "warm surface implies warm below" fails by getting the sign
+    backwards, not the magnitude. This term asks only the direction question, and only where the
+    truth has a real gradient to have a direction.
+
+        for each valid level pair above max_depth_m whose TRUTH step |dT| >= min_step degC:
+            L += ReLU( - sign(dT_true) * dT_pred/dz )      # >0 only when the signs disagree
+        L_sign = mean over those pairs
+
+    Physical degC/m, de-normalised per depth for the same reason as `gradient_loss`. A pair counts
+    only when both levels are valid (never across the seafloor) and its shallower level is at or
+    above the cap (the inversion lives in the top ~100 m; below it the ordinary thermocline would
+    swamp the signal). `min_step` gates out flat, noise-level gradients whose sign is meaningless.
+    """
+    t_pred = mu * y_std + y_mean
+    t_true = y * y_std + y_mean
+    dz = depths[1:] - depths[:-1]
+    g_pred = (t_pred[..., 1:] - t_pred[..., :-1]) / dz
+    dt_true = t_true[..., 1:] - t_true[..., :-1]
+    g_true = dt_true / dz
+
+    pair = (mask[..., 1:] & mask[..., :-1]).float()
+    pair = pair * (depths[:-1] <= float(max_depth_m)).float()
+    pair = pair * (dt_true.abs() >= float(min_step)).float()      # a real gradient to get right
+
+    wrong = torch.relu(-torch.sign(g_true) * g_pred)              # 0 unless the signs disagree
+    n = pair.sum().clamp(min=1.0)
+    return (wrong * pair).sum() / n
 
 
 def stability_penalty(mu_t, mu_s, mask, y_mean, y_std, s_mean, s_std, depths):

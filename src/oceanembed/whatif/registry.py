@@ -92,3 +92,25 @@ def resolve_inputs(spec: FormulaSpec, overrides: dict, baseline_values: dict) ->
                 f"no value for input {inp.name!r} of {spec.id} (no override, no default, no baseline)")
         out[inp.name] = val
     return out
+
+
+# --------------------------------------------------------------------------- registered formulas
+# Imported at the bottom so the dataclasses/helpers above are fully defined first.
+from oceanembed.whatif import compute as _compute   # noqa: E402
+
+_SURFACE_INPUTS = (
+    InputSpec("sst", "Sea-surface temperature", "float", None, -2.0, 40.0, "degC"),
+    InputSpec("sss", "Sea-surface salinity", "float", None, 0.0, 45.0, "psu"),
+    InputSpec("ssh", "Sea-surface height", "float", None, -2.0, 2.0, "m"),
+    InputSpec("u", "Surface current u", "float", None, -3.0, 3.0, "m/s"),
+    InputSpec("v", "Surface current v", "float", None, -3.0, 3.0, "m/s"),
+)
+
+register(FormulaSpec(
+    id="subsurface_profile",
+    label="Subsurface temperature profile",
+    scope="point",
+    inputs=_SURFACE_INPUTS,
+    function=_compute.compute_profile,
+    outputs="available, depths[15], profile_mean[15], profile_std[15], point_anomaly[15]|None, surface_used",
+))

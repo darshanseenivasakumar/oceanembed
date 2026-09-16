@@ -105,3 +105,52 @@ def test_baseline_grid_shapes():
     g = ctx.grid()
     assert g["temp"].shape == (config.N_LAT, config.N_LON, config.N_DEPTHS)
     assert g["a2d"].shape == (config.N_LAT, config.N_LON)
+
+
+# --------------------------------------------------------------------------- subsurface_profile
+SURF = ("sst", "sss", "ssh", "u", "v")
+
+
+@needs_data
+def test_profile_handler_is_deterministic():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    base_inputs = {k: ctx.surface[k] for k in SURF}
+    a = compute.compute_profile(ctx, base_inputs)
+    b = compute.compute_profile(ctx, base_inputs)
+    assert a["available"] is True
+    np.testing.assert_allclose(a["profile_mean"], b["profile_mean"], atol=1e-6)
+    assert len(a["profile_mean"]) == config.N_DEPTHS
+
+
+@needs_data
+def test_profile_baseline_matches_reconstruct():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    out = compute.compute_profile(ctx, {k: ctx.surface[k] for k in SURF})
+    got = np.nan_to_num(np.array(out["profile_mean"], dtype="float32"))
+    base = np.nan_to_num(np.asarray(ctx.profile_mean, dtype="float32"))
+    np.testing.assert_allclose(got, base, atol=1e-2)   # same inputs+seed reproduce reconstruct
+
+
+@needs_data
+def test_profile_responds_to_sst_override():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    base = compute.compute_profile(ctx, {k: ctx.surface[k] for k in SURF})
+    warm = compute.compute_profile(ctx, {**{k: ctx.surface[k] for k in SURF},
+                                         "sst": ctx.surface["sst"] + 0.5})
+    d = np.array(warm["profile_mean"]) - np.array(base["profile_mean"])
+    assert np.nanmax(np.abs(d)) > 0.0
+
+
+@needs_data
+def test_profile_on_land_not_available():
+    ctx = engine.baseline(*LAND, _last_date(), _source())
+    out = compute.compute_profile(ctx, {k: 10.0 for k in SURF})
+    assert out["available"] is False
+
+
+def test_profile_registered():
+    from oceanembed.whatif import registry as R
+    spec = R.get("subsurface_profile")
+    assert spec.scope == "point"
+    assert tuple(i.name for i in spec.inputs) == SURF
+    assert all(i.default is None for i in spec.inputs)

@@ -92,3 +92,45 @@ def _baseline_grid(date, source) -> dict:
     return {"temp": g["temp"], "uncertainty": g["uncertainty"], "anomaly": g["anomaly"],
             "priority": g["priority"], "land_mask": g["land_mask"], "clim": clim,
             "a2d": a2d, "u2d": u2d, "sparsity": sparsity}
+
+
+def compute_profile(ctx: "WhatIfContext", inputs: dict) -> dict:
+    """Rebuild the 11-feature raw vector, override the 5 surface entries, run MC-dropout.
+
+    Uses predict.py's own lookups so the layout is identical to _features_at; only the
+    first 5 entries change. Mirrors reconstruct()'s seed order and below-seafloor blanking.
+    """
+    import torch as _t
+    from oceanembed.inference.uncertainty import mc_dropout_predict
+
+    if ctx.is_land or ctx.surface is None:
+        return {"available": False, "reason": "point is land / no data",
+                "depths": list(config.DEPTHS)}
+
+    model = P._model()                      # load BEFORE seeding (see reconstruct() for why)
+    _t.manual_seed(config.SEED)
+
+    xraw = P._features_at(ctx.i, ctx.j, ctx.t)[None, :].copy()
+    for idx, name in enumerate(("sst", "sss", "ssh", "u", "v")):
+        xraw[0, idx] = float(inputs[name])
+
+    mean, std = mc_dropout_predict(model, xraw)
+    mean, std = mean[0], std[0]
+
+    vm = P._valid_mask()
+    if vm is not None:
+        below = ~vm[ctx.i, ctx.j]
+        mean = np.where(below, np.nan, mean)
+        std = np.where(below, np.nan, std)
+
+    clim = ctx.climatology_profile
+    point_anom = (mean - clim).astype("float32") if clim is not None else None
+
+    return {
+        "available": True,
+        "depths": list(config.DEPTHS),
+        "profile_mean": [float(x) for x in mean],
+        "profile_std": [float(x) for x in std],
+        "point_anomaly": None if point_anom is None else [float(x) for x in point_anom],
+        "surface_used": {k: float(inputs[k]) for k in ("sst", "sss", "ssh", "u", "v")},
+    }

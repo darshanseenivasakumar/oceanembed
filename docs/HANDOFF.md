@@ -1462,3 +1462,27 @@ reanalysis — noted, not a discrepancy to chase. This is the E-INV-00 truth-sid
 so the truth pipeline is trustworthy before any model is judged.
 
 Next: Phase 2 data (rebuild the satellite bundle here; download the held-out winter 2024-25).
+
+
+## 2026-09-16 - What-If Calculator backend (Unit B) [VERIFIED tests pass on Darshan's machine]
+
+New package `src/oceanembed/whatif/` - a Streamlit-free sandbox to override formula/model
+inputs and see baseline vs what-if vs delta. No UI (Arjhun wires it into port 8500), no new
+port, no edits to other units' files. All what-if numbers carry `hypothetical: True`.
+
+For the UI (Arjhun):
+
+    from oceanembed.whatif import baseline, apply, list_formulas
+    ctx = baseline(lat, lon, date, source="satellite")   # reads the real sst/sss/ssh/u/v + profile
+    for spec in list_formulas():                          # build widgets from spec.inputs
+        ...   # each input: .name .label .kind("float"|"bool") .default .min .max .unit
+    res = apply("subsurface_profile", {"sst": 10.2}, ctx) # res["baseline"], ["whatif"], ["delta"]
+
+Formulas registered: subsurface_profile (point; inputs sst,sss,ssh,u,v),
+anomaly_extremes (grid; input k), observation_priority (grid; inputs w_anomaly,
+w_uncertainty, w_sparsity, robust). Grid formulas also return their full grid
+(grid_priority / grid_is_extreme / grid_standardized_anomaly) for map rendering.
+Add a new tunable formula = one FormulaSpec appended in registry.py; the UI picks it up.
+
+Spec: docs/superpowers/specs/2026-09-16-what-if-calculator-design.md
+Plan: docs/superpowers/plans/2026-09-16-what-if-calculator.md

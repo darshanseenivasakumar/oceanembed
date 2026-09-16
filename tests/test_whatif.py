@@ -209,3 +209,42 @@ def test_priority_registered():
     names = tuple(i.name for i in spec.inputs)
     assert names == ("w_anomaly", "w_uncertainty", "w_sparsity", "robust")
     assert spec.inputs[-1].kind == "bool" and spec.inputs[-1].default is True
+
+
+# --------------------------------------------------------------------------- engine.apply
+def test_list_formulas_has_the_three_ids():
+    ids = {s.id for s in engine.list_formulas()}
+    assert {"subsurface_profile", "anomaly_extremes", "observation_priority"} <= ids
+
+
+@needs_data
+def test_apply_identity_gives_zero_delta():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    res = engine.apply("subsurface_profile", {}, ctx)
+    assert res["hypothetical"] is True
+    assert res["formula"] == "subsurface_profile"
+    assert max(abs(x) for x in res["delta"]["profile_mean"]) < 1e-3
+
+
+@needs_data
+def test_apply_sst_override_moves_profile_and_records_input():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    new_sst = ctx.surface["sst"] + 0.5
+    res = engine.apply("subsurface_profile", {"sst": new_sst}, ctx)
+    assert res["inputs"]["whatif"]["sst"] == new_sst
+    assert res["inputs"]["baseline"]["sst"] == ctx.surface["sst"]
+    assert max(abs(x) for x in res["delta"]["profile_mean"]) > 0.0
+
+
+@needs_data
+def test_apply_unknown_formula_raises():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    with pytest.raises(KeyError):
+        engine.apply("nope", {}, ctx)
+
+
+def test_package_exports():
+    import oceanembed.whatif as W
+    for name in ("baseline", "apply", "list_formulas", "get", "REGISTRY",
+                 "InputSpec", "FormulaSpec", "WhatIfContext", "resolve_inputs"):
+        assert hasattr(W, name), name

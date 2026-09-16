@@ -166,3 +166,29 @@ def compute_anomaly_extremes(ctx: "WhatIfContext", inputs: dict) -> dict:
         "grid_standardized_anomaly": z,
         "grid_is_extreme": ext,
     }
+
+
+def compute_observation_priority(ctx: "WhatIfContext", inputs: dict) -> dict:
+    """observation_priority() on the cached basin factors, with overridden weights/robust."""
+    from oceanembed.products.observation_priority import observation_priority
+
+    g = ctx.grid()
+    w = (float(inputs["w_anomaly"]), float(inputs["w_uncertainty"]), float(inputs["w_sparsity"]))
+    robust = bool(inputs["robust"])
+
+    with warnings.catch_warnings():                 # degenerate/land factors warn by design
+        warnings.simplefilter("ignore", RuntimeWarning)
+        prio = observation_priority(g["a2d"], g["u2d"], g["sparsity"], weights=w, robust=robust)
+
+    pv = prio[ctx.i, ctx.j]
+    finite = prio[np.isfinite(prio)]
+    return {
+        "available": True,
+        "weights": list(w),
+        "robust": robust,
+        "point_priority": float(pv) if np.isfinite(pv) else None,
+        "basin_max": float(finite.max()) if finite.size else None,
+        "basin_mean": float(finite.mean()) if finite.size else None,
+        "valid_cells": int(finite.size),
+        "grid_priority": prio,
+    }

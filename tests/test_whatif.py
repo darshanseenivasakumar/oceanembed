@@ -177,3 +177,35 @@ def test_anomaly_extremes_registered():
     assert spec.scope == "grid"
     (k_in,) = spec.inputs
     assert k_in.name == "k" and k_in.kind == "float" and k_in.default == DEFAULT_K
+
+
+# --------------------------------------------------------------------------- observation_priority
+def _prio_inputs(wa, wu, ws, robust=True):
+    return {"w_anomaly": wa, "w_uncertainty": wu, "w_sparsity": ws, "robust": robust}
+
+
+@needs_data
+def test_priority_weights_change_the_map():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    a = compute.compute_observation_priority(ctx, _prio_inputs(1.0, 1.0, 1.0))
+    b = compute.compute_observation_priority(ctx, _prio_inputs(1.0, 0.0, 0.0))
+    assert a["grid_priority"].shape == (config.N_LAT, config.N_LON)
+    assert not np.allclose(np.nan_to_num(a["grid_priority"]),
+                           np.nan_to_num(b["grid_priority"]))
+
+
+@needs_data
+def test_priority_robust_toggle_runs():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    out = compute.compute_observation_priority(ctx, _prio_inputs(1.0, 1.0, 1.0, robust=False))
+    assert out["available"] is True
+    assert out["valid_cells"] >= 0
+
+
+def test_priority_registered():
+    from oceanembed.whatif import registry as R
+    spec = R.get("observation_priority")
+    assert spec.scope == "grid"
+    names = tuple(i.name for i in spec.inputs)
+    assert names == ("w_anomaly", "w_uncertainty", "w_sparsity", "robust")
+    assert spec.inputs[-1].kind == "bool" and spec.inputs[-1].default is True

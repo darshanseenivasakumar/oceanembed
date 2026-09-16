@@ -126,3 +126,19 @@ register(FormulaSpec(
     outputs=("available, k, depths[15], point_standardized_anomaly[15], point_is_extreme[15], "
              "n_extreme_by_depth[15], n_ocean_by_depth[15], grid_standardized_anomaly, grid_is_extreme"),
 ))
+
+from oceanembed.products.observation_priority import DEFAULT_WEIGHTS as _DW   # noqa: E402
+
+register(FormulaSpec(
+    id="observation_priority",
+    label="Observation priority (weights & robust)",
+    scope="grid",
+    inputs=(
+        InputSpec("w_anomaly", "Weight: anomaly", "float", float(_DW[0]), 0.0, 5.0),
+        InputSpec("w_uncertainty", "Weight: uncertainty", "float", float(_DW[1]), 0.0, 5.0),
+        InputSpec("w_sparsity", "Weight: sparsity", "float", float(_DW[2]), 0.0, 5.0),
+        InputSpec("robust", "Robust scaling (1-99 pct)", "bool", True),
+    ),
+    function=_compute.compute_observation_priority,
+    outputs="available, weights[3], robust, point_priority, basin_max, basin_mean, valid_cells, grid_priority",
+))

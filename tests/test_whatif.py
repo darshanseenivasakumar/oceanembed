@@ -154,3 +154,26 @@ def test_profile_registered():
     assert spec.scope == "point"
     assert tuple(i.name for i in spec.inputs) == SURF
     assert all(i.default is None for i in spec.inputs)
+
+
+# --------------------------------------------------------------------------- anomaly_extremes
+@needs_data
+def test_anomaly_extremes_z_is_k_independent_and_counts_monotone():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    lo = compute.compute_anomaly_extremes(ctx, {"k": 1.0})
+    hi = compute.compute_anomaly_extremes(ctx, {"k": 3.0})
+    if not lo["available"]:
+        pytest.skip("no climatology artifact")
+    np.testing.assert_allclose(lo["point_standardized_anomaly"],
+                               hi["point_standardized_anomaly"], atol=1e-6)
+    assert sum(hi["n_extreme_by_depth"]) <= sum(lo["n_extreme_by_depth"])
+    assert len(lo["point_is_extreme"]) == config.N_DEPTHS
+
+
+def test_anomaly_extremes_registered():
+    from oceanembed.whatif import registry as R
+    from oceanembed.products.anomaly import DEFAULT_K
+    spec = R.get("anomaly_extremes")
+    assert spec.scope == "grid"
+    (k_in,) = spec.inputs
+    assert k_in.name == "k" and k_in.kind == "float" and k_in.default == DEFAULT_K

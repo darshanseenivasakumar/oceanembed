@@ -134,3 +134,35 @@ def compute_profile(ctx: "WhatIfContext", inputs: dict) -> dict:
         "point_anomaly": None if point_anom is None else [float(x) for x in point_anom],
         "surface_used": {k: float(inputs[k]) for k in ("sst", "sss", "ssh", "u", "v")},
     }
+
+
+def compute_anomaly_extremes(ctx: "WhatIfContext", inputs: dict) -> dict:
+    """standardized_anomaly (k-independent context) + flag_extremes at threshold k, basin-wide.
+
+    Called as-is on the cached basin grid; the picked point is read out for the side-by-side.
+    """
+    from oceanembed.products.anomaly import standardized_anomaly, flag_extremes
+
+    g = ctx.grid()
+    clim = g["clim"]
+    if clim is None:
+        return {"available": False, "reason": "climatology.npy missing",
+                "depths": list(config.DEPTHS)}
+
+    k = float(inputs["k"])
+    temp = g["temp"]
+    z = standardized_anomaly(temp, clim, ctx.month)          # (100,240,15)
+    ext = flag_extremes(temp, clim, ctx.month, k=k)          # (100,240,15) bool
+    ocean = np.isfinite(z)
+
+    return {
+        "available": True,
+        "k": k,
+        "depths": list(config.DEPTHS),
+        "point_standardized_anomaly": [float(x) for x in z[ctx.i, ctx.j, :]],
+        "point_is_extreme": [bool(x) for x in ext[ctx.i, ctx.j, :]],
+        "n_extreme_by_depth": [int(v) for v in ext.reshape(-1, ext.shape[-1]).sum(0)],
+        "n_ocean_by_depth": [int(v) for v in ocean.reshape(-1, ocean.shape[-1]).sum(0)],
+        "grid_standardized_anomaly": z,
+        "grid_is_extreme": ext,
+    }

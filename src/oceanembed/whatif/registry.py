@@ -114,3 +114,15 @@ register(FormulaSpec(
     function=_compute.compute_profile,
     outputs="available, depths[15], profile_mean[15], profile_std[15], point_anomaly[15]|None, surface_used",
 ))
+
+from oceanembed.products.anomaly import DEFAULT_K as _DEFAULT_K   # noqa: E402
+
+register(FormulaSpec(
+    id="anomaly_extremes",
+    label="Anomaly extremes (threshold k)",
+    scope="grid",
+    inputs=(InputSpec("k", "Extreme threshold", "float", _DEFAULT_K, 0.5, 5.0, "sigma"),),
+    function=_compute.compute_anomaly_extremes,
+    outputs=("available, k, depths[15], point_standardized_anomaly[15], point_is_extreme[15], "
+             "n_extreme_by_depth[15], n_ocean_by_depth[15], grid_standardized_anomaly, grid_is_extreme"),
+))

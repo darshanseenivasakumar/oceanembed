@@ -49,3 +49,59 @@ def test_missing_value_raises():
 def test_get_missing_formula_raises():
     with pytest.raises(KeyError):
         R.get("does-not-exist")
+
+
+# --------------------------------------------------------------------------- real-data smoke
+import os                                                       # noqa: E402
+import numpy as np                                              # noqa: E402
+from oceanembed import config                                   # noqa: E402
+from oceanembed.whatif import compute, engine                   # noqa: E402
+
+
+def _artifacts_ready() -> bool:
+    from oceanembed.inference import predict as P
+    model = os.path.exists(config.art("mlp_model.pt"))
+    grids = P.source_available("satellite") or P.source_available("glorys")
+    return model and grids
+
+
+def _source() -> str:
+    from oceanembed.inference import predict as P
+    return "satellite" if P.source_available("satellite") else "glorys"
+
+
+def _last_date():
+    from oceanembed.inference import predict as P
+    P.set_source(_source())
+    return P.available_dates()[-1]
+
+
+needs_data = pytest.mark.skipif(not _artifacts_ready(), reason="needs built artifacts (model + grids)")
+
+# An ocean point (central Arabian Sea) and a land point (central India) inside the bbox.
+OCEAN = (15.0, 65.0)
+LAND = (23.0, 80.0)
+
+
+@needs_data
+def test_baseline_reads_real_surface_and_profile():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    assert ctx.is_land is False
+    assert set(ctx.surface) == {"sst", "sss", "ssh", "u", "v"}
+    assert ctx.profile_mean is not None and len(ctx.profile_mean) == config.N_DEPTHS
+    assert 1 <= ctx.month <= 12
+
+
+@needs_data
+def test_baseline_land_guard():
+    ctx = engine.baseline(*LAND, _last_date(), _source())
+    assert ctx.is_land is True
+    assert ctx.surface is None
+
+
+@needs_data
+def test_baseline_grid_shapes():
+    ctx = engine.baseline(*OCEAN, _last_date(), _source())
+    g = ctx.grid()
+    assert g["temp"].shape == (config.N_LAT, config.N_LON, config.N_DEPTHS)
+    assert g["a2d"].shape == (config.N_LAT, config.N_LON)

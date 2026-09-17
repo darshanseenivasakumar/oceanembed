@@ -34,6 +34,7 @@ MODULES = {
     "stability": "stability",
     "observability": "observability",
     "assimilate": "assimilate",
+    "whatif": "whatif",
 }
 
 

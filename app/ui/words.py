@@ -103,6 +103,11 @@ FEATURES = [
      "Differentiate the model. It reads SST for the mixed layer and sea-surface height for the "
      "thermocline — untaught.",
      "STRESS IT"),
+    ("whatif", "What-if",
+     "What if the inputs were different?",
+     "Edit the surface the model reads, or a formula's knobs, and watch the answer move against "
+     "the measured baseline. Hypothetical, and labelled so.",
+     "STRESS IT"),
 ]
 
 #: Features that stay on their own ports for now, linked rather than rebuilt. Cloud dropout,

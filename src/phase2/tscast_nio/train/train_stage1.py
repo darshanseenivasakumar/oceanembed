@@ -36,7 +36,8 @@ from oceanembed import config as base
 from oceanembed.validation import validate_argo as VA
 from phase2.tscast_nio import config, dataset as D, eval_argo as EA, metrics
 from phase2.tscast_nio.models import TSCastNIO, gaussian_nll
-from phase2.tscast_nio.models.tscast import gradient_loss, sign_loss
+from phase2.tscast_nio.models.tscast import (gradient_loss, sign_loss,
+                                                inversion_target, bce_inversion_loss)
 from phase2.tscast_nio.models.tscast import temporal_pool_signature as TSCastNIO_pool_sig
 
 MAX_DAYS = 5
@@ -147,6 +148,15 @@ def main():
                          "models.tscast.sign_loss): penalise predicting cooling where the truth "
                          "warms downward (an inversion) in the top --grad-max-depth m. 0.0 changes "
                          "nothing. This is the term aimed straight at the Bay of Bengal winter.")
+    ap.add_argument("--w-inv-sample", type=float, default=0.0,
+                    help="minority-class weighting (E-INV-00 leg L4): a training column whose TRUTH "
+                         "carries an inversion (top 150 m, >=0.2 degC) gets NLL weight 1 + this. "
+                         "0.0 changes nothing. Derived from the batch target, so no sampler change.")
+    ap.add_argument("--aux-inversion", type=float, default=0.0,
+                    help="weight on a multi-task inversion-presence head (E-INV-00 leg L5): the "
+                         "simple head gains one logit, trained with BCE against the truth flag. "
+                         ">0 builds the head AND weights its loss; 0.0 leaves the architecture "
+                         "unchanged. Stage 1 only.")
     ap.add_argument("--tag", default="",
                     help="suffix for the checkpoint and metrics filenames, e.g. --tag 7ch writes "
                          "tscast_stage1_7ch.pt. Every leg of the T_SEQ sweep overwrote the last "
@@ -198,9 +208,10 @@ def main():
     # TAGGED copy and would still pass, while the dashboard, output.ERROR_SOURCES and
     # train_stage2._stage1_comparison() all read the untagged name and would start serving the
     # experiment's numbers as the shipped baseline.
-    if (a.w_grad or a.w_grad_shallow or a.w_sign or a.doy) and not a.tag:
+    if (a.w_grad or a.w_grad_shallow or a.w_sign or a.doy
+            or a.w_inv_sample or a.aux_inversion) and not a.tag:
         raise SystemExit(
-            "an experimental option (--w-grad / --w-grad-shallow / --w-sign / --doy) is set but --tag "
+            "an experimental option (--w-grad / --w-grad-shallow / --w-sign / --doy / --w-inv-sample / --aux-inversion) is set but --tag "
             f"is empty, so this run would overwrite {base.art('tscast_stage1.pt')} -- the promoted "
             "copy of the frozen deliverable. Give the run its own tag, e.g. --tag inv_sign_s42.")
 
@@ -216,16 +227,25 @@ def main():
     # a scaled gradient. See models.tscast.gradient_loss.
     _z: list = []
 
-    def objective(mu, logvar, y, mk):
+    def objective(mu, logvar, y, mk, aux=None):
+        sw = None
+        if a.w_inv_sample:
+            # 1 + w for columns whose truth has an inversion (leg L4). Derived from the batch
+            # target via the torch twin of derived.inversion, so the sampler tuple is untouched.
+            sw = 1.0 + a.w_inv_sample * inversion_target(y, mk, *_z[0])
         if a.loss == "mse":
             m = mk.float()
-            base_loss = (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
+            if sw is not None:
+                w = sw.reshape(sw.shape[0], *([1] * (m.dim() - 1)))
+                base_loss = (((mu - y) ** 2) * m * w).sum() / (m * w).sum().clamp(min=1.0)
+            else:
+                base_loss = (((mu - y) ** 2) * m).sum() / m.sum().clamp(min=1.0)
         else:
-            base_loss = gaussian_nll(mu, logvar, y, mk, beta=a.beta)
-        if not (a.w_grad or a.w_grad_shallow or a.w_sign):
-            # Returned UNTOUCHED, not `base + 0.0 * term`. Adding a zero-weighted term is
-            # bit-identical for finite values, but a NaN term would survive the multiply
-            # (0.0 * NaN = NaN) and poison a run that asked for no term at all.
+            base_loss = gaussian_nll(mu, logvar, y, mk, beta=a.beta, sample_weight=sw)
+        if not (a.w_grad or a.w_grad_shallow or a.w_sign or a.aux_inversion):
+            # base_loss already carries the L4 sample weighting (or none). Returned UNTOUCHED,
+            # not `base + 0.0 * term`: a NaN term would survive a 0.0 multiply and poison a run
+            # that asked for no term at all.
             return base_loss
         loss = base_loss
         if a.w_grad:
@@ -235,6 +255,8 @@ def main():
                                                            max_depth_m=a.grad_max_depth)
         if a.w_sign:
             loss = loss + a.w_sign * sign_loss(mu, y, mk, *_z[0], max_depth_m=a.grad_max_depth)
+        if a.aux_inversion and aux is not None:
+            loss = loss + a.aux_inversion * bce_inversion_loss(aux, y, mk, *_z[0])
         return loss
 
     def selection_nll(mu, logvar, y, mk):
@@ -333,7 +355,7 @@ def main():
     torch.manual_seed(seed)
     latent = a.latent or config.LATENT_DIM
     widths = tuple(a.unet_width) if a.unet_width else tuple(config.UNET_CHANNELS)
-    if a.w_grad or a.w_grad_shallow or a.w_sign:
+    if a.w_grad or a.w_grad_shallow or a.w_sign or a.w_inv_sample or a.aux_inversion:
         _z.append((torch.tensor(ds_tr.y_mean, dtype=torch.float32, device=dev),
                    torch.tensor(ds_tr.y_std, dtype=torch.float32, device=dev),
                    torch.tensor(config.DEPTHS, dtype=torch.float32, device=dev)))
@@ -347,7 +369,8 @@ def main():
     model = TSCastNIO(enc, D.input_channels(d["channels"], a.mask_channels), t_seq=1,
                       p=config.P, latent=latent,
                       residual=not a.no_residual, unet_channels=widths,
-                      decoder=a.decoder, doy_channels=a.doy).to(dev)
+                      decoder=a.decoder, doy_channels=a.doy,
+                      aux_inversion=(a.aux_inversion > 0)).to(dev)
     n_enc = sum(q.numel() for q in model.encoder.parameters())
     n_dec = sum(q.numel() for q in model.parameters()) - n_enc
     print(f"params : {n_enc + n_dec:,} total  ({n_enc:,} encoder + {n_dec:,} decoder), "
@@ -372,7 +395,9 @@ def main():
         tot, nb = 0.0, 0
         for x, g, y, mk, _, cp, mo in loader:
             x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
-            loss = objective(*model(x, g, cp, mo), y, mk)
+            out = model(x, g, cp, mo)
+            aux = out[2] if a.aux_inversion else None
+            loss = objective(out[0], out[1], y, mk, aux)
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -383,7 +408,8 @@ def main():
         with torch.no_grad():
             for x, g, y, mk, _, cp, mo in va_loader:
                 x, g, y, mk, cp, mo = (t.to(dev) for t in (x, g, y, mk, cp, mo))
-                vt += float(selection_nll(*model(x, g, cp, mo), y, mk))
+                _o = model(x, g, cp, mo)
+                vt += float(selection_nll(_o[0], _o[1], y, mk))
                 vn += 1
         tr_nll, va_nll = tot / max(nb, 1), vt / max(vn, 1)
         curve.append({"epoch": ep + 1, "train_nll": round(tr_nll, 4),
@@ -516,7 +542,9 @@ def main():
                 # `film` and died with "Missing key(s) decoder.*" on every simple-decoder run.
                 "decoder": a.decoder, "loss": a.loss, "beta_nll": a.beta, "w_grad": a.w_grad,
                 "w_grad_shallow": a.w_grad_shallow, "grad_max_depth": a.grad_max_depth,
-                "w_sign": a.w_sign, "doy_channels": bool(a.doy), "data": a.data,
+                "w_sign": a.w_sign, "doy_channels": bool(a.doy),
+                "w_inv_sample": a.w_inv_sample, "aux_inversion": bool(a.aux_inversion > 0),
+                "aux_inversion_weight": a.aux_inversion, "data": a.data,
                 # Which temporal protocol produced these weights. Nothing in a checkpoint used to
                 # distinguish the boundary-overlap runs from the embargoed ones, so a stale
                 # checkpoint could not be told apart from a clean one.
@@ -633,7 +661,8 @@ def main():
     _fresh = TSCastNIO(enc, c_in=D.input_channels(d["channels"], a.mask_channels), t_seq=1,
                        p=config.P, latent=latent,
                        residual=not a.no_residual, unet_channels=tuple(widths),
-                       decoder=a.decoder, stage=1, doy_channels=a.doy)
+                       decoder=a.decoder, stage=1, doy_channels=a.doy,
+                       aux_inversion=(a.aux_inversion > 0))
     _fresh.load_state_dict(torch.load(ck, map_location="cpu", weights_only=False)["state_dict"])
     _fresh.eval()
     with torch.no_grad():

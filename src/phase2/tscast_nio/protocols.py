@@ -31,6 +31,15 @@ UNMASKED_PROTOCOL = "unmasked_v1"
 TRUTH_AXIS = "depth_m_unesco1983"
 LEGACY_TRUTH_AXIS = "pressure_dbar_read_as_metres"
 
+#: The held-out winter (E-INV-00 / D-020). Same mask and depth axis as seafloor_masked_v2, but a
+#: DIFFERENT period (2024-12-01..2025-02-28) and a different truth table. A record under this name
+#: is never compared with a seafloor_masked_v2 headline number -- different water, different days.
+WINTER_HOLDOUT_PROTOCOL = "winter_holdout_v1"
+WINTER_TEST_START = "2024-12-01"
+WINTER_TEST_END = "2025-02-28"
+WINTER_BUNDLE_START = "2024-11-20"
+WINTER_BUNDLE_END = "2025-03-10"
+
 PROTOCOL_HISTORY = {
     UNMASKED_PROTOCOL: {"mask": "none", "truth_axis": LEGACY_TRUTH_AXIS,
                         "argo_table": "argo_daily_period_pres_as_depth_v1.parquet"},
@@ -40,6 +49,13 @@ PROTOCOL_HISTORY = {
     SCORING_PROTOCOL: {"mask": "below-seafloor comparisons declined and counted",
                        "truth_axis": TRUTH_AXIS,
                        "argo_table": "argo_daily_period.parquet (regenerated 2026-09-07)"},
+    WINTER_HOLDOUT_PROTOCOL: {"mask": "below-seafloor comparisons declined and counted",
+                              "truth_axis": TRUTH_AXIS,
+                              "period": f"{WINTER_TEST_START}..{WINTER_TEST_END} (held out; never trained)",
+                              "argo_table": "argo_winter2425.parquet",
+                              "note": ("A DIFFERENT period from the deliverable, on a separate "
+                                       "evaluation-only bundle. Never compared with a "
+                                       "seafloor_masked_v2 headline number. See D-020, E-INV-00.")},
 }
 
 

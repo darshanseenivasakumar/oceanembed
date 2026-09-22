@@ -199,7 +199,7 @@ class TSCastNIO(nn.Module):
     """
 
     def __init__(self, encoder_name: str, c_in: int, t_seq: int = None, p: int = None,
-                 doy_channels: bool = False,
+                 doy_channels: bool = False, aux_inversion: bool = False,
                  latent: int = None, residual: bool = True, unet_channels=None,
                  decoder: str = "film", stage: int = 1):
         super().__init__()
@@ -224,7 +224,10 @@ class TSCastNIO(nn.Module):
         self.c_in = int(c_in)
         self.encoder_name = encoder_name
         self.decoder_name = decoder
+        self.aux_inversion = bool(aux_inversion)
         if decoder == "film":
+            if self.aux_inversion:
+                raise NotImplementedError("aux_inversion is implemented on the simple decoder only")
             self.decoder = ClimatologyUNet(latent, widths=unet_channels)
         elif decoder == "simple":
             # The bake-off's head, verbatim: latent -> 15 depths, no climatology, no FiLM. This is
@@ -240,9 +243,15 @@ class TSCastNIO(nn.Module):
             # propagating the two variances analytically would understate the density error.
             n_blocks = 2 if self.stage == 1 else 5
             self.n_head_blocks = n_blocks
+            # Multi-task inversion-presence logit (E-INV-00 leg L5): one extra scalar output. Off by
+            # default, stage 1 only -- it is a temperature-side head and stage 2's five blocks are a
+            # different experiment.
+            if self.aux_inversion and self.stage != 1:
+                raise NotImplementedError("aux_inversion is stage-1 only")
+            n_out = n_blocks * config.N_DEPTHS + (1 if self.aux_inversion else 0)
             self.simple_head = nn.Sequential(
                 nn.Linear(latent, 256), nn.Mish(),
-                nn.Linear(256, n_blocks * config.N_DEPTHS))
+                nn.Linear(256, n_out))
         else:
             raise ValueError(f"decoder must be 'film' or 'simple', got {decoder!r}")
         if self.stage == 2 and decoder != "simple":
@@ -267,10 +276,17 @@ class TSCastNIO(nn.Module):
         if self.decoder is None:                                       # 'simple': the bake-off head
             out = self.simple_head(h)
             d = config.N_DEPTHS
+            aux = None
+            if self.aux_inversion:
+                aux = out[:, -1]                                       # the trailing presence logit
+                out = out[:, :-1]
             blocks = out.split(d, dim=1)
             if self.stage == 1:
                 mu, logvar = blocks
-                return mu, logvar.clamp(LOGVAR_MIN, LOGVAR_MAX)
+                logvar = logvar.clamp(LOGVAR_MIN, LOGVAR_MAX)
+                if self.aux_inversion:
+                    return mu, logvar, aux
+                return mu, logvar
             mu_t, logvar_t, mu_s, logvar_s, logvar_rho = blocks
             return (mu_t, logvar_t.clamp(LOGVAR_MIN, LOGVAR_MAX),
                     mu_s, logvar_s.clamp(LOGVAR_MIN, LOGVAR_MAX),
@@ -288,7 +304,7 @@ class TSCastNIO(nn.Module):
         return mu, logvar.clamp(LOGVAR_MIN, LOGVAR_MAX)
 
 
-def gaussian_nll(mu, logvar, y, mask, beta: float = 0.0):
+def gaussian_nll(mu, logvar, y, mask, beta: float = 0.0, sample_weight=None):
     """Paper eq. 3 (beta=0), with the beta-NLL correction of Seitzer et al. 2022 for beta>0.
 
     Plain NLL is  0.5*exp(-logvar)*(y-mu)^2 + 0.5*logvar.  The +0.5*logvar term stops the network
@@ -316,10 +332,16 @@ def gaussian_nll(mu, logvar, y, mask, beta: float = 0.0):
     not contribute a zero.
     """
     m = mask.float()
-    n = m.sum().clamp(min=1.0)
     per = 0.5 * torch.exp(-logvar) * (y - mu) ** 2 + 0.5 * logvar
     if beta:
         per = per * (torch.exp(logvar).detach() ** beta)
+    if sample_weight is not None:
+        # Per-sample weight (E-INV-00 leg L4): a weighted mean over samples. w=1 everywhere is
+        # bit-identical to the plain mean, so the term is inert until a leg asks for it.
+        w = sample_weight.reshape(sample_weight.shape[0], *([1] * (m.dim() - 1))).float()
+        mw = m * w
+        return (per * mw).sum() / mw.sum().clamp(min=1.0)
+    n = m.sum().clamp(min=1.0)
     return (per * m).sum() / n
 
 
@@ -456,6 +478,15 @@ def assert_architecture_matches(model: nn.Module, ck: dict, where: str = "") -> 
                 f"differs, so load_state_dict would reject the first conv with a shape error whose "
                 f"cause is this flag. Build the model with doy_channels=ck['doy_channels'].")
 
+    want_aux = ck.get("aux_inversion")
+    if want_aux is not None and getattr(model, "aux_inversion", None) is not None:
+        if bool(model.aux_inversion) != bool(want_aux):
+            raise ValueError(
+                f"architecture mismatch{' in ' + where if where else ''}: this model was built "
+                f"with aux_inversion={model.aux_inversion}, the checkpoint was trained with "
+                f"aux_inversion={bool(want_aux)}. The simple head width differs by one output. "
+                f"Build with aux_inversion=ck['aux_inversion'].")
+
     want = ck.get("pool_signature")
     if want is None:
         return
@@ -547,6 +578,41 @@ def sign_loss(mu, y, mask, y_mean, y_std, depths, max_depth_m=100.0, min_step=0.
     wrong = torch.relu(-torch.sign(g_true) * g_pred)              # 0 unless the signs disagree
     n = pair.sum().clamp(min=1.0)
     return (wrong * pair).sum() / n
+
+
+def inversion_target(y, mask, y_mean, y_std, depths, max_depth_m=150.0, threshold=0.2):
+    """Per-column {0,1}: does the TRUTH profile carry a temperature inversion in the top
+    `max_depth_m`? The torch twin of derived.inversion.present, computed from the batch target so
+    legs L4 and L5 need no change to the sampler's tuple.
+
+        amplitude = max over valid levels z<=cap of [ T(z) - min over valid z'<z of T(z') ]
+        target    = 1.0 if amplitude >= threshold else 0.0
+
+    y is z-scored per depth; it is returned to degC first (y_std is per-depth, so a z-scored rise
+    is not a physical one). Invalid levels (below the seafloor) are filled with +inf so they can
+    neither be a running minimum nor win the max.
+    """
+    t = y * y_std + y_mean                                        # (B, D) degC
+    within = (depths <= float(max_depth_m))
+    valid = mask.bool() & within                                  # (B, D)
+    big = torch.full_like(t, float("inf"))
+    filled = torch.where(valid, t, big)
+    run_min, _ = torch.cummin(filled, dim=-1)
+    rises = torch.where(valid, t - run_min, torch.full_like(t, float("-inf")))
+    amp = rises.max(dim=-1).values                                # -inf if no valid level
+    return (amp >= float(threshold)).float()
+
+
+def bce_inversion_loss(aux_logit, y, mask, y_mean, y_std, depths, max_depth_m=150.0, threshold=0.2):
+    """Binary cross-entropy of the aux presence logit against the truth inversion flag (leg L5).
+
+    A multi-task head: the model is asked, alongside the profile, to say whether this column has an
+    inversion. It sharpens the representation for the minority class and yields a probability map
+    the UI can show directly. The target comes from `inversion_target` on the batch truth.
+    """
+    target = inversion_target(y, mask, y_mean, y_std, depths, max_depth_m=max_depth_m,
+                              threshold=threshold)
+    return torch.nn.functional.binary_cross_entropy_with_logits(aux_logit, target)
 
 
 def stability_penalty(mu_t, mu_s, mask, y_mean, y_std, s_mean, s_std, depths):

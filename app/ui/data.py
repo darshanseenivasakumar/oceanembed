@@ -122,6 +122,14 @@ def version(stage: int = 1) -> str:
 
 @st.cache_resource(show_spinner=False)
 def _predictor(stage: int, version: str):
+    # GRACEFUL FALLBACK: the shipped satellite bundle (data/processed/daily_sat/v001) is not on
+    # every machine. Where it is absent, boot on the GLORYS-input checkpoint (reads
+    # data/processed/daily, which ships in the data bundle) so the UI still runs -- as the GLORYS
+    # comparator, which the source control already labels "not the deliverable". Where the
+    # satellite bundle IS present, nothing changes.
+    import os
+    if not os.path.exists(os.path.join("data", "processed", "daily_sat", "v001")):
+        return FC.get_predictor(stage=stage, checkpoint="artifacts/tscast_stage1_7ch.pt")
     return FC.get_predictor(stage=stage)
 
 

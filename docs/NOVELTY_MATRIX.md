@@ -81,3 +81,17 @@ demos that claim novelty. Fewer arrive with their own failure modes documented.
 - INCOIS / NIO Goa / IITM regional literature — unsearched, and the sponsor knows it best.
 - Wang 2021 and Chen 2022 from the TEAM_PLAN list were not located; DOIs needed.
 - No methods section read for any cited paper.
+
+---
+
+## Added 2026-09-14 (Unit B) — the Bay of Bengal winter inversion as an explicit, held-out target
+
+| Idea | Bucket | Evidence |
+|---|---|---|
+| Making **winter temperature-inversion fidelity in the Bay of Bengal** an explicit, pre-registered, **held-out-winter** evaluation target (and, if it fails, a targeted fix) of a **satellite-only** DL subsurface reconstruction over the NIO | **UNDEREXPLORED — to our knowledge** (searches 2026-09-14, record below) | The inversion itself is thoroughly documented from observations (Thadathil 2002/2016, Nagura 2015) and reanalysis (Pramanik 2025) — `LITERATURE_MATRIX.md` §"Barrier layer & temperature inversion". Nearest ML neighbours: Jia et al. 2025 (CNN → **MLD** in the Bay, not the profile, not inversions); a variational NIO T/S reconstruction seen only as a search snippet; global DL reconstructions (Su 2022, Meng 2021, TS-Cast 2026) that report basin-aggregate RMSE and do not, in their abstracts, evaluate inversion sign or amplitude. |
+
+**Search record** (WebSearch, 2026-09-14): (1) `deep learning reconstruction subsurface temperature satellite "Bay of Bengal" "temperature inversion" OR "barrier layer" neural network Argo`; (2) `machine learning subsurface temperature salinity reconstruction "Bay of Bengal" from satellite SST SSS SSH 2023 2024 2025`; plus DOI-level Crossref / Semantic Scholar lookups listed in the literature matrix. **Absence from two searches is not absence from the literature**, and INCOIS / NIO / IITM regional work remains unsearched (existing gap above).
+
+**Wording we may use:** "To our knowledge, no published satellite-only reconstruction reports inversion-detection skill on a held-out Bay of Bengal winter; we do, and we wrote the pass/fail rule down before running (E-INV-00)." **Wording we may not use:** "nobody has done this", "first ever", or any claim about what Jia 2025 or the global papers did *not* do inside methods we have not read.
+
+**What would falsify the claim:** any paper whose methods evaluate predicted-vs-observed inversion presence or amplitude for a satellite-driven reconstruction in the Bay. If found, the row moves to ALREADY DONE and we cite it.

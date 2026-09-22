@@ -109,8 +109,16 @@ def baseline_exists_mask(la, lo, valid_mask, land_mask) -> np.ndarray:
     return full & ~np.asarray(land_mask, dtype=bool)[la, lo]
 
 
-def load_argo_table(data: str = "daily"):
-    """The Argo set matching the bundle's period. Refuses the mismatched one loudly."""
+def load_argo_table(data: str = "daily", path: str | None = None):
+    """The Argo set matching the bundle's period. Refuses the mismatched one loudly.
+
+    `path` overrides the default table, so a scorer can point at a different period's truth (the
+    winter-holdout study reads argo_winter2425.parquet) without touching the 2026 default.
+    """
+    if path is not None:
+        if not os.path.exists(path):
+            raise SystemExit(f"Argo table not found: {path}")
+        return pd.read_parquet(path)
     if data != "daily":
         return VA.load_argo()
     path = base.art("argo_daily_period.parquet")
@@ -169,7 +177,8 @@ def predict_at_argo(model, ds_te, keys, truth, keep, t_idx, la, lo, clim, dev):
     with torch.no_grad():
         for x, g, _, _, _, cp, mo in DataLoader(ds_te, batch_size=512, shuffle=False):
             x, g, cp, mo = (t.to(dev) for t in (x, g, cp, mo))
-            mu, lv = model(x, g, cp, mo)
+            out = model(x, g, cp, mo)
+            mu, lv = out[0], out[1]   # ignore an aux inversion logit if the model has one
             mus.append(mu.cpu().numpy())
             lvs.append(lv.cpu().numpy())
     mu = np.concatenate(mus) * ds_te.y_std + ds_te.y_mean          # back to degC

@@ -134,3 +134,38 @@ Deep-Learning Techniques with a Physical Guidance*, Remote Sensing 17(17), 2954.
 - Wang 2021 and Chen 2022 from the TEAM_PLAN list were **not located** by these searches; the
   citations may be ambiguous. Whoever has the PDFs should supply the DOIs.
 - No methods section has been read for any paper here.
+
+---
+
+## Barrier layer & temperature inversion — Bay of Bengal  (added 2026-09-14, Unit B, branch `phase2-bob-inversion`)
+
+**Provenance of this section.** Every row was located on 2026-09-14 through bot-friendly metadata
+APIs (Crossref `api.crossref.org/works/<DOI>`, Semantic Scholar `api.semanticscholar.org`) and one
+Springer landing page. Publisher full-text pages (Wiley/AGU, Elsevier, AMS) and even HAL / NIO-DRS
+returned bot-wall errors to the fetcher, and we did not try to get around them. Tags:
+`[ABSTRACT-VERIFIED]` = the abstract text itself was returned by the API/page and is paraphrased from it;
+`[CITATION-VERIFIED]` = title/authors/venue/DOI confirmed by Crossref, abstract not available;
+`[SEARCH-SNIPPET-ONLY]` = seen only as a search-result title. **No methods section has been read.**
+The PDFs that are free to read (AGU > 24 months old; HAL) should be saved by a human into
+`all research papers/barrier_layer/` and the rows upgraded to `[READ]`.
+
+### Definitions we rely on
+| # | Paper | Tag | What we take from it |
+|---|---|---|---|
+| B1 | de Boyer Montégut, Madec, Fischer, Lazar, Iudicone (2004), *Mixed layer depth over the global ocean: An examination of profile data and a profile-based climatology*, JGR 109, C12003. doi:10.1029/2004JC002378. Green OA: hal.science/hal-00266983 | `[ABSTRACT-VERIFIED]` (Semantic Scholar) | Criterion = threshold from the 10 m value, **ΔT = 0.2 °C or Δσθ = 0.03 kg m⁻³**; also "a new global seasonal estimation of barrier layer thickness"; notes density-compensated (isopycnal but not mixed) layers. Exactly what `src/phase2/physics/layers.py` implements. |
+| B2 | Sprintall & Tomczak (1992), *Evidence of the barrier layer in the surface layer of the tropics*, JGR 97, 7305–7316. doi:10.1029/92JC00407 | `[CITATION-VERIFIED]` | The paper that named the barrier layer (BLT = ILD − MLD). Cited for existence only. |
+| B3 | de Boyer Montégut, Mignot, Lazar, Cravatte (2007), *Control of salinity on the mixed layer depth in the world ocean: 1. General description*, JGR 112, C06011. doi:10.1029/2006JC003953 | `[CITATION-VERIFIED]` (abstract elided by publisher) | Global barrier-layer / compensated-layer climatology. Cited for existence only. |
+
+### The Bay of Bengal inversion itself
+| # | Paper | Tag | What we take from it |
+|---|---|---|---|
+| B4 | Thadathil, Gopalakrishna, Muraleedharan, Reddy, Araligidad, Shenoy (2002), *Surface layer temperature inversion in the Bay of Bengal*, Deep-Sea Res. I 49, 1801–1818. doi:10.1016/S0967-0637(02)00044-4 | `[CITATION-VERIFIED]` (no abstract via API) | The reference hydrographic study. **Its numeric inversion threshold is [UNKNOWN] to us** — not read. Do not quote one. |
+| B5 | Thadathil, Muraleedharan, Rao, Somayajulu, Reddy, Revichandran (2007), *Observed seasonal variability of barrier layer in the Bay of Bengal*, JGR 112. doi:10.1029/2006JC003651 | `[ABSTRACT-VERIFIED]` (Crossref) | BLT ~40 m first appears in the NE coastal Bay in June and spreads west; east-coast formation governed by the East India Coastal Current; **maximum ~60 m in February**; annual peaks Nov–Dec, secondary Feb–Mar and Aug–Sep. → sanity numbers for our truth-side BLT maps. |
+| B6 | Thadathil, Suresh, Gautham, Prasanna Kumar, Lengaigne, Rao, Neetu, Hegde (2016), *Surface layer temperature inversion in the Bay of Bengal: Main characteristics and related mechanisms*, JGR Oceans 121, 5682–5696. doi:10.1002/2016JC011674. Bronze OA at Wiley `pdfdirect` | `[ABSTRACT-VERIFIED]` (Crossref) | Definition in words: a warm layer sandwiched between surface and subsurface colder waters, frequently with barrier layers. RAMA buoys 2006–2014 at four sites along 90 °E. Forms after the summer monsoon, fully developed in **winter**. **~80 % frequency and ~0.7 °C amplitude in the northern Bay**, lower southward; intraseasonal variation 0.44 °C > interannual 0.26 °C; **net surface heat loss dominates formation**, episodic cold advection in 2012–13; winter entrainment/diffusion warm the surface layer. → the anchor for E-INV-00's expected truth-side numbers. |
+| B7 | Nagura, Terao, Hashizume (2015), *The Role of Temperature Inversions in the Generation of Seasonal and Interannual SST Variability in the Far Northern Bay of Bengal*, J. Climate 28(9). doi:10.1175/JCLI-D-14-00553.1. Bronze OA PDF at AMS | `[CITATION-VERIFIED]` | Cited for existence: inversions matter for SST itself in the far northern Bay. |
+| B8 | Girishkumar, Ravichandran, McPhaden, Rao (2011), *Intraseasonal variability in barrier layer thickness in the south central Bay of Bengal*, JGR 116, C03009. doi:10.1029/2010JC006657 | `[CITATION-VERIFIED]` | RAMA-based BLT variability, south-central Bay. The plan draft said "2013" — **corrected to 2011 by Crossref**. |
+| B9 | Pramanik, Parekh, Gnanaseelan, Chowdary, Pai (2025), *Unrepresented subsurface temperature inversion in the northern Bay of Bengal and associated forcing mechanisms*, Climate Dynamics. doi:10.1007/s00382-025-07870-x | `[ABSTRACT-VERIFIED]` (Springer page) | ORAS5 1958–2023. Winter inversions show the largest interannual variability; strong-amplitude years ↔ strong stratification, shallow MLD, thick barrier layer; heat budget: **surface cooling via net heat loss + subsurface warming via penetrative shortwave**; entrainment cools the inversion base. ⚠ The title's "Unrepresented" is **not** explained in the abstract — do not cite this paper as evidence that models fail to represent the inversion. |
+| B10 | Jia, Gong, Zhu, Qi, Zhou, Yao, Gong, Wang (2025), *A dual-attention embedded CNN model for estimating mixed layer depths in the Bay of Bengal*, J. Oceanology and Limnology. doi:10.1007/s00343-024-4122-9 | `[CITATION-VERIFIED]` (abstract elided; reference list cites satellite inputs and barrier-layer work) | Nearest ML neighbour: a CNN that estimates **MLD** in the Bay. Target is MLD, not the temperature profile and not inversions — from the title/reference list only. |
+| B11 | *Observations of barrier layer formation in the Bay of Bengal during summer monsoon* (Vinayachandran et al., GRL 2002) | `[SEARCH-SNIPPET-ONLY]` | Seen as a ResearchGate title only; DOI not verified. Not to be cited until checked. |
+| B12 | *Spatial variability of the winter thermal inversion in the northern Bay of Bengal* (Regional Studies in Marine Science, 2022, Elsevier pii S2352485522001311) | `[SEARCH-SNIPPET-ONLY]` | Title only; a guessed Crossref DOI returned 404. Not to be cited until checked. |
+| B13 | *Spatiotemporal variation and mechanisms of temperature inversion in the Bay of Bengal and the eastern equatorial Indian Ocean* (Acta Oceanologica Sinica 2021). doi:10.1007/s13131-021-1873-4 | `[SEARCH-SNIPPET-ONLY]` | Springer page needed a cookie hand-off; not read. |

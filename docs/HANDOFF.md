@@ -1407,3 +1407,82 @@ climatology collapses and where climatology beats the model outright at 1000 m.
 **Caveats unchanged.** Detection on both legs uses the 2019–2022 monthly pilot baseline, so
 absolute counts are inflated; the contingency table is immune because model and truth share one
 threshold. The truth is GLORYS, which carries its own error.
+
+## 2026-09-14 — Feature #1 starts: the Bay's winter inversion, Phase 0 (ground truth before code)
+
+Branch `phase2-bob-inversion` from `main @ 6530570`. Plan approved by Darshan (kept as a Claude plan
+file outside the repo). Decisions taken with him: download a second winter (Nov 2024–Mar 2025) as an
+evaluation-only bundle; one branch for all of it (Unit A training files touched additively, to be
+listed in the PR); rebuild the satellite bundle on this machine.
+
+**Two facts found while planning, both [VERIFIED] in source:** (1) `dataset.DAILY_TEST` holds no
+winter, so inversion skill has never been measurable on this project; (2) the shipped `simple`
+decoder receives no season signal at all (D-013), and A27 measured the near-surface gradient at
+42–69 % of observed — exactly the depths where inversions live.
+
+**Phase 0 output:** `docs/LITERATURE_MATRIX.md` §"Barrier layer & temperature inversion" (13 rows;
+each tag says exactly how it was verified — publisher pages and even HAL / NIO-DRS returned bot walls
+to the fetcher, so abstracts came via the Crossref and Semantic Scholar APIs; two citations corrected
+on the way: Girishkumar et al. is 2011 not 2013, Sprintall & Tomczak 1992 confirmed);
+`docs/NOVELTY_MATRIX.md` new row with the search record and the exact wording allowed;
+`docs/DECISIONS.md` D-020 (inversion definition, `winter_holdout_v1`, why the two alternatives were
+rejected); `docs/EXPERIMENT_LOG.md` E-INV-00 (pre-registration: H1/H2, six legs, frozen
+hyper-parameter procedure, sample-size rule); `docs/phase2/f_inversion.md` (feature doc + status).
+
+**Human task (small, not blocking):** save the free-to-read PDFs into
+`all research papers/barrier_layer/` — Thadathil 2016 (Wiley pdfdirect 10.1002/2016JC011674),
+Thadathil 2007 (10.1029/2006JC003651), de Boyer Montégut 2004 (hal.science/hal-00266983) and 2007
+(10.1029/2006JC003953), Nagura 2015 (AMS) — then upgrade the matrix rows to `[READ]` and fill the
+[UNKNOWN] Thadathil threshold in D-020.
+
+No code yet. Next: Phase 1 (engine + tests, TDD) on the data already on this machine.
+
+## 2026-09-15 — Feature #1 Phase 1: the inversion engine, and the GLORYS winter agrees with the literature
+
+TDD, three new modules, 38 tests (all offline, no bundle):
+- `src/phase2/derived/inversion.py` — `inversion_amplitude` (scalar, D-020 cumulative-minimum scan,
+  any depth axis, NaN-safe) and `inversion_field` (vectorised; the column-by-column equality test
+  pins it to the scalar definition). `present()` thresholds; `region_labels()` splits the Bay at
+  15 N (north/south) on top of `basins.classify_points`.
+- `src/phase2/derived/inversion_skill.py` — `contingency` (reuses `mhw_field.compare_detection`),
+  `amplitude_stats` (truth-present columns only), `depth_stats`, `three_seed_summary`, and `adopt()`
+  = the E-INV-00 rule as code (refuses < 3 seeds; names every failed clause).
+- `src/phase2/tscast_nio/time_encoding.py` — `doy_encoding`, leap-safe, continuous across year end.
+
+**Vectorising `inversion_field` cut a one-day field scan from 0.48 s to 18 ms (27x); a 90-day winter
+field is now ~1.6 s.** Correctness is the equality test, not eyeballing.
+
+**Real-data smoke [VERIFIED], GLORYS `data/processed/daily`, 90 DJF days, inversion present at
+>= 0.2 degC:** north Bay **90.0 %** (mean amplitude 2.14 degC when present), south Bay 61.2 % (0.71),
+Arabian Sea 16.1 % (0.62). The north>south>west gradient and the ~80 % northern-Bay frequency match
+Thadathil et al. 2016 (RAMA, ~80 %, ~0.7 degC at 90 E). Our northern amplitude runs higher than the
+buoy 0.7 degC because the north_bob region reaches the coastal far-north where inversions are
+strongest, the amplitude here spans the whole 0-150 m rise (not a fixed level pair), and GLORYS is a
+reanalysis — noted, not a discrepancy to chase. This is the E-INV-00 truth-side sanity gate: PASSED,
+so the truth pipeline is trustworthy before any model is judged.
+
+Next: Phase 2 data (rebuild the satellite bundle here; download the held-out winter 2024-25).
+
+
+## 2026-09-16 - What-If Calculator backend (Unit B) [VERIFIED tests pass on Darshan's machine]
+
+New package `src/oceanembed/whatif/` - a Streamlit-free sandbox to override formula/model
+inputs and see baseline vs what-if vs delta. No UI (Arjhun wires it into port 8500), no new
+port, no edits to other units' files. All what-if numbers carry `hypothetical: True`.
+
+For the UI (Arjhun):
+
+    from oceanembed.whatif import baseline, apply, list_formulas
+    ctx = baseline(lat, lon, date, source="satellite")   # reads the real sst/sss/ssh/u/v + profile
+    for spec in list_formulas():                          # build widgets from spec.inputs
+        ...   # each input: .name .label .kind("float"|"bool") .default .min .max .unit
+    res = apply("subsurface_profile", {"sst": 10.2}, ctx) # res["baseline"], ["whatif"], ["delta"]
+
+Formulas registered: subsurface_profile (point; inputs sst,sss,ssh,u,v),
+anomaly_extremes (grid; input k), observation_priority (grid; inputs w_anomaly,
+w_uncertainty, w_sparsity, robust). Grid formulas also return their full grid
+(grid_priority / grid_is_extreme / grid_standardized_anomaly) for map rendering.
+Add a new tunable formula = one FormulaSpec appended in registry.py; the UI picks it up.
+
+Spec: docs/superpowers/specs/2026-09-16-what-if-calculator-design.md
+Plan: docs/superpowers/plans/2026-09-16-what-if-calculator.md

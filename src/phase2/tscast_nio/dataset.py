@@ -28,6 +28,7 @@ import torch
 from torch.utils.data import Dataset
 
 from oceanembed import config as base
+from phase2.tscast_nio import time_encoding
 from oceanembed.utils import grids
 from phase2.tscast_nio import config
 
@@ -79,11 +80,14 @@ class GriddedPatches(Dataset):
     def __init__(self, surface, temp, times, land_mask, channels,
                  t_indices, norm=None, t_seq=None, p=None, max_samples=None, seed=None,
                  stride=1, clim=None, return_clim=False, salinity=None, return_salinity=False,
-                 mask_channels=False):
+                 mask_channels=False, doy_channels=False):
         self.C = surface.shape[-1]
         #: Append a per-channel presence mask to `x` (audit #13). Off by default; see the module
         #: docstring. `C_in` is what the encoder must be built for.
         self.mask_channels = bool(mask_channels)
+        #: Append day-of-year (sin, cos) to the geo channels so the encoder can see the
+        #: season (E-INV-00 leg L1). Off by default -> geo stays 3 channels.
+        self.doy_channels = bool(doy_channels)
         self.C_in = self.C * (2 if self.mask_channels else 1)
         self.T_SEQ = int(config.T_SEQ if t_seq is None else t_seq)
         if self.T_SEQ < 1 or self.T_SEQ % 2 == 0:
@@ -202,7 +206,13 @@ class GriddedPatches(Dataset):
         lat = base.LAT[i]
         lon = base.LON[j]
         g = geo_encoding(np.float64(lat), np.float64(lon)).astype("float32")
-        x_geo = np.broadcast_to(g[:, None, None, None], (3, 1, self.P, self.P)).astype("float32")
+        if self.doy_channels:
+            # Same value at every space/time cell of the patch, exactly like the lat/lon channels.
+            # The target day's angle; an 11-day window moves the season by <0.03 of a year, so one
+            # constant is honest and keeps the geo tensor time-invariant like eq. 1.
+            g = np.concatenate([g, time_encoding.doy_encoding(self.times[t])]).astype("float32")
+        n_geo = g.shape[0]
+        x_geo = np.broadcast_to(g[:, None, None, None], (n_geo, 1, self.P, self.P)).astype("float32")
 
         y = self.temp[t, i, j, :].astype("float32")
         y_valid = np.isfinite(y)

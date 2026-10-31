@@ -1,4 +1,1 @@
-we fucking lost after all ts.
-IG the juries didnt understand this problem statement.
-SOMEHOW ITS OUR FAULT?
-GGS ANYWAY
+this is a model which predicts the subsurface temp at the indian ocean at any point in the sea.
